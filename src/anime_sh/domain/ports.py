@@ -16,7 +16,10 @@ from .models import (
     AnimeId,
     Audio,
     Episode,
+    FavoriteItem,
+    HistoryItem,
     ProviderRef,
+    ResumeItem,
     Season,
     Stream,
     StreamCandidate,
@@ -121,19 +124,45 @@ class Tracker(Protocol):
 
 @runtime_checkable
 class Library(Protocol):
-    """Local, never-expiring user state: progress, history, favorites.
+    """Local, never-expiring user state: progress, history, favorites, plus a
+    cache of the AniList metadata for anything the user has touched.
 
     This is the sacred store — distinct from the disposable cache. Clearing
-    the cache must never be able to touch anything behind this port.
+    the cache must never be able to touch anything behind this port. Cached
+    metadata lives here (not in cache.db) so history/favorites/continue-watching
+    render offline.
     """
 
+    # progress
     async def get_progress(
         self, anime_id: AnimeId, episode: float
     ) -> WatchProgress | None: ...
 
     async def save_progress(self, progress: WatchProgress) -> None: ...
 
-    async def continue_watching(self, *, limit: int = 20) -> list[WatchProgress]: ...
+    async def continue_watching(self, *, limit: int = 20) -> list["ResumeItem"]: ...
+
+    # metadata cache (identity spine kept warm for the library)
+    async def save_anime(self, anime: "Anime") -> None: ...
+
+    async def get_anime(self, anime_id: AnimeId) -> "Anime | None": ...
+
+    # history
+    async def add_history(
+        self, anime_id: AnimeId, episode: float, *, provider: str | None,
+        seconds_watched: int,
+    ) -> None: ...
+
+    async def list_history(self, *, limit: int = 50) -> list["HistoryItem"]: ...
+
+    # favorites
+    async def add_favorite(self, anime_id: AnimeId, *, note: str | None = None) -> None: ...
+
+    async def remove_favorite(self, anime_id: AnimeId) -> None: ...
+
+    async def is_favorite(self, anime_id: AnimeId) -> bool: ...
+
+    async def list_favorites(self) -> list["FavoriteItem"]: ...
 
 
 class PlaybackEvent(Protocol):

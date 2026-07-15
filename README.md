@@ -7,10 +7,11 @@ mirrors, and resolvers are internal details you never have to think about.
 anime "Frieren"
 ```
 
-> **Status: M1 — vertical slice.** Real adapters run through every layer:
-> AniList metadata, the AllAnime provider, resolvers, and mpv over JSON IPC.
-> `anime "Frieren"` searches, matches, resolves, and plays — on networks where
-> the provider isn't Cloudflare-challenged. See [`docs/architecture.md`](docs/architecture.md).
+> **Status: M2 — persistence & resume.** Real adapters run through every layer
+> (AniList metadata, AllAnime provider, resolvers, mpv over JSON IPC), and your
+> library persists: resume, history, and favorites. `anime "Frieren"` searches,
+> matches, resolves, and plays — on networks where the provider isn't
+> Cloudflare-challenged. See [`docs/architecture.md`](docs/architecture.md).
 
 ## What works today
 
@@ -19,13 +20,21 @@ anime "Frieren"              # search + best match + play episode 1
 anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime search "frieren"       # AniList search (instant; no providers touched)
 anime trending
+
+anime continue               # episodes you started but didn't finish
+anime resume                 # jump back into the most recent one
+anime history                # what you've watched
+anime favorite add "Frieren" # ★  (also: favorite ls / rm)
+
 anime doctor                 # player, ffmpeg, config, database, plugins
 anime config path | validate
 anime providers ls
 ```
 
-Add `--json` to `search`, `trending`, and `play` for machine-readable output
-(`play --json` resolves the stream without launching a player).
+Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
+`favorite ls` for machine-readable output (`play --json` resolves the stream
+without launching a player). Your library (progress, history, favorites) lives
+in a separate `anime.db` from the disposable cache and renders offline.
 
 > Streaming providers break and get Cloudflare-gated constantly — that's the
 > normal operating state, not a bug. When a provider is unreachable, anime-sh

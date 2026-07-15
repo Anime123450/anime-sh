@@ -82,8 +82,18 @@ async def test_real_mpv_playback_saves_progress(tmp_path: Path):
     await svc.play_and_track(anime, 1.0, audio=Audio.SUB)
 
     progress = await library.get_progress(anime.id, 1.0)
+    history = await library.list_history()
+    resuming = await library.continue_watching()
+    cached = await library.get_anime(anime.id)
     await db.close()
 
     assert progress is not None, "expected progress to be persisted"
     assert progress.position_s >= 0
     assert progress.duration_s > 0, "mpv should have reported a duration over IPC"
+
+    # M2: playback records history, caches metadata, and (since --length caps
+    # us well short of the end) leaves the episode in continue-watching.
+    assert len(history) == 1
+    assert history[0].episode == 1.0 and history[0].provider == "test"
+    assert cached is not None and cached.title.preferred == "Frieren"
+    assert len(resuming) == 1 and resuming[0].progress.episode == 1.0

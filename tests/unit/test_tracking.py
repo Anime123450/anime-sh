@@ -85,3 +85,19 @@ async def test_partial_watch_not_completed():
     await _service(events, lib).play_and_track(make_anime(), 1.0)
     assert lib.saved[-1].completed is False
     assert lib.saved[-1].position_s == 120
+
+
+async def test_play_records_history_and_caches_metadata():
+    lib = FakeLibrary()
+    events = [_Ev(300, 1400, False, True)]
+    anime = make_anime()
+    await _service(events, lib).play_and_track(anime, 18.0)
+
+    # Metadata cached so the library can render it offline later.
+    assert anime in lib.saved_anime
+    # Exactly one history row for this session, with the provider recorded.
+    assert len(lib.history) == 1
+    anime_id, episode, provider, seconds = lib.history[0]
+    assert episode == 18.0
+    assert provider == "p"  # FakeProvider name
+    assert seconds == 300

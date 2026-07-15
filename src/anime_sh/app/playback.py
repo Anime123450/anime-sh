@@ -104,12 +104,21 @@ class PlaybackService:
     async def play_and_track(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ) -> None:
-        """Play an episode and persist watch progress until it ends.
+        """Play an episode, persist progress until it ends, and record history.
 
         Progress is throttled to one write every few seconds, plus a final write
-        on pause/EOF, so scrubbing never floods the database.
+        on pause/EOF, so scrubbing never floods the database. The show's metadata
+        is cached so the library renders it later without a network round-trip.
         """
-        handle = await self.play(anime, episode_number, audio=audio)
+        resolved = await self.resolve(anime, episode_number, audio=audio)
+        await self._library.save_anime(anime)
+
+        title = f"{anime.title.preferred} - Episode {episode_number:g}"
+        handle = await self._player.play(
+            resolved.stream, title=title, start_s=resolved.resume_s
+        )
+        provider = resolved.episode.provider_ref.provider
+
         last_saved = 0.0
         last_event = None
         try:
@@ -124,6 +133,12 @@ class PlaybackService:
         finally:
             if last_event is not None:
                 await self._save(anime, episode_number, last_event)
+                await self._library.add_history(
+                    anime.id,
+                    episode_number,
+                    provider=provider,
+                    seconds_watched=max(last_event.position_s, 0),
+                )
 
     async def _save(self, anime: Anime, episode_number: float, ev) -> None:
         duration = max(ev.duration_s, 0)
