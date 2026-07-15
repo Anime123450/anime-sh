@@ -97,20 +97,29 @@ Real adapters now run through every layer:
 - **HTTP**: `HttpClient` with an httpx backend plus an optional `curl_cffi`
   browser-impersonation backend; detects Cloudflare interstitials and raises
   `CloudflareChallenge` (we do not attempt to solve them).
-- **Provider**: `AllAnimeProvider` (match / episodes / candidates, with the
-  XOR source-URL decoder). Discovered via entry points.
-- **Resolvers**: `AllAnimeClockResolver` (internal clock endpoint) and a
-  `GenericStreamResolver` passthrough for direct media URLs.
+- **Provider**: `AllAnimeProvider`, ported faithfully from ani-cli — POST
+  GraphQL with Referer/Origin `youtu-chan.com` and a Firefox UA (this is what
+  clears the Cloudflare edge), a persisted-query GET for episode sources, an
+  AES-256-CTR `tobeparsed` decrypt, and the XOR source-URL decode. Discovered
+  via entry points. **Verified live**: it matches, lists episodes, and decodes
+  real per-host stream candidates (`tests/integration/test_allanime_live.py`).
+- **Resolvers**: `AllAnimeClockResolver` (AllAnime's internal clock endpoint on
+  `allanime.day`), `Mp4UploadResolver`, and a `GenericStreamResolver`
+  passthrough for direct media URLs.
 - **Player**: `MpvPlayer` over JSON IPC, with the Windows named-pipe vs Unix
   socket transport abstracted behind a reader thread. Verified live end-to-end
   (real mpv + real SQLite progress) in `tests/integration/test_mpv_playback.py`.
 - **CLI**: `anime search`, `anime trending`, `anime play` / `anime <query>`
   sugar, each with `--json`. Progress is tracked and persisted (throttled).
 
-Known limitation: AllAnime sits behind Cloudflare's managed challenge on many
-networks. When challenged, the provider degrades cleanly (the manager skips it)
-and playback reports "no provider has …" — exactly the designed-for state. This
-is why the architecture never binds identity or the catalog to any provider.
+Known limitation (per-host, not per-provider): the AllAnime *provider* is
+reliable, but individual video hosts behind it (its internal clock, mp4upload,
+streamwish, …) are frequently down, geo-blocked, or throttled. The resolver
+fallback chain tries each host in turn and moves on; adding more host resolvers
+is ongoing, incremental work — the same reality ani-cli lives with. If every
+host for an episode is unreachable, playback fails with an honest message rather
+than a crash.
 
-Next: **M2** — history, `continue watching`, favorites; then **M3** plurality
-(more providers, circuit breakers, nightly canary).
+Next: **M3** plurality — more providers (AnimeKai / HiAnime / AnimePahe),
+circuit breakers persisted in `provider_health`, health-based reordering, a
+contract-test suite over the registry, and a nightly canary.

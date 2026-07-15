@@ -62,3 +62,29 @@ async def test_clock_resolves_links_to_streams():
     streams = await r.resolve(cand)
     assert {s.quality for s in streams} == {Quality.Q1080, Quality.Q720}
     assert streams[0].kind == StreamKind.HLS
+
+
+class _FakeHttpText:
+    def __init__(self, text):
+        self._text = text
+
+    async def get_text(self, url, *, params=None, headers=None):
+        return self._text
+
+
+def test_mp4upload_handles():
+    from anime_sh.resolvers.mp4upload import Mp4UploadResolver
+
+    r = Mp4UploadResolver(http=_FakeHttpText(""))
+    assert r.handles(StreamCandidate(host="Mp4", url="https://mp4upload.com/embed-x.html"))
+    assert not r.handles(StreamCandidate(host="x", url="https://other/e/1"))
+
+
+async def test_mp4upload_extracts_src():
+    from anime_sh.resolvers.mp4upload import Mp4UploadResolver
+
+    page = 'player.src({ type: "video/mp4", src: "https://a.mp4upload.com/d/x/video.mp4" });'
+    r = Mp4UploadResolver(http=_FakeHttpText(page))
+    streams = await r.resolve(StreamCandidate(host="Mp4", url="https://mp4upload.com/embed-x.html"))
+    assert streams[0].url == "https://a.mp4upload.com/d/x/video.mp4"
+    assert streams[0].kind == StreamKind.MP4

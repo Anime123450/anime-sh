@@ -12,7 +12,8 @@ from ...domain.models import Stream, StreamCandidate, Subtitle
 from ...infra.http import HttpClient, HttpError
 from ..quality import kind_from_url, quality_from_str
 
-REFERER = "https://allmanga.to"
+REFERER = "https://youtu-chan.com"
+AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 
 
 class AllAnimeClockResolver:
@@ -20,7 +21,9 @@ class AllAnimeClockResolver:
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:
-        self._http = http or HttpClient(headers={"Referer": REFERER})
+        self._http = http or HttpClient(
+            headers={"User-Agent": AGENT, "Referer": REFERER}
+        )
 
     def handles(self, candidate: StreamCandidate) -> bool:
         return "/apivtwo/clock" in candidate.url

@@ -212,7 +212,9 @@ class SqliteLibrary:
             f"SELECT h.anilist_id, h.episode, h.watched_at, h.provider, "
             f"h.seconds_watched, {_ANIME_COLS} "
             "FROM history h LEFT JOIN anime a ON a.anilist_id = h.anilist_id "
-            "ORDER BY h.watched_at DESC LIMIT ?",
+            # Tiebreak on id: Windows' clock granularity can stamp rapid inserts
+            # with identical timestamps, so watched_at alone isn't deterministic.
+            "ORDER BY h.watched_at DESC, h.id DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()
