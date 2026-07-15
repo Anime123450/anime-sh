@@ -214,3 +214,29 @@ class SearchResult:
     anime: Anime
     # Availability is resolved lazily at selection time, never during search.
     availability: str = "UNKNOWN"  # UNKNOWN | AVAILABLE | UNAVAILABLE
+
+
+# --------------------------------------------------------------------------- #
+# Library views — a progress/history/favorite row joined with cached metadata,
+# so history and favorites render even when every provider is down.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True, slots=True)
+class ResumeItem:
+    anime: Anime
+    progress: WatchProgress
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryItem:
+    anime: Anime
+    episode: float
+    watched_at: datetime
+    provider: str | None
+    seconds_watched: int
+
+
+@dataclass(frozen=True, slots=True)
+class FavoriteItem:
+    anime: Anime
+    added_at: datetime
+    note: str | None = None

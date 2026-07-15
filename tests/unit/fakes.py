@@ -128,6 +128,9 @@ class FakeLibrary:
     def __init__(self, progress: WatchProgress | None = None) -> None:
         self._progress = progress
         self.saved: list[WatchProgress] = []
+        self.saved_anime: list = []
+        self.history: list[tuple] = []
+        self.favorites: dict[int, str | None] = {}
 
     async def get_progress(self, anime_id: AnimeId, episode: float):
         if self._progress and self._progress.episode == episode:
@@ -138,7 +141,31 @@ class FakeLibrary:
         self.saved.append(progress)
 
     async def continue_watching(self, *, limit: int = 20):
-        return [self._progress] if self._progress else []
+        return []
+
+    async def save_anime(self, anime) -> None:
+        self.saved_anime.append(anime)
+
+    async def get_anime(self, anime_id: AnimeId):
+        return None
+
+    async def add_history(self, anime_id, episode, *, provider, seconds_watched) -> None:
+        self.history.append((anime_id, episode, provider, seconds_watched))
+
+    async def list_history(self, *, limit: int = 50):
+        return []
+
+    async def add_favorite(self, anime_id, *, note=None) -> None:
+        self.favorites[anime_id.anilist] = note
+
+    async def remove_favorite(self, anime_id) -> None:
+        self.favorites.pop(anime_id.anilist, None)
+
+    async def is_favorite(self, anime_id) -> bool:
+        return anime_id.anilist in self.favorites
+
+    async def list_favorites(self):
+        return []
 
 
 def resume_at(seconds: int, episode: float = 18.0) -> WatchProgress:

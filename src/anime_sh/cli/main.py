@@ -32,14 +32,17 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="View and edit configuration.")
 providers_app = typer.Typer(help="Inspect installed provider plugins.")
+favorite_app = typer.Typer(help="Manage favorites.")
 app.add_typer(config_app, name="config")
 app.add_typer(providers_app, name="providers")
+app.add_typer(favorite_app, name="favorite")
 
 console = Console()
 err = Console(stderr=True)
 
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
+    "history", "favorite", "continue", "resume",
 }
 
 
@@ -129,6 +132,51 @@ def play(
     asyncio.run(_play(query, episode, dub, quality, resolve_only))
 
 
+@app.command(name="continue")
+def continue_watching(
+    as_json: bool = typer.Option(False, "--json"),
+    limit: int = typer.Option(20, "-n", "--limit"),
+) -> None:
+    """Show episodes you've started but not finished."""
+    asyncio.run(_continue(limit, as_json))
+
+
+@app.command()
+def resume(
+    dub: bool = typer.Option(False, "--dub"),
+    quality: str = typer.Option(None, "-q", "--quality"),
+) -> None:
+    """Resume the most recently watched unfinished episode."""
+    asyncio.run(_resume(dub, quality))
+
+
+@app.command()
+def history(
+    as_json: bool = typer.Option(False, "--json"),
+    limit: int = typer.Option(50, "-n", "--limit"),
+) -> None:
+    """Show your watch history."""
+    asyncio.run(_history(limit, as_json))
+
+
+@favorite_app.command("add")
+def favorite_add(query: str = typer.Argument(..., help="Title to favorite.")) -> None:
+    """Add the best match for a title to favorites."""
+    asyncio.run(_favorite_add(query))
+
+
+@favorite_app.command("rm")
+def favorite_rm(query: str = typer.Argument(..., help="Title to remove.")) -> None:
+    """Remove a favorite by title."""
+    asyncio.run(_favorite_rm(query))
+
+
+@favorite_app.command("ls")
+def favorite_ls(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List favorites."""
+    asyncio.run(_favorite_ls(as_json))
+
+
 # --------------------------------------------------------------------------- #
 # Async implementations
 # --------------------------------------------------------------------------- #
@@ -196,6 +244,163 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
         raise typer.Exit(code=2)
     finally:
         await c.aclose()
+
+
+async def _continue(limit: int, as_json: bool) -> None:
+    c = build_container()
+    try:
+        items = await c.library_service.continue_watching(limit=limit)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "anilist_id": it.anime.id.anilist,
+                    "title": it.anime.title.preferred,
+                    "episode": it.progress.episode,
+                    "position_s": it.progress.position_s,
+                    "duration_s": it.progress.duration_s,
+                    "percent": round(it.progress.fraction * 100),
+                }
+                for it in items
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not items:
+        console.print("[dim]Nothing in progress. Go watch something![/]")
+        return
+    table = Table(title="Continue Watching", title_justify="left", header_style="bold cyan")
+    table.add_column("Title", style="bold")
+    table.add_column("Episode", justify="right")
+    table.add_column("Progress", justify="right")
+    for it in items:
+        table.add_row(
+            it.anime.title.preferred,
+            f"{it.progress.episode:g}",
+            f"{round(it.progress.fraction * 100)}%",
+        )
+    console.print(table)
+
+
+async def _resume(dub: bool, quality: str | None) -> None:
+    config = load_config()
+    if quality:
+        config.playback.quality = quality
+    c = build_container(config)
+    audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
+    try:
+        items = await c.library_service.continue_watching(limit=1)
+        if not items:
+            err.print("[yellow]Nothing to resume.[/]")
+            raise typer.Exit(code=1)
+        top = items[0]
+        err.print(
+            f"[cyan]▶[/] Resuming {top.anime.title.preferred} — "
+            f"Episode {top.progress.episode:g} at {top.progress.position_s}s"
+        )
+        await c.playback.play_and_track(top.anime, top.progress.episode, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _history(limit: int, as_json: bool) -> None:
+    c = build_container()
+    try:
+        items = await c.library_service.history(limit=limit)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "anilist_id": it.anime.id.anilist,
+                    "title": it.anime.title.preferred,
+                    "episode": it.episode,
+                    "watched_at": it.watched_at.isoformat(),
+                    "provider": it.provider,
+                    "seconds_watched": it.seconds_watched,
+                }
+                for it in items
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not items:
+        console.print("[dim]No history yet.[/]")
+        return
+    table = Table(title="History", title_justify="left", header_style="bold cyan")
+    table.add_column("Watched", style="dim")
+    table.add_column("Title", style="bold")
+    table.add_column("Ep", justify="right")
+    table.add_column("Provider")
+    for it in items:
+        table.add_row(
+            it.watched_at.strftime("%Y-%m-%d %H:%M"),
+            it.anime.title.preferred,
+            f"{it.episode:g}",
+            it.provider or "—",
+        )
+    console.print(table)
+
+
+async def _favorite_add(query: str) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        await c.library_service.add_favorite(anime)
+        console.print(f"[green]★[/] Favorited {anime.title.preferred}")
+    finally:
+        await c.aclose()
+
+
+async def _favorite_rm(query: str) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        await c.library_service.remove_favorite(anime.id)
+        console.print(f"[yellow]☆[/] Removed {anime.title.preferred} from favorites")
+    finally:
+        await c.aclose()
+
+
+async def _favorite_ls(as_json: bool) -> None:
+    c = build_container()
+    try:
+        items = await c.library_service.favorites()
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "anilist_id": it.anime.id.anilist,
+                    "title": it.anime.title.preferred,
+                    "added_at": it.added_at.isoformat(),
+                    "note": it.note,
+                }
+                for it in items
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not items:
+        console.print("[dim]No favorites yet. Add one with[/] anime favorite add <title>")
+        return
+    _print_anime_table("Favorites", [it.anime for it in items])
 
 
 # --------------------------------------------------------------------------- #

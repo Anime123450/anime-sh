@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from ..app.library import LibraryService
 from ..app.playback import PlaybackService
 from ..app.providers import ProviderManager
 from ..app.search import SearchService
@@ -31,6 +32,7 @@ class Container:
     user_db: Database
     cache_db: Database
     library: SqliteLibrary
+    library_service: LibraryService
     cache: KvCache
     metadata: AniListMetadata
     search: SearchService
@@ -70,6 +72,7 @@ def build_container(config: Config | None = None) -> Container:
     cache_db = Database(cache_db_path(), migrations_dir="migrations_cache")
 
     library = SqliteLibrary(user_db)
+    library_service = LibraryService(library)
     cache = KvCache(cache_db)
 
     metadata = AniListMetadata()
@@ -99,6 +102,7 @@ def build_container(config: Config | None = None) -> Container:
         user_db=user_db,
         cache_db=cache_db,
         library=library,
+        library_service=library_service,
         cache=cache,
         metadata=metadata,
         search=search,

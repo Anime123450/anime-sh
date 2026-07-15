@@ -74,7 +74,21 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
-## Status: M1 (vertical slice)
+## Status: M2 (persistence & resume)
+
+On top of M1, the library is now a first-class store:
+
+- `SqliteLibrary` gained a metadata cache (the `anime` table), favorites,
+  history, and continue-watching — all joined to cached metadata so they render
+  offline. A LEFT-JOIN miss falls back to a placeholder title, never a crash.
+- `LibraryService` orchestrates favorites/history/resume; `PlaybackService`
+  caches the show and records a history row per play session.
+- CLI: `anime continue`, `anime resume`, `anime history`,
+  `anime favorite add|rm|ls` — all with `--json`.
+- Verified end-to-end (real mpv + real SQLite) in the live integration test:
+  a play populates progress, history, the metadata cache, and continue-watching.
+
+### M1 (vertical slice)
 
 Real adapters now run through every layer:
 
