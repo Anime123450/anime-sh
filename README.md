@@ -7,19 +7,29 @@ mirrors, and resolvers are internal details you never have to think about.
 anime "Frieren"
 ```
 
-> **Status: M0 — skeleton.** The full architecture is wired and proven
-> end-to-end against fakes, but no real streaming providers ship yet. Playback
-> arrives in M1. See [`docs/architecture.md`](docs/architecture.md).
+> **Status: M1 — vertical slice.** Real adapters run through every layer:
+> AniList metadata, the AllAnime provider, resolvers, and mpv over JSON IPC.
+> `anime "Frieren"` searches, matches, resolves, and plays — on networks where
+> the provider isn't Cloudflare-challenged. See [`docs/architecture.md`](docs/architecture.md).
 
 ## What works today
 
 ```bash
-anime version
-anime doctor            # check player, ffmpeg, config, database, plugins
-anime config path       # where your config lives
-anime config validate
-anime providers ls      # installed provider plugins (none in M0)
+anime "Frieren"              # search + best match + play episode 1
+anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
+anime search "frieren"       # AniList search (instant; no providers touched)
+anime trending
+anime doctor                 # player, ffmpeg, config, database, plugins
+anime config path | validate
+anime providers ls
 ```
+
+Add `--json` to `search`, `trending`, and `play` for machine-readable output
+(`play --json` resolves the stream without launching a player).
+
+> Streaming providers break and get Cloudflare-gated constantly — that's the
+> normal operating state, not a bug. When a provider is unreachable, anime-sh
+> degrades cleanly instead of crashing; metadata and your library keep working.
 
 ## Install (dev)
 
