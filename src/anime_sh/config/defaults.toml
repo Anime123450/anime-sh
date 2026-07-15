@@ -1,0 +1,36 @@
+# anime-sh default configuration.
+# Copy to your config dir (`anime config path`) and edit, or set any value via
+# an ANIME_SH_* environment variable. Precedence: CLI flag > env > file > these.
+
+[player]
+name = "mpv"          # mpv | vlc | iina | potplayer
+args = []
+
+[playback]
+quality = "best"      # best | 1080p | 720p | 480p | worst
+audio = "sub"         # sub | dub
+auto_next = true
+skip_intro = true
+skip_outro = false
+
+[providers]
+parallel = 5
+preferred = ["animekai", "hianime", "animepahe", "allanime"]
+disabled = []
+timeout_s = 8.0
+
+[resolvers]
+preferred_hosts = ["vidstream", "filemoon", "streamwish", "mp4upload"]
+disabled = []
+
+[ui]
+theme = "tokyo-night"
+
+[tracking]
+anilist = false        # AniList tokens live in the OS keyring, never here
+mal = false
+discord_presence = false
+
+[downloads]
+dir = "~/Videos/anime"
+concurrency = 2
