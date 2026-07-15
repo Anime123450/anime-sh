@@ -74,13 +74,29 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
-## Status: M0 (skeleton)
+## Status: M1 (vertical slice)
 
-Implemented: domain models + ports, ranking, `ProviderManager`,
-`PlaybackService` (with the tested fallback chain), plugin registry, SQLite +
-migrations + `Library` + TTL cache, config, `anime doctor`, and the
-`import-linter` contract. No real providers yet — the whole path is proven
-end-to-end against fakes in `tests/unit/test_playback.py`.
+Real adapters now run through every layer:
 
-Next: **M1** — AniList metadata + one real provider + one resolver + mpv over
-JSON IPC, so `anime <query>` plays an episode.
+- **Metadata**: `AniListMetadata` (GraphQL) — search, get, trending, seasonal,
+  airing schedule. Verified live.
+- **HTTP**: `HttpClient` with an httpx backend plus an optional `curl_cffi`
+  browser-impersonation backend; detects Cloudflare interstitials and raises
+  `CloudflareChallenge` (we do not attempt to solve them).
+- **Provider**: `AllAnimeProvider` (match / episodes / candidates, with the
+  XOR source-URL decoder). Discovered via entry points.
+- **Resolvers**: `AllAnimeClockResolver` (internal clock endpoint) and a
+  `GenericStreamResolver` passthrough for direct media URLs.
+- **Player**: `MpvPlayer` over JSON IPC, with the Windows named-pipe vs Unix
+  socket transport abstracted behind a reader thread. Verified live end-to-end
+  (real mpv + real SQLite progress) in `tests/integration/test_mpv_playback.py`.
+- **CLI**: `anime search`, `anime trending`, `anime play` / `anime <query>`
+  sugar, each with `--json`. Progress is tracked and persisted (throttled).
+
+Known limitation: AllAnime sits behind Cloudflare's managed challenge on many
+networks. When challenged, the provider degrades cleanly (the manager skips it)
+and playback reports "no provider has …" — exactly the designed-for state. This
+is why the architecture never binds identity or the catalog to any provider.
+
+Next: **M2** — history, `continue watching`, favorites; then **M3** plurality
+(more providers, circuit breakers, nightly canary).

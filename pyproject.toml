@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.2",
     "aiosqlite>=0.20",
     "httpx>=0.27",
+    "curl-cffi>=0.7",
     "platformdirs>=4.2",
 ]
 
@@ -30,6 +31,14 @@ dev = [
 [project.scripts]
 anime = "anime_sh.cli.main:main"
 anime-sh = "anime_sh.cli.main:main"
+
+# Bundled plugins use the same entry-point mechanism as third-party ones.
+[project.entry-points."anime_sh.providers"]
+allanime = "anime_sh.providers.allanime:AllAnimeProvider"
+
+[project.entry-points."anime_sh.resolvers"]
+allanime-clock = "anime_sh.resolvers.allanime:AllAnimeClockResolver"
+generic = "anime_sh.resolvers.generic:GenericStreamResolver"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]

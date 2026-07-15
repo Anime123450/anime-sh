@@ -60,14 +60,14 @@ class FakeProvider:
             return None
         return ProviderRef(provider=self.name, anime_key=f"{self.name}-key", audio=audio)
 
-    async def episodes(self, ref: ProviderRef) -> list[Episode]:
+    async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
         self.calls.append("episodes")
         if self._raise_on == "episodes":
             raise ProviderError(f"{self.name} episodes boom")
         numbers = (self._episodes_for or {}).get(ref.anime_key, [1.0, 2.0, 18.0])
         return [
             Episode(
-                anime_id=AnimeId(anilist=154587),
+                anime_id=anime_id,
                 number=n,
                 provider_ref=ref,
                 episode_key=f"{self.name}-ep{n:g}",

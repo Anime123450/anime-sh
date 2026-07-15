@@ -12,6 +12,8 @@ piece of logic in the project and is unit-tested against fakes.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 
 from ..domain.errors import NoStreamsFound, ResolverError
 from ..domain.models import (
@@ -20,10 +22,16 @@ from ..domain.models import (
     Episode,
     Stream,
     StreamCandidate,
+    WatchProgress,
 )
 from ..domain.ports import Library, Player, Resolver
 from ..domain.ranking import pick_stream
 from .providers import ProviderManager
+
+# Writing progress on every mpv position tick would hammer SQLite; throttle.
+_SAVE_INTERVAL_S = 5
+# Past this fraction of an episode, count it as completed.
+_COMPLETE_FRACTION = 0.9
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +77,7 @@ class PlaybackService:
 
         # Walk providers in priority order; for each, walk its candidate hosts.
         for ref in refs:
-            episodes = await self._episodes(ref)
+            episodes = await self._episodes(ref, anime.id)
             episode = _find_episode(episodes, episode_number)
             if episode is None:
                 continue
@@ -91,6 +99,44 @@ class PlaybackService:
         title = f"{anime.title.preferred} - Episode {episode_number:g}"
         return await self._player.play(
             resolved.stream, title=title, start_s=resolved.resume_s
+        )
+
+    async def play_and_track(
+        self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
+    ) -> None:
+        """Play an episode and persist watch progress until it ends.
+
+        Progress is throttled to one write every few seconds, plus a final write
+        on pause/EOF, so scrubbing never floods the database.
+        """
+        handle = await self.play(anime, episode_number, audio=audio)
+        last_saved = 0.0
+        last_event = None
+        try:
+            async for ev in handle.events():
+                last_event = ev
+                now = time.monotonic()
+                if ev.eof or (now - last_saved) >= _SAVE_INTERVAL_S:
+                    await self._save(anime, episode_number, ev)
+                    last_saved = now
+                if ev.eof:
+                    break
+        finally:
+            if last_event is not None:
+                await self._save(anime, episode_number, last_event)
+
+    async def _save(self, anime: Anime, episode_number: float, ev) -> None:
+        duration = max(ev.duration_s, 0)
+        completed = duration > 0 and (ev.position_s / duration) >= _COMPLETE_FRACTION
+        await self._library.save_progress(
+            WatchProgress(
+                anime_id=anime.id,
+                episode=episode_number,
+                position_s=max(ev.position_s, 0),
+                duration_s=duration,
+                updated_at=datetime.now(timezone.utc),
+                completed=completed,
+            )
         )
 
     # -- the fallback chain (§7 step 5) ------------------------------------- #
@@ -126,12 +172,12 @@ class PlaybackService:
                     return chosen
         return None
 
-    async def _episodes(self, ref) -> list[Episode]:
+    async def _episodes(self, ref, anime_id) -> list[Episode]:
         provider = self._providers._by_name(ref.provider)
         if provider is None:
             return []
         try:
-            return await provider.episodes(ref)
+            return await provider.episodes(ref, anime_id)
         except Exception as e:
             log.warning("provider %s episodes failed: %s", ref.provider, e)
             return []

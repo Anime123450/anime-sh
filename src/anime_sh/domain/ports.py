@@ -65,7 +65,10 @@ class Provider(Protocol):
     async def match(self, anime: Anime, audio: Audio) -> ProviderRef | None:
         """Map an identity to this provider's native id. Cached forever."""
 
-    async def episodes(self, ref: ProviderRef) -> list[Episode]: ...
+    async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
+        """List episodes for a matched show. ``anime_id`` is passed in because
+        the provider knows only its own show key, not the identity spine; it
+        stamps the supplied id onto each returned Episode."""
 
     async def candidates(self, episode: Episode) -> list[StreamCandidate]: ...
 
