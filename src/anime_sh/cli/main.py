@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random as rng
 import sys
+from datetime import date, timedelta
 
 import typer
 from rich.console import Console
@@ -19,7 +21,7 @@ from .. import __version__
 from ..config import load_config
 from ..config.loader import config_path
 from ..domain.errors import AnimeShError
-from ..domain.models import Audio
+from ..domain.models import Audio, Season
 from ..infra import registry
 from .container import build_container
 from .doctor import run_doctor
@@ -43,6 +45,7 @@ err = Console(stderr=True)
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
+    "seasonal", "calendar", "random",
 }
 
 
@@ -151,6 +154,33 @@ def trending(
 
 
 @app.command()
+def seasonal(
+    season: str = typer.Option(None, "--season", help="winter|spring|summer|fall"),
+    year: int = typer.Option(None, "--year"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show a season's anime (defaults to the current season)."""
+    asyncio.run(_seasonal(season, year, as_json))
+
+
+@app.command()
+def calendar(
+    days: int = typer.Option(7, "-d", "--days", help="Days ahead to show."),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show the upcoming airing schedule."""
+    asyncio.run(_calendar(days, as_json))
+
+
+@app.command()
+def random(
+    play: bool = typer.Option(False, "--play", help="Play episode 1 of the pick."),
+) -> None:
+    """Surprise me — pick a random anime from what's trending."""
+    asyncio.run(_random(play))
+
+
+@app.command()
 def play(
     query: str = typer.Argument(..., help="Title to play."),
     episode: float = typer.Option(1.0, "-e", "--episode", help="Episode number."),
@@ -254,6 +284,96 @@ async def _trending(limit: int, as_json: bool) -> None:
         sys.stdout.write("\n")
         return
     _print_anime_table("Trending", animes)
+
+
+def _current_season() -> Season:
+    m = date.today().month
+    if m in (12, 1, 2):
+        return Season.WINTER
+    if m in (3, 4, 5):
+        return Season.SPRING
+    if m in (6, 7, 8):
+        return Season.SUMMER
+    return Season.FALL
+
+
+async def _seasonal(season: str | None, year: int | None, as_json: bool) -> None:
+    try:
+        s = Season(season.upper()) if season else _current_season()
+    except ValueError:
+        err.print(f"[red]Unknown season[/] {season!r} (winter|spring|summer|fall)")
+        raise typer.Exit(code=1)
+    y = year or date.today().year
+    c = build_container()
+    try:
+        animes = await c.metadata.seasonal(s, y)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump([_anime_dict(a) for a in animes], sys.stdout)
+        sys.stdout.write("\n")
+        return
+    _print_anime_table(f"{s.value.title()} {y}", animes)
+
+
+async def _calendar(days: int, as_json: bool) -> None:
+    start = date.today()
+    end = start + timedelta(days=max(1, days))
+    c = build_container()
+    try:
+        events = await c.metadata.airing_schedule(start, end)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "title": e.anime.title.preferred,
+                    "episode": e.episode,
+                    "airing_at": e.airing_at.isoformat(),
+                }
+                for e in events
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not events:
+        console.print("[dim]Nothing scheduled in that window.[/]")
+        return
+    table = Table(title=f"Airing — next {days}d", title_justify="left", header_style="bold cyan")
+    table.add_column("When", style="dim")
+    table.add_column("Title", style="bold")
+    table.add_column("Ep", justify="right")
+    for e in events:
+        table.add_row(
+            e.airing_at.astimezone().strftime("%a %d %b %H:%M"),
+            e.anime.title.preferred,
+            f"{e.episode:g}",
+        )
+    console.print(table)
+
+
+async def _random(play: bool) -> None:
+    config = load_config()
+    c = build_container(config)
+    try:
+        pool = await c.metadata.trending(limit=50)
+        if not pool:
+            err.print("[red]Couldn't fetch anything to pick from.[/]")
+            raise typer.Exit(code=1)
+        pick = rng.choice(pool)
+        console.print(f"[magenta]🎲 Your pick:[/] [bold]{pick.title.preferred}[/]")
+        _print_anime_table("", [pick])
+        if play:
+            audio = Audio.DUB if config.playback.audio == "dub" else Audio.SUB
+            err.print("[dim]Searching providers…[/]")
+            await c.playback.play_and_track(pick, 1.0, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
 
 
 async def _play(query, episode, dub, quality, resolve_only) -> None:
