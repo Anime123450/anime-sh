@@ -19,6 +19,7 @@ SEARCH_HTML = '''
 <div id="list-items" class="ani items">
   <div class="item "><div class="inner">
     <div class="ani poster tip" data-tip="8950">
+      <span class="ep-status sub"><span> 2</span></span>
       <a href="https://anikototv.to/watch/smoking-e086a/ep-1"><img/></a></div>
     <div class="info"><div class="b1">
       <a class="name d-title" href="https://anikototv.to/watch/smoking-e086a/ep-1"
@@ -26,6 +27,7 @@ SEARCH_HTML = '''
     </div></div></div></div>
   <div class="item "><div class="inner">
     <div class="ani poster tip" data-tip="8851">
+      <span class="ep-status sub"><span> 12</span></span>
       <a href="https://anikototv.to/watch/smoking-mini/ep-1"><img/></a></div>
     <div class="info"><div class="b1">
       <a class="name d-title" href="https://anikototv.to/watch/smoking-mini/ep-1"
@@ -57,6 +59,8 @@ def test_parse_search():
     assert items[0]["id"] == "8950"
     assert items[0]["title"] == "Smoking Behind the Supermarket with You"
     assert items[0]["jp"] == "Super no Ura de Yani Suu Futari"
+    assert items[0]["sub_eps"] == 2
+    assert items[1]["sub_eps"] == 12
 
 
 def test_parse_episodes():
@@ -76,14 +80,30 @@ def test_parse_servers_groups_by_type():
     assert len(dubs) == 1
 
 
-def test_best_match_picks_full_series_over_mini():
+def test_best_match_prefers_entry_matching_episode_count():
+    # AniList says 12 eps. Two same-named entries: the TV one has only 2 aired,
+    # the "[Mini]" batch has all 12 — pick the complete one so the whole run is
+    # watchable, even though the TV title is a marginally closer string match.
     anime = Anime(
         id=AnimeId(anilist=196187),
         title=Title(romaji="Super no Ura de Yani Suu Futari",
                     english="Smoking Behind the Supermarket with You"),
+        episode_count=12,
     )
     best = _best_match(anime, parse_search(SEARCH_HTML))
-    assert best is not None and best["id"] == "8950"
+    assert best is not None and best["id"] == "8851"  # the 12-episode entry
+
+
+def test_best_match_uses_title_when_no_episode_count():
+    # With no planned count, fall back to the closest title (the exact TV name).
+    anime = Anime(
+        id=AnimeId(anilist=1),
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+    )
+    best = _best_match(anime, parse_search(SEARCH_HTML))
+    # No target count → prefer the most complete (most episodes) among matches.
+    assert best is not None and best["id"] == "8851"
 
 
 # -- provider over fake HTTP ------------------------------------------------ #
@@ -116,7 +136,7 @@ async def test_match_and_episodes_and_candidates():
                     english="Smoking Behind the Supermarket with You"),
     )
     ref = await provider.match(anime, Audio.SUB)
-    assert ref is not None and ref.anime_key == "8950"
+    assert ref is not None and ref.anime_key == "8851"  # the complete entry
 
     eps = await provider.episodes(ref, anime.id)
     assert [e.number for e in eps] == [1.0, 2.0]
