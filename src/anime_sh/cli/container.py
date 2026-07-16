@@ -19,6 +19,7 @@ from ..config.paths import cache_db_path, user_db_path
 from ..infra import registry
 from ..infra.cache.kv import KvCache
 from ..infra.db.database import Database
+from ..infra.db.health import SqliteHealthStore
 from ..infra.db.library import SqliteLibrary
 from ..infra.metadata import AniListMetadata
 from ..infra.players import MpvPlayer, NullPlayer
@@ -87,6 +88,7 @@ def build_container(config: Config | None = None) -> Container:
         providers,
         parallel=config.providers.parallel,
         candidates_timeout_s=config.providers.timeout_s,
+        health_store=SqliteHealthStore(user_db),
     )
 
     playback = PlaybackService(

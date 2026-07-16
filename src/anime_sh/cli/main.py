@@ -96,6 +96,12 @@ def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
         typer.echo(f"{p.name}\tpriority={getattr(p, 'priority', 0)}")
 
 
+@providers_app.command("health")
+def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Show each provider's circuit-breaker status (persisted across runs)."""
+    asyncio.run(_providers_health(as_json))
+
+
 # --------------------------------------------------------------------------- #
 # Metadata-driven commands
 # --------------------------------------------------------------------------- #
@@ -374,6 +380,36 @@ async def _favorite_rm(query: str) -> None:
         console.print(f"[yellow]☆[/] Removed {anime.title.preferred} from favorites")
     finally:
         await c.aclose()
+
+
+async def _providers_health(as_json: bool) -> None:
+    c = build_container()
+    try:
+        snapshot = await c.provider_manager.health_snapshot()
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(snapshot, sys.stdout)
+        sys.stdout.write("\n")
+        return
+    if not snapshot:
+        console.print("[dim]No providers installed.[/]")
+        return
+    colors = {"closed": "green", "half-open": "yellow", "open": "red"}
+    table = Table(title="Provider health", title_justify="left", header_style="bold cyan")
+    table.add_column("Provider", style="bold")
+    table.add_column("Priority", justify="right")
+    table.add_column("Breaker")
+    table.add_column("Fails", justify="right")
+    for row in snapshot:
+        status = row["status"]
+        table.add_row(
+            row["provider"],
+            str(row["priority"]),
+            f"[{colors.get(status, 'white')}]{status}[/]",
+            str(row["consecutive_failures"]),
+        )
+    console.print(table)
 
 
 async def _favorite_ls(as_json: bool) -> None:
