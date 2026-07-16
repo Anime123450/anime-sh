@@ -154,20 +154,25 @@ _ATTR_RE = re.compile(r'([a-zA-Z-]+)="([^"]*)"')
 _LI_RE = re.compile(r"<li\b([^>]*)>([^<]+)</li>")
 
 
+_SUBEPS_RE = re.compile(r'ep-status sub">\s*<span>\s*(\d+)')
+
+
 def parse_search(html: str) -> list[dict]:
-    """Parse search result cards into {id, url, jp, title}."""
+    """Parse search result cards into {id, url, jp, title, sub_eps}."""
     items: list[dict] = []
     for chunk in html.split('class="item "')[1:]:
         tip = _TIP_RE.search(chunk)
         title = _DTITLE_RE.search(chunk)
         if not (tip and title):
             continue
+        sub = _SUBEPS_RE.search(chunk)
         items.append(
             {
                 "id": tip.group(1),
                 "url": html_lib.unescape(title.group(1)),
                 "jp": html_lib.unescape(title.group(2)),
                 "title": html_lib.unescape(title.group(3).strip()),
+                "sub_eps": int(sub.group(1)) if sub else None,
             }
         )
     return items
@@ -229,29 +234,54 @@ def _search_terms(anime: Anime) -> list[str]:
 
 
 def _best_match(anime: Anime, items: list[dict]) -> dict | None:
+    """Pick the anikoto entry to use for a show.
+
+    Title similarity gates the candidates, but among genuinely-similar titles we
+    prefer the one whose *available* episode count is closest to AniList's — so a
+    complete alternate entry (e.g. a "[Mini]" batch with all 12 episodes) is
+    chosen over a same-named TV entry that has only just started airing. This is
+    what makes the whole watchable run available instead of the first two aired.
+    """
     targets = [
         _norm(t)
         for t in (anime.title.romaji, anime.title.english, *anime.title.synonyms)
         if t
     ]
-    best, best_score = None, 0.0
+    scored: list[tuple[float, dict]] = []
     for item in items:
         names = [item.get("title"), item.get("jp")]
-        score = max(
+        sim = max(
             (
                 SequenceMatcher(None, _norm(n), tgt).ratio()
-                for n in names
-                if n
-                for tgt in targets
+                for n in names if n for tgt in targets
             ),
             default=0.0,
         )
-        if score > best_score:
-            best, best_score = item, score
-    if best is None or best_score < 0.6:
+        if sim >= 0.6:
+            scored.append((sim, item))
+    if not scored:
         return None
+
+    best_sim = max(s for s, _ in scored)
+    # Consider all strong title matches (within 0.15 of the best), then prefer
+    # the one whose episode count best fits — otherwise the most complete.
+    contenders = [(s, it) for s, it in scored if s >= best_sim - 0.15]
+
+    def rank(entry) -> tuple:
+        sim, item = entry
+        eps = item.get("sub_eps")
+        want = anime.episode_count
+        if want and eps:
+            ep_key = abs(eps - want)          # closest to planned count first
+        elif eps:
+            ep_key = -eps                     # no target → most episodes first
+        else:
+            ep_key = 10_000                   # unknown availability → last
+        return (ep_key, -sim)
+
+    sim, best = min(contenders, key=rank)
     best = dict(best)
-    best["_score"] = round(best_score, 3)
+    best["_score"] = round(sim, 3)
     return best
 
 
