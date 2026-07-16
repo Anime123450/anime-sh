@@ -45,10 +45,14 @@ and it keeps history/favorites meaningful even when every provider is down.
    per-provider timeouts + guards; a dead provider degrades, never crashes).
 3. For each provider in priority order: list episodes, find the requested one,
    get ordered `StreamCandidate`s (embed pages, not videos).
-4. **Fallback chain** (`_resolve_stream`): for each candidate host, try each
-   capable `Resolver`; the first host that yields streams wins. A failing or
-   crashing resolver is skipped silently. Exhaustion → `NoStreamsFound`.
-5. Pick quality (`domain/ranking.py`, pure), hand the `Stream` to a `Player`.
+4. **Candidate walk** (`_candidate_streams`): for each host, try each capable
+   `Resolver`; every host that yields a stream becomes a candidate to *try*.
+5. **First working stream** (`_play_episode`): hand each candidate to the player
+   in turn and keep it only if playback actually starts (a positive position
+   within a confirm-timeout). A host that resolves but won't play — a dead host,
+   an obfuscated CDN, mpv exiting on a load error — is abandoned and the next is
+   tried, with a status line per attempt. Exhaustion → `NoStreamsFound` with an
+   honest message. This is what makes a stuck host fail fast instead of freezing.
 
 `StreamCandidate` (what a provider returns) vs `Stream` (what a resolver
 returns) is the seam that keeps "providers don't know URLs, resolvers don't know
