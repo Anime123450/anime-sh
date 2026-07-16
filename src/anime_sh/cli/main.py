@@ -48,8 +48,34 @@ KNOWN_COMMANDS = {
 
 @app.callback(invoke_without_command=True)
 def _root(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand is None:
+    if ctx.invoked_subcommand is not None:
+        return
+    # Bare `anime` on a real terminal launches the TUI; otherwise show help.
+    if not sys.stdout.isatty():
         typer.echo(ctx.get_help())
+        return
+    try:
+        _launch_tui()
+    except ImportError:
+        err.print("[yellow]The TUI needs extra deps:[/] pip install 'anime-sh[tui]'")
+        typer.echo(ctx.get_help())
+
+
+def _launch_tui() -> None:
+    import asyncio
+
+    from ..tui import TuiServices, run_tui
+
+    config = load_config()
+    c = build_container(config)
+    services = TuiServices(
+        search=c.search,
+        metadata=c.metadata,
+        library=c.library_service,
+        playback=c.playback,
+        aclose=c.aclose,
+    )
+    asyncio.run(run_tui(services, theme=config.ui.theme))
 
 
 # --------------------------------------------------------------------------- #

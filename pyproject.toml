@@ -27,6 +27,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "import-linter>=2.0",
     "anyio>=4.3",
+    "textual>=8.0", # TUI tests run in the default dev env
 ]
 
 [project.scripts]
@@ -60,10 +61,11 @@ testpaths = ["tests"]
 root_package = "anime_sh"
 
 [[tool.importlinter.contracts]]
-name = "Layered architecture (cli/tui > app > domain; infra behind ports)"
+name = "Layered architecture (cli > tui > app > domain; infra behind ports)"
 type = "layers"
 layers = [
-    "anime_sh.cli | anime_sh.tui",
+    "anime_sh.cli",
+    "anime_sh.tui",
     "anime_sh.app",
     "anime_sh.domain",
 ]
