@@ -18,6 +18,7 @@ from .models import (
     Episode,
     FavoriteItem,
     HistoryItem,
+    ProviderHealth,
     ProviderRef,
     ResumeItem,
     Season,
@@ -163,6 +164,17 @@ class Library(Protocol):
     async def is_favorite(self, anime_id: AnimeId) -> bool: ...
 
     async def list_favorites(self) -> list["FavoriteItem"]: ...
+
+
+@runtime_checkable
+class HealthStore(Protocol):
+    """Persists circuit-breaker / health state so it survives restarts."""
+
+    async def get(self, provider: str) -> ProviderHealth | None: ...
+
+    async def save(self, health: ProviderHealth) -> None: ...
+
+    async def all(self) -> list[ProviderHealth]: ...
 
 
 class PlaybackEvent(Protocol):

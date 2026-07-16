@@ -66,6 +66,14 @@ class Quality(str, Enum):
     UNKNOWN = "unknown"
 
 
+class BreakerState(str, Enum):
+    """Persisted circuit-breaker state for a provider. The transient
+    ``half-open`` probe is derived from OPEN + elapsed cooldown, not stored."""
+
+    CLOSED = "closed"
+    OPEN = "open"
+
+
 # --------------------------------------------------------------------------- #
 # Identity + metadata
 # --------------------------------------------------------------------------- #
@@ -200,6 +208,17 @@ class WatchProgress:
         if self.duration_s <= 0:
             return 0.0
         return min(1.0, self.position_s / self.duration_s)
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderHealth:
+    """Circuit-breaker + health record for one provider, persisted across runs
+    so a dead provider stays deprioritised without re-paying its timeout."""
+
+    provider: str
+    state: BreakerState = BreakerState.CLOSED
+    consecutive_failures: int = 0
+    opened_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

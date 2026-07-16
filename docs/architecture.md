@@ -74,25 +74,44 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
-## Status: M3 (plurality — in progress)
+## Status: M3 (plurality)
 
-The fan-out is now real with a **second provider**:
+The fan-out is now real, resilient, and self-monitoring.
 
-- **`AnikotoProvider`** (anikototv.to, a HiAnime-family site): search →
-  `/ajax/episode/list` → `/ajax/server/list` → `/ajax/server`, all HTML/JSON
-  parsed offline. It carries per-episode MAL ids and sub/dub availability.
-- **`MegaplayResolver`** (`resolvers/vidtube`): resolves anikoto's rotating
-  megaplay-clone hosts (vidtube.site / megaplay.buzz / vidwish.live). It reads
-  the player's `cidu` from the embed page, then `getSources?id=<cidu>` (an
-  AJAX-only endpoint) returns a plaintext m3u8, subtitle tracks, and skip times.
-- **Verified live end-to-end**: `Smoking Behind the Supermarket with You` — a
-  show AllAnime only has a 1-episode "mini" of — matches on anikoto, resolves to
-  a real `.m3u8`, and plays in mpv. Through the CLI the `ProviderManager` fans
-  out across both providers and falls through AllAnime's dead hosts to anikoto
-  automatically (`tests/integration/test_anikoto_live.py`).
+**Second provider** — `AnikotoProvider` (anikototv.to, a HiAnime-family site):
+search → `/ajax/episode/list` → `/ajax/server/list` → `/ajax/server`, parsed
+offline; carries per-episode MAL ids and sub/dub availability. Its
+`MegaplayResolver` (`resolvers/vidtube`) resolves anikoto's rotating
+megaplay-clone hosts (vidtube.site / megaplay.buzz / vidwish.live): read the
+player `cidu` from the embed page, then `getSources?id=<cidu>` (AJAX-only)
+returns a plaintext m3u8 + subtitles + skip times. Verified live end-to-end:
+`Smoking Behind the Supermarket with You` — which AllAnime only has a 1-episode
+"mini" of — matches on anikoto, resolves to a real `.m3u8`, and plays in mpv.
 
-Still to come in M3: circuit breakers (`provider_health`), health-based
-reordering, a registry-wide contract test suite, and the nightly canary.
+**Circuit breakers** (`domain/health.py`, pure) — a provider that fails
+`threshold` times in a row trips OPEN for a cooldown; the `ProviderManager` skips
+it and stops paying its timeout. After the cooldown, one half-open probe
+(derived from OPEN + elapsed time) either closes it or re-opens it. State is
+persisted in `provider_health` (via `SqliteHealthStore`) so it survives
+restarts. Only match timeouts/errors count against the breaker — a provider that
+responds but has no match for a title is still healthy.
+
+**Health-based reordering** — the manager tries providers healthiest-first
+(closed → half-open → open), then by priority, and drops open ones from the
+fan-out entirely. `anime providers health` shows the live breaker table.
+
+**Contract tests** (`tests/contract/`) — a registry-parametrized suite every
+provider/resolver must pass (async signatures, `api_version`, structural
+conformance, unique names), so bundled and third-party plugins are held to the
+same contract automatically.
+
+**Nightly canary** (`scripts/canary.py` + `.github/workflows/canary.yml`) —
+runs each provider's read path against the real site, writes
+`provider-status.json`, and opens/updates (deduped) a GitHub issue when a
+provider breaks. It distinguishes a broken *provider* (no candidates) from
+flaky *hosts* (candidates OK but nothing resolves) — only the former fails.
+
+Deferred: a third provider; client-side consumption of `provider-status.json`.
 
 ## Status: M2 (persistence & resume)
 
