@@ -42,7 +42,7 @@ err = Console(stderr=True)
 
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
-    "history", "favorite", "continue", "resume",
+    "history", "favorite", "continue", "resume", "download", "downloads",
 }
 
 
@@ -189,6 +189,23 @@ def history(
 ) -> None:
     """Show your watch history."""
     asyncio.run(_history(limit, as_json))
+
+
+@app.command()
+def download(
+    query: str = typer.Argument(..., help="Title to download."),
+    episode: float = typer.Option(1.0, "-e", "--episode"),
+    dub: bool = typer.Option(False, "--dub"),
+    quality: str = typer.Option(None, "-q", "--quality"),
+) -> None:
+    """Download an episode to disk (ffmpeg)."""
+    asyncio.run(_download(query, episode, dub, quality))
+
+
+@app.command()
+def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List downloads."""
+    asyncio.run(_downloads(as_json))
 
 
 @favorite_app.command("add")
@@ -406,6 +423,72 @@ async def _favorite_rm(query: str) -> None:
         console.print(f"[yellow]☆[/] Removed {anime.title.preferred} from favorites")
     finally:
         await c.aclose()
+
+
+async def _download(query, episode, dub, quality) -> None:
+    config = load_config()
+    if quality:
+        config.playback.quality = quality
+    c = build_container(config)
+    audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
+    try:
+        if not c.download.available():
+            err.print("[red]ffmpeg not found on PATH.[/] Install it (see `anime doctor`).")
+            raise typer.Exit(code=1)
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        err.print(f"[cyan]⬇[/] {anime.title.preferred} — Episode {episode:g}")
+        with console.status("Resolving & downloading… (ffmpeg)", spinner="dots"):
+            dest = await c.download.download(anime, episode, audio=audio)
+        console.print(f"[green]✓ Saved[/] {dest}")
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _downloads(as_json: bool) -> None:
+    c = build_container()
+    try:
+        items = await c.download.history()
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "anilist_id": it.anime.id.anilist,
+                    "title": it.anime.title.preferred,
+                    "episode": it.episode,
+                    "status": it.status.value,
+                    "path": it.path,
+                    "created_at": it.created_at.isoformat(),
+                }
+                for it in items
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not items:
+        console.print("[dim]No downloads yet.[/]")
+        return
+    colors = {"done": "green", "downloading": "yellow", "failed": "red", "queued": "dim"}
+    table = Table(title="Downloads", title_justify="left", header_style="bold cyan")
+    table.add_column("Title", style="bold")
+    table.add_column("Ep", justify="right")
+    table.add_column("Status")
+    table.add_column("Path", style="dim")
+    for it in items:
+        table.add_row(
+            it.anime.title.preferred, f"{it.episode:g}",
+            f"[{colors.get(it.status.value, 'white')}]{it.status.value}[/]",
+            it.path or "—",
+        )
+    console.print(table)
 
 
 async def _providers_health(as_json: bool) -> None:

@@ -32,6 +32,9 @@ class MpvEvent:
     duration_s: int
     paused: bool
     eof: bool
+    # mpv's end-file reason: "eof" (played out) vs "quit"/"stop" (user left).
+    # Only "eof" should trigger auto-next.
+    reason: str | None = None
 
 
 def _ipc_path() -> str:
@@ -153,7 +156,7 @@ class MpvPlaybackHandle:
         while True:
             msg = await self._queue.get()
             if msg is None:  # transport closed / process gone
-                yield MpvEvent(position, duration, paused, eof=True)
+                yield MpvEvent(position, duration, paused, eof=True, reason="disconnect")
                 return
             event = msg.get("event")
             if event == "property-change":
@@ -166,7 +169,8 @@ class MpvPlaybackHandle:
                 elif name == "pause":
                     paused = bool(value)
             elif event in ("end-file", "shutdown"):
-                yield MpvEvent(position, duration, paused, eof=True)
+                reason = msg.get("reason", "eof" if event == "end-file" else "shutdown")
+                yield MpvEvent(position, duration, paused, eof=True, reason=reason)
                 return
 
     async def seek(self, seconds: int) -> None:

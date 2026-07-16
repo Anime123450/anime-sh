@@ -7,11 +7,12 @@ mirrors, and resolvers are internal details you never have to think about.
 anime "Frieren"
 ```
 
-> **Status: M4 — TUI.** Bare `anime` launches a keyboard-driven Textual app
-> (search-as-you-type, continue-watching, trending → episodes → play). Under it:
-> AniList metadata, two live providers (AllAnime + anikoto) fanned out with
-> circuit breakers, resolvers, mpv over JSON IPC, and a persistent library
-> (resume/history/favorites). See [`docs/architecture.md`](docs/architecture.md).
+> **Status: M5 — polish.** Bare `anime` launches a keyboard-driven Textual app;
+> playback auto-skips intros and rolls into the next episode on its own. Under
+> it: AniList metadata, two live providers (AllAnime + anikoto) fanned out with
+> circuit breakers, resolvers, mpv over JSON IPC, a persistent library
+> (resume/history/favorites), and ffmpeg downloads. See
+> [`docs/architecture.md`](docs/architecture.md).
 
 ## What works today
 
@@ -26,6 +27,7 @@ anime continue               # episodes you started but didn't finish
 anime resume                 # jump back into the most recent one
 anime history                # what you've watched
 anime favorite add "Frieren" # ★  (also: favorite ls / rm)
+anime download "Frieren" -e 1  # save to disk (ffmpeg); also: anime downloads
 
 anime doctor                 # player, ffmpeg, config, database, plugins
 anime config path | validate

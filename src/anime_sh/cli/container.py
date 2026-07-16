@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from ..app.download import DownloadService
 from ..app.library import LibraryService
 from ..app.playback import PlaybackService
 from ..app.providers import ProviderManager
@@ -19,8 +20,10 @@ from ..config.paths import cache_db_path, user_db_path
 from ..infra import registry
 from ..infra.cache.kv import KvCache
 from ..infra.db.database import Database
+from ..infra.db.downloads import SqliteDownloadStore
 from ..infra.db.health import SqliteHealthStore
 from ..infra.db.library import SqliteLibrary
+from ..infra.downloader import FfmpegDownloader
 from ..infra.metadata import AniListMetadata
 from ..infra.players import MpvPlayer, NullPlayer
 
@@ -40,6 +43,7 @@ class Container:
     provider_manager: ProviderManager
     resolvers: list
     playback: PlaybackService
+    download: DownloadService
 
     async def aclose(self) -> None:
         await self.metadata.aclose()
@@ -97,6 +101,17 @@ def build_container(config: Config | None = None) -> Container:
         player=_make_player(config),
         library=library,
         quality=config.playback.quality,
+        skip_intro=config.playback.skip_intro,
+        skip_outro=config.playback.skip_outro,
+        auto_next=config.playback.auto_next,
+    )
+
+    download = DownloadService(
+        playback=playback,
+        downloader=FfmpegDownloader(),
+        store=SqliteDownloadStore(user_db),
+        library=library,
+        download_dir=config.downloads.dir,
     )
 
     return Container(
@@ -111,4 +126,5 @@ def build_container(config: Config | None = None) -> Container:
         provider_manager=provider_manager,
         resolvers=resolvers,
         playback=playback,
+        download=download,
     )

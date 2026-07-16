@@ -15,6 +15,7 @@ class _NullEvent:
         self.duration_s = duration_s
         self.paused = False
         self.eof = eof
+        self.reason = "eof" if eof else None
 
 
 class NullPlaybackHandle:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Callable
 
 from ..domain.errors import NoStreamsFound, ResolverError
 from ..domain.models import (
@@ -57,12 +58,21 @@ class PlaybackService:
         player: Player,
         library: Library,
         quality: str = "best",
+        skip_intro: bool = True,
+        skip_outro: bool = False,
+        auto_next: bool = True,
+        on_event: "Callable[[str], None] | None" = None,
     ) -> None:
         self._providers = providers
         self._resolvers = resolvers
         self._player = player
         self._library = library
         self._quality = quality
+        self._skip_intro = skip_intro
+        self._skip_outro = skip_outro
+        self._auto_next = auto_next
+        # Optional UI hook for status lines ("Skipped intro", "Next episode…").
+        self._notify = on_event or (lambda _msg: None)
 
     async def resolve(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
@@ -104,11 +114,26 @@ class PlaybackService:
     async def play_and_track(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ) -> None:
-        """Play an episode, persist progress until it ends, and record history.
+        """Play an episode (persisting progress + history), auto-skipping the
+        intro/outro, and — when the episode plays out naturally — rolling on to
+        the next one, until the season ends or the user quits mpv.
+        """
+        number = episode_number
+        while True:
+            finished = await self._play_episode(anime, number, audio=audio)
+            if not (self._auto_next and finished and self._has_next(anime, number)):
+                break
+            number += 1
+            self._notify(f"Next episode: {number:g}")
+
+    async def _play_episode(
+        self, anime: Anime, episode_number: float, *, audio: Audio
+    ) -> bool:
+        """Play one episode. Returns True if it played out naturally (EOF) and
+        was watched to completion — the signal to auto-advance.
 
         Progress is throttled to one write every few seconds, plus a final write
-        on pause/EOF, so scrubbing never floods the database. The show's metadata
-        is cached so the library renders it later without a network round-trip.
+        on pause/EOF, so scrubbing never floods the database.
         """
         resolved = await self.resolve(anime, episode_number, audio=audio)
         await self._library.save_anime(anime)
@@ -118,9 +143,11 @@ class PlaybackService:
             resolved.stream, title=title, start_s=resolved.resume_s
         )
         provider = resolved.episode.provider_ref.provider
+        skips = resolved.stream.skip_times
 
         last_saved = 0.0
         last_event = None
+        skipped_op = skipped_ed = False
         try:
             async for ev in handle.events():
                 last_event = ev
@@ -128,17 +155,30 @@ class PlaybackService:
                 if ev.eof or (now - last_saved) >= _SAVE_INTERVAL_S:
                     await self._save(anime, episode_number, ev)
                     last_saved = now
+                if not skipped_op and self._skip_intro and skips and skips.op:
+                    if skips.op.start_s <= ev.position_s < skips.op.end_s:
+                        await handle.seek(skips.op.end_s)
+                        skipped_op = True
+                        self._notify("Skipped intro")
+                if not skipped_ed and self._skip_outro and skips and skips.ed:
+                    if skips.ed.start_s <= ev.position_s < skips.ed.end_s:
+                        await handle.seek(skips.ed.end_s)
+                        skipped_ed = True
+                        self._notify("Skipped outro")
                 if ev.eof:
                     break
         finally:
             if last_event is not None:
                 await self._save(anime, episode_number, last_event)
                 await self._library.add_history(
-                    anime.id,
-                    episode_number,
+                    anime.id, episode_number,
                     provider=provider,
                     seconds_watched=max(last_event.position_s, 0),
                 )
+        return _finished_naturally(last_event)
+
+    def _has_next(self, anime: Anime, number: float) -> bool:
+        return anime.episode_count is not None and number < anime.episode_count
 
     async def _save(self, anime: Anime, episode_number: float, ev) -> None:
         duration = max(ev.duration_s, 0)
@@ -200,3 +240,15 @@ class PlaybackService:
 
 def _find_episode(episodes: list[Episode], number: float) -> Episode | None:
     return next((e for e in episodes if e.number == number), None)
+
+
+def _finished_naturally(ev) -> bool:
+    """True when the episode played to its end (mpv EOF) and was watched to
+    completion — the gate for auto-advancing. A user quitting mpv early has
+    reason != 'eof' (or an incomplete position), so it won't roll on."""
+    if ev is None or not ev.eof:
+        return False
+    if getattr(ev, "reason", None) not in (None, "eof"):
+        return False
+    duration = max(ev.duration_s, 0)
+    return duration > 0 and (ev.position_s / duration) >= _COMPLETE_FRACTION
