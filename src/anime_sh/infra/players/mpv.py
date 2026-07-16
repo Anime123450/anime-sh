@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import contextlib
 import os
 import shutil
 import socket
@@ -54,10 +55,15 @@ class _Transport:
         self._fp = None  # file-like for Windows pipe
         self._sock: socket.socket | None = None
 
-    def connect(self, timeout: float = 10.0) -> None:
+    def connect(self, timeout: float = 10.0, proc=None) -> None:
         deadline = time.time() + timeout
         last: Exception | None = None
         while time.time() < deadline:
+            # If mpv already exited (e.g. a fatal load error), stop waiting —
+            # the IPC pipe is never coming, and we want to fail fast so the
+            # caller can try the next stream.
+            if proc is not None and proc.poll() is not None:
+                raise PlayerError(f"mpv exited (code {proc.returncode}) before IPC was ready")
             try:
                 if self._win:
                     self._fp = open(self._path, "r+b", buffering=0)
@@ -191,6 +197,26 @@ class MpvPlaybackHandle:
                 return
 
 
+# A browser UA so CDNs that sniff the user-agent serve real media, not a decoy.
+_DEFAULT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) "
+    "Gecko/20100101 Firefox/150.0"
+)
+
+
+def _resolve_binary(binary: str) -> str | None:
+    found = shutil.which(binary)
+    if found is None:
+        return None
+    # Prefer the GUI mpv.exe over the console mpv.com on Windows: the console
+    # build can attach to the parent terminal and never open a video window.
+    if found.lower().endswith(".com"):
+        exe = found[:-4] + ".exe"
+        if os.path.exists(exe):
+            return exe
+    return found
+
+
 class MpvPlayer:
     name = "mpv"
 
@@ -199,12 +225,12 @@ class MpvPlayer:
         self._extra_args = extra_args or []
 
     def available(self) -> bool:
-        return shutil.which(self._binary) is not None
+        return _resolve_binary(self._binary) is not None
 
     async def play(
         self, stream: Stream, *, title: str, start_s: int = 0
     ) -> MpvPlaybackHandle:
-        binary = shutil.which(self._binary)
+        binary = _resolve_binary(self._binary)
         if binary is None:
             raise PlayerUnavailable(f"{self._binary} not found on PATH")
 
@@ -214,18 +240,42 @@ class MpvPlayer:
             f"--input-ipc-server={path}",
             f"--force-media-title={title}",
             "--no-terminal",
-            *self._extra_args,
+            # ani-cli parity: many hosts have mismatched/self-signed certs, and
+            # exit cleanly on a load error instead of spinning a blank window.
+            "--tls-verify=no",
+            "--keep-open=no",
+            "--idle=no",
+            "--user-agent=" + (stream.headers.get("User-Agent") or _DEFAULT_UA),
         ]
+        referer = stream.headers.get("Referer") or stream.headers.get("referer")
+        if referer:
+            args.append(f"--referrer={referer}")
         if start_s > 0:
             args.append(f"--start=+{start_s}")
-        if stream.headers:
-            fields = ",".join(f"{k}: {v}" for k, v in stream.headers.items())
+        # Any non-Referer/UA headers still go through the generic field.
+        extra_headers = {
+            k: v for k, v in stream.headers.items()
+            if k.lower() not in ("referer", "user-agent")
+        }
+        if extra_headers:
+            fields = ",".join(f"{k}: {v}" for k, v in extra_headers.items())
             args.append(f"--http-header-fields={fields}")
         for sub in stream.subtitles:
             args.append(f"--sub-file={sub.url}")
+        args += self._extra_args
         args.append(stream.url)
 
-        proc = await asyncio.to_thread(subprocess.Popen, args)
+        # Detach stdio so the console build can never block on a shared terminal.
+        proc = await asyncio.to_thread(
+            lambda: subprocess.Popen(
+                args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        )
         transport = _Transport(path)
-        await asyncio.to_thread(transport.connect)
+        try:
+            await asyncio.to_thread(transport.connect, 10.0, proc)
+        except PlayerError:
+            with contextlib.suppress(Exception):
+                proc.terminate()
+            raise
         return MpvPlaybackHandle(proc, transport)

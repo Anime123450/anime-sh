@@ -5,18 +5,22 @@ episode, and behind the curtain we fan out to providers, walk a chain of
 stream candidates trying resolver after resolver, and hand the first playable
 stream to a player — never surfacing a broken host or dead provider.
 
-The fallback chain in :meth:`_resolve_stream` is the single most important
-piece of logic in the project and is unit-tested against fakes.
+The candidate walk in :meth:`_candidate_streams` + the play loop in
+:meth:`_play_episode` are the heart of the project: resolve streams across every
+provider/host, then play the first one that *actually plays* — skipping dead
+hosts and obfuscated CDNs — instead of freezing. Unit-tested against fakes.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..domain.errors import NoStreamsFound, ResolverError
+from ..domain.errors import NoStreamsFound, PlayerError, ResolverError
 from ..domain.models import (
     Anime,
     Audio,
@@ -33,6 +37,10 @@ from .providers import ProviderManager
 _SAVE_INTERVAL_S = 5
 # Past this fraction of an episode, count it as completed.
 _COMPLETE_FRACTION = 0.9
+# How many resolved streams to try before giving up on an episode.
+_MAX_STREAM_ATTEMPTS = 8
+# How long to wait for a stream to actually start playing before abandoning it.
+_CONFIRM_TIMEOUT_S = 25.0
 
 log = logging.getLogger(__name__)
 
@@ -77,29 +85,50 @@ class PlaybackService:
     async def resolve(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ) -> ResolvedPlayback:
-        """Find a playable stream for an episode, or raise NoStreamsFound."""
+        """Resolve the first playable stream for an episode (for --json /
+        downloads). ``play`` uses the full candidate stream, trying each until
+        one actually plays."""
         progress = await self._library.get_progress(anime.id, episode_number)
         resume_s = progress.position_s if progress and not progress.completed else 0
+        async for episode, stream, _provider, _host in self._candidate_streams(
+            anime, episode_number, audio
+        ):
+            return ResolvedPlayback(episode, stream, resume_s)
+        raise NoStreamsFound(
+            f"no source resolved a stream for {anime.title.preferred!r} "
+            f"ep {episode_number:g}"
+        )
 
+    async def _candidate_streams(
+        self, anime: Anime, episode_number: float, audio: Audio
+    ):
+        """Yield ``(episode, stream, provider, host)`` for every host that
+        resolves to a stream, across all matched providers in priority order —
+        the pool the player walks looking for the first one that *plays*."""
         refs = await self._providers.resolve_sources(anime, audio)
         if not refs:
             raise NoStreamsFound(f"no provider has {anime.title.preferred!r}")
-
-        # Walk providers in priority order; for each, walk its candidate hosts.
         for ref in refs:
             episodes = await self._episodes(ref, anime.id)
             episode = _find_episode(episodes, episode_number)
             if episode is None:
                 continue
-            candidates = await self._providers.candidates_for(episode)
-            stream = await self._resolve_stream(candidates)
-            if stream is not None:
-                return ResolvedPlayback(episode, stream, resume_s)
-
-        raise NoStreamsFound(
-            f"exhausted every provider/host for "
-            f"{anime.title.preferred!r} ep {episode_number:g}"
-        )
+            for candidate in await self._providers.candidates_for(episode):
+                for resolver in self._resolvers:
+                    if not resolver.handles(candidate):
+                        continue
+                    try:
+                        streams = await resolver.resolve(candidate)
+                    except ResolverError as e:
+                        log.debug("resolver %s failed on %s: %s", resolver.name, candidate.host, e)
+                        continue
+                    except Exception as e:
+                        log.warning("resolver %s crashed on %s: %s", resolver.name, candidate.host, e)
+                        continue
+                    chosen = pick_stream(streams, self._quality)
+                    if chosen is not None:
+                        yield episode, chosen, ref.provider, candidate.host
+                        break  # one stream per host; move to the next host
 
     async def play(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
@@ -129,30 +158,76 @@ class PlaybackService:
     async def _play_episode(
         self, anime: Anime, episode_number: float, *, audio: Audio
     ) -> bool:
-        """Play one episode. Returns True if it played out naturally (EOF) and
-        was watched to completion — the signal to auto-advance.
+        """Play one episode, trying each resolved stream until one actually
+        plays (ani-cli-style "first working stream"). Returns True if it played
+        out naturally to completion — the signal to auto-advance.
 
-        Progress is throttled to one write every few seconds, plus a final write
-        on pause/EOF, so scrubbing never floods the database.
+        A stream that resolves but won't play (dead host, obfuscated CDN, a
+        player that exits on a load error) is skipped and the next is tried,
+        with a status line per attempt, so the terminal never just freezes.
         """
-        resolved = await self.resolve(anime, episode_number, audio=audio)
+        progress = await self._library.get_progress(anime.id, episode_number)
+        resume_s = progress.position_s if progress and not progress.completed else 0
         await self._library.save_anime(anime)
 
-        title = f"{anime.title.preferred} - Episode {episode_number:g}"
-        handle = await self._player.play(
-            resolved.stream, title=title, start_s=resolved.resume_s
-        )
-        provider = resolved.episode.provider_ref.provider
-        skips = resolved.stream.skip_times
+        tried = 0
+        async for episode, stream, provider, host in self._candidate_streams(
+            anime, episode_number, audio
+        ):
+            tried += 1
+            self._notify(f"Trying {host}…")
+            title = f"{anime.title.preferred} - Episode {episode_number:g}"
+            try:
+                handle = await self._player.play(stream, title=title, start_s=resume_s)
+            except PlayerError as e:  # mpv exited before playback started
+                log.debug("player failed on %s: %s", host, e)
+                continue
 
+            played, last_event = await self._track(
+                handle, anime, episode_number, provider, stream
+            )
+            if played:
+                return _finished_naturally(last_event)
+            self._notify(f"{host} didn't play, trying next…")
+            if tried >= _MAX_STREAM_ATTEMPTS:
+                break
+
+        raise NoStreamsFound(
+            f"couldn't play {anime.title.preferred!r} ep {episode_number:g} — "
+            f"no source worked (your network may be blocking streaming hosts, "
+            f"or the hosts are down)"
+        )
+
+    async def _track(self, handle, anime, episode_number, provider, stream):
+        """Consume playback events: skip intro/outro, persist progress, and
+        record history — but only once playback has actually started. Returns
+        ``(played, last_event)`` where ``played`` means a positive position was
+        ever seen.
+
+        Until playback is confirmed, each event is awaited with a timeout: a
+        host that connects but never actually delivers video (obfuscated CDN,
+        stuck buffering) is abandoned instead of hanging the terminal.
+        """
+        skips = stream.skip_times
         last_saved = 0.0
         last_event = None
+        played = False
         skipped_op = skipped_ed = False
+        events = handle.events()
         try:
-            async for ev in handle.events():
+            while True:
+                try:
+                    timeout = None if played else _CONFIRM_TIMEOUT_S
+                    ev = await asyncio.wait_for(events.__anext__(), timeout)
+                except StopAsyncIteration:
+                    break
+                except (asyncio.TimeoutError, TimeoutError):
+                    break  # never started playing → give up on this stream
                 last_event = ev
+                if ev.position_s > 0:
+                    played = True
                 now = time.monotonic()
-                if ev.eof or (now - last_saved) >= _SAVE_INTERVAL_S:
+                if played and (ev.eof or (now - last_saved) >= _SAVE_INTERVAL_S):
                     await self._save(anime, episode_number, ev)
                     last_saved = now
                 if not skipped_op and self._skip_intro and skips and skips.op:
@@ -168,14 +243,18 @@ class PlaybackService:
                 if ev.eof:
                     break
         finally:
-            if last_event is not None:
+            with contextlib.suppress(Exception):
+                await events.aclose()
+            with contextlib.suppress(Exception):
+                await handle.stop()  # ensure mpv is closed if we gave up
+            if played and last_event is not None:
                 await self._save(anime, episode_number, last_event)
                 await self._library.add_history(
                     anime.id, episode_number,
                     provider=provider,
                     seconds_watched=max(last_event.position_s, 0),
                 )
-        return _finished_naturally(last_event)
+        return played, last_event
 
     def _has_next(self, anime: Anime, number: float) -> bool:
         return anime.episode_count is not None and number < anime.episode_count
@@ -193,39 +272,6 @@ class PlaybackService:
                 completed=completed,
             )
         )
-
-    # -- the fallback chain (§7 step 5) ------------------------------------- #
-    async def _resolve_stream(
-        self, candidates: list[StreamCandidate]
-    ) -> Stream | None:
-        """Try each candidate host against each capable resolver. The first
-        host that yields streams wins; a failing host is skipped silently."""
-        for candidate in candidates:
-            for resolver in self._resolvers:
-                if not resolver.handles(candidate):
-                    continue
-                try:
-                    streams = await resolver.resolve(candidate)
-                except ResolverError as e:
-                    log.debug(
-                        "resolver %s failed on %s: %s",
-                        resolver.name,
-                        candidate.host,
-                        e,
-                    )
-                    continue
-                except Exception as e:  # a bad resolver must not kill playback
-                    log.warning(
-                        "resolver %s crashed on %s: %s",
-                        resolver.name,
-                        candidate.host,
-                        e,
-                    )
-                    continue
-                chosen = pick_stream(streams, self._quality)
-                if chosen is not None:
-                    return chosen
-        return None
 
     async def _episodes(self, ref, anime_id) -> list[Episode]:
         provider = self._providers._by_name(ref.provider)
