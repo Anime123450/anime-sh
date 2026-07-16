@@ -7,15 +7,16 @@ mirrors, and resolvers are internal details you never have to think about.
 anime "Frieren"
 ```
 
-> **Status: M2 — persistence & resume.** Real adapters run through every layer
-> (AniList metadata, AllAnime provider, resolvers, mpv over JSON IPC), and your
-> library persists: resume, history, and favorites. `anime "Frieren"` searches,
-> matches, resolves, and plays — on networks where the provider isn't
-> Cloudflare-challenged. See [`docs/architecture.md`](docs/architecture.md).
+> **Status: M4 — TUI.** Bare `anime` launches a keyboard-driven Textual app
+> (search-as-you-type, continue-watching, trending → episodes → play). Under it:
+> AniList metadata, two live providers (AllAnime + anikoto) fanned out with
+> circuit breakers, resolvers, mpv over JSON IPC, and a persistent library
+> (resume/history/favorites). See [`docs/architecture.md`](docs/architecture.md).
 
 ## What works today
 
 ```bash
+anime                        # launch the keyboard-driven TUI (needs [tui] extra)
 anime "Frieren"              # search + best match + play episode 1
 anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime search "frieren"       # AniList search (instant; no providers touched)

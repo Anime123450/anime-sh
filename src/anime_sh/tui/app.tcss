@@ -1,0 +1,45 @@
+Screen {
+    background: $surface;
+}
+
+#search {
+    margin: 1 2 0 2;
+    border: tall $primary;
+}
+
+#body {
+    padding: 0 2;
+}
+
+.section {
+    margin: 1 0 0 0;
+    padding: 0 1;
+    text-style: bold;
+    color: $accent;
+}
+
+ListView {
+    background: $surface;
+    height: auto;
+    max-height: 20;
+    margin-bottom: 1;
+}
+
+ListView > ListItem {
+    padding: 0 1;
+}
+
+ListView > ListItem.--highlight {
+    background: $primary 40%;
+}
+
+#detail-meta {
+    padding: 1 2;
+    margin: 1 0;
+    border: round $primary;
+}
+
+#episodes {
+    padding: 0 2;
+    max-height: 24;
+}

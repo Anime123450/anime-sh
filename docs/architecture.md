@@ -74,6 +74,29 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
+## Status: M4 (TUI)
+
+Bare `anime` now launches a Textual TUI — the second adapter onto the app
+services, holding no domain logic of its own.
+
+- **Home** (`tui/screens/home.py`): search-as-you-type (debounced, hits only the
+  metadata source), plus Continue Watching and Trending lists.
+- **Detail** (`tui/screens/detail.py`): metadata + an episode list built from
+  AniList's episode count (instant — providers are consulted only when you press
+  Enter to play, which fans out through `PlaybackService`). Playback failures
+  surface as a toast; the TUI never crashes on a dead provider.
+- Keyboard-driven (`/` search, Enter select, Esc back, `q` quit), themed via the
+  config `ui.theme` (Textual built-ins, default tokyo-night).
+
+Layering stays honest: the TUI receives its services by injection from the
+composition root (the CLI), so it imports only `app` services and `domain`
+ports — never the CLI or a concrete infra adapter. The import-linter contract is
+now `cli > tui > app > domain`.
+
+Verified headlessly with Textual's `Pilot` (`tests/tui/`) — home population,
+search swap-in, navigation, and episode→playback — and smoke-tested against live
+AniList (trending + search return real data).
+
 ## Status: M3 (plurality)
 
 The fan-out is now real, resilient, and self-monitoring.

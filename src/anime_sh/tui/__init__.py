@@ -1,6 +1,10 @@
-"""Textual TUI — the second adapter onto the app services (arrives in M4).
+"""Textual TUI — the second adapter onto the app services (bare ``anime``).
 
-Placeholder so the layered import-linter contract has a real module to bind to.
-Like the CLI, this layer will hold no domain logic: screens call app services
-and render domain models, nothing more.
+Like the CLI, this layer holds no domain logic: screens call app services and
+render domain models. It receives its services by injection from the
+composition root, so it never imports the CLI or a concrete infra adapter.
 """
+
+from .app import AnimeShApp, TuiServices, run_tui
+
+__all__ = ["AnimeShApp", "TuiServices", "run_tui"]
