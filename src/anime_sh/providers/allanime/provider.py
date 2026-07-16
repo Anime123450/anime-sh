@@ -24,6 +24,7 @@ from ...domain.models import (
     Audio,
     Episode,
     ProviderRef,
+    SourceOption,
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
@@ -117,6 +118,10 @@ class AllAnimeProvider:
 
     # -- Provider port ------------------------------------------------------ #
     async def match(self, anime: Anime, audio: Audio) -> ProviderRef | None:
+        sources = await self.find_sources(anime, audio)
+        return sources[0].ref() if sources else None
+
+    async def find_sources(self, anime: Anime, audio: Audio) -> list[SourceOption]:
         translation = "dub" if audio is Audio.DUB else "sub"
         edges: list[dict] = []
         for query in _search_terms(anime):
@@ -134,13 +139,14 @@ class AllAnimeProvider:
             if edges:
                 break
 
-        best = _best_match(anime, edges, translation)
-        if best is None:
-            return None
-        return ProviderRef(
-            provider=self.name, anime_key=best["_id"], audio=audio,
-            confidence=best["_score"],
-        )
+        return [
+            SourceOption(
+                provider=self.name, anime_key=e["_id"], title=e.get("name") or "?",
+                episode_count=_avail(e, translation), audio=audio,
+                confidence=e["_score"],
+            )
+            for e in _scored_edges(anime, edges, translation)
+        ]
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
         data = await self._post(_EPISODES_GQL, {"showId": ref.anime_key})
@@ -213,28 +219,52 @@ def _avail(edge: dict, translation: str) -> int | None:
     return None
 
 
-def _best_match(anime: Anime, edges: list[dict], translation: str) -> dict | None:
+# Fuzzy gate: keep near-matches so alternate/variant entries also surface.
+_MATCH_THRESHOLD = 0.55
+
+
+def _scored_edges(anime: Anime, edges: list[dict], translation: str) -> list[dict]:
+    """Edges whose title fuzzily matches, tagged with ``_score`` and ranked
+    best-first — among close titles, the one whose episode count best fits the
+    planned total (or the most complete) wins."""
     targets = [
         _norm(t)
         for t in (anime.title.romaji, anime.title.english, *anime.title.synonyms)
         if t
     ]
-    best, best_score = None, 0.0
+    scored: list[dict] = []
     for edge in edges:
         name = edge.get("name")
         if not name:
             continue
-        score = max((SequenceMatcher(None, _norm(name), tgt).ratio() for tgt in targets), default=0.0)
-        avail = _avail(edge, translation)
-        if anime.episode_count and avail and abs(avail - anime.episode_count) <= 1:
-            score += 0.05
-        if score > best_score:
-            best, best_score = edge, score
-    if best is None or best_score < 0.6:
-        return None
-    best = dict(best)
-    best["_score"] = round(best_score, 3)
-    return best
+        sim = max((SequenceMatcher(None, _norm(name), tgt).ratio() for tgt in targets), default=0.0)
+        if sim < _MATCH_THRESHOLD:
+            continue
+        edge = dict(edge)
+        edge["_score"] = round(sim, 3)
+        scored.append(edge)
+    if not scored:
+        return []
+    best_sim = max(e["_score"] for e in scored)
+
+    def rank(edge: dict) -> tuple:
+        strong = edge["_score"] >= best_sim - 0.15
+        eps = _avail(edge, translation)
+        want = anime.episode_count
+        if strong and want and eps:
+            ep_key = abs(eps - want)
+        elif strong and eps:
+            ep_key = -eps
+        else:
+            ep_key = 10_000
+        return (ep_key, -edge["_score"])
+
+    return sorted(scored, key=rank)
+
+
+def _best_match(anime: Anime, edges: list[dict], translation: str) -> dict | None:
+    ranked = _scored_edges(anime, edges, translation)
+    return ranked[0] if ranked else None
 
 
 def _parse_ep_number(ep_str: str) -> float | None:

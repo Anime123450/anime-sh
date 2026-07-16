@@ -28,6 +28,7 @@ from ..domain.models import (
     Episode,
     ProviderHealth,
     ProviderRef,
+    SourceOption,
     StreamCandidate,
 )
 from ..domain.ports import HealthStore, Provider
@@ -102,6 +103,41 @@ class ProviderManager:
         if provider is None:
             return []
         return await self._candidates_guarded(provider, episode)
+
+    async def list_sources(
+        self, anime: Anime, audio: Audio = Audio.SUB
+    ) -> list[SourceOption]:
+        """Every matching entry across all providers (each provider best-first,
+        providers in priority order) — the pool the source picker shows."""
+        results = await asyncio.gather(
+            *(self._sources_guarded(p, anime, audio) for p in self._providers)
+        )
+        out: list[SourceOption] = []
+        for group in results:
+            out.extend(group)
+        return out
+
+    async def _sources_guarded(
+        self, provider: Provider, anime: Anime, audio: Audio
+    ) -> list[SourceOption]:
+        finder = getattr(provider, "find_sources", None)
+        try:
+            async with asyncio.timeout(self._match_timeout):
+                if finder is not None:
+                    return await finder(anime, audio)
+                ref = await provider.match(anime, audio)
+                return (
+                    [SourceOption(ref.provider, ref.anime_key,
+                                  anime.title.preferred, anime.episode_count,
+                                  ref.audio, ref.confidence)]
+                    if ref else []
+                )
+        except (TimeoutError, ProviderError) as e:
+            log.debug("provider %s find_sources failed: %s", provider.name, e)
+            return []
+        except Exception as e:
+            log.warning("provider %s find_sources crashed: %s", provider.name, e)
+            return []
 
     async def health_snapshot(self) -> list[dict]:
         """Per-provider breaker status, for ``anime providers health``."""

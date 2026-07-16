@@ -26,3 +26,16 @@ class EpisodeItem(ListItem):
         self.number = number
         mark = "[green]▸[/green] " if resume_s else ("[dim]✓[/dim] " if watched else "")
         super().__init__(Label(f"{mark}Episode {number:g}"))
+
+
+class SourceItem(ListItem):
+    """A ListItem for one provider entry in the source picker."""
+
+    def __init__(self, source) -> None:
+        self.source = source
+        eps = f"{source.episode_count} eps" if source.episode_count else "? eps"
+        label = (
+            f"{source.title}  "
+            f"[cyan]{source.provider}[/cyan] [dim]· {eps} · {source.audio.value.lower()}[/dim]"
+        )
+        super().__init__(Label(label))

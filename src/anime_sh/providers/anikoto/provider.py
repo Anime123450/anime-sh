@@ -29,6 +29,7 @@ from ...domain.models import (
     Audio,
     Episode,
     ProviderRef,
+    SourceOption,
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
@@ -79,16 +80,24 @@ class AnikotoProvider:
 
     # -- Provider port ------------------------------------------------------ #
     async def match(self, anime: Anime, audio: Audio) -> ProviderRef | None:
+        sources = await self.find_sources(anime, audio)
+        return sources[0].ref() if sources else None
+
+    async def find_sources(self, anime: Anime, audio: Audio) -> list[SourceOption]:
+        seen: dict[str, dict] = {}
         for query in _search_terms(anime):
             html = await self._get_text("/search", {"keyword": query})
-            items = parse_search(html)
-            best = _best_match(anime, items)
-            if best is not None:
-                return ProviderRef(
-                    provider=self.name, anime_key=best["id"], audio=audio,
-                    confidence=best["_score"],
-                )
-        return None
+            for item in _scored_matches(anime, parse_search(html)):
+                seen.setdefault(item["id"], item)  # dedupe across query terms
+            if seen:
+                break
+        return [
+            SourceOption(
+                provider=self.name, anime_key=it["id"], title=it["title"],
+                episode_count=it.get("sub_eps"), audio=audio, confidence=it["_score"],
+            )
+            for it in _rank_items(anime, list(seen.values()))
+        ]
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
         data = await self._get_json(f"/ajax/episode/list/{ref.anime_key}")
@@ -233,21 +242,20 @@ def _search_terms(anime: Anime) -> list[str]:
     return out or [anime.title.preferred]
 
 
-def _best_match(anime: Anime, items: list[dict]) -> dict | None:
-    """Pick the anikoto entry to use for a show.
+# Fuzzy gate: keep near-matches, not just exact titles, so alternate entries
+# (a "[Mini]" batch, a slightly different romanisation) still surface.
+_MATCH_THRESHOLD = 0.55
 
-    Title similarity gates the candidates, but among genuinely-similar titles we
-    prefer the one whose *available* episode count is closest to AniList's — so a
-    complete alternate entry (e.g. a "[Mini]" batch with all 12 episodes) is
-    chosen over a same-named TV entry that has only just started airing. This is
-    what makes the whole watchable run available instead of the first two aired.
-    """
+
+def _scored_matches(anime: Anime, items: list[dict]) -> list[dict]:
+    """Items whose title fuzzily matches the show, each tagged with ``_score``
+    (title similarity). Not ranked — see :func:`_rank_items`."""
     targets = [
         _norm(t)
         for t in (anime.title.romaji, anime.title.english, *anime.title.synonyms)
         if t
     ]
-    scored: list[tuple[float, dict]] = []
+    out: list[dict] = []
     for item in items:
         names = [item.get("title"), item.get("jp")]
         sim = max(
@@ -257,32 +265,40 @@ def _best_match(anime: Anime, items: list[dict]) -> dict | None:
             ),
             default=0.0,
         )
-        if sim >= 0.6:
-            scored.append((sim, item))
-    if not scored:
-        return None
+        if sim >= _MATCH_THRESHOLD:
+            item = dict(item)
+            item["_score"] = round(sim, 3)
+            out.append(item)
+    return out
 
-    best_sim = max(s for s, _ in scored)
-    # Consider all strong title matches (within 0.15 of the best), then prefer
-    # the one whose episode count best fits — otherwise the most complete.
-    contenders = [(s, it) for s, it in scored if s >= best_sim - 0.15]
 
-    def rank(entry) -> tuple:
-        sim, item = entry
+def _rank_items(anime: Anime, items: list[dict]) -> list[dict]:
+    """Order matches best-first: among genuinely-similar titles, prefer the one
+    whose available episode count is closest to AniList's planned total (or the
+    most complete when unknown) — so a full "[Mini]" batch outranks a same-named
+    TV run that has only just started airing."""
+    if not items:
+        return []
+    best_sim = max(it["_score"] for it in items)
+
+    def rank(item: dict) -> tuple:
+        strong = item["_score"] >= best_sim - 0.15
         eps = item.get("sub_eps")
         want = anime.episode_count
-        if want and eps:
-            ep_key = abs(eps - want)          # closest to planned count first
-        elif eps:
-            ep_key = -eps                     # no target → most episodes first
+        if strong and want and eps:
+            ep_key = abs(eps - want)
+        elif strong and eps:
+            ep_key = -eps
         else:
-            ep_key = 10_000                   # unknown availability → last
-        return (ep_key, -sim)
+            ep_key = 10_000
+        return (ep_key, -item["_score"])
 
-    sim, best = min(contenders, key=rank)
-    best = dict(best)
-    best["_score"] = round(sim, 3)
-    return best
+    return sorted(items, key=rank)
+
+
+def _best_match(anime: Anime, items: list[dict]) -> dict | None:
+    ranked = _rank_items(anime, _scored_matches(anime, items))
+    return ranked[0] if ranked else None
 
 
 def _to_float(value) -> float | None:

@@ -21,10 +21,12 @@ from ..widgets import EpisodeItem
 class DetailScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
-    def __init__(self, anime: Anime, *, resume_episode: float | None = None) -> None:
+    def __init__(self, anime: Anime, *, resume_episode: float | None = None,
+                 source=None) -> None:
         super().__init__()
         self.anime = anime
         self.resume_episode = resume_episode
+        self.source = source  # a chosen SourceOption, or None to fan out
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -48,11 +50,14 @@ class DetailScreen(Screen):
     @work(exclusive=True, group="episodes-refine")
     async def _refine_episodes(self) -> None:
         try:
-            available = await self.app.services.playback.available_episodes(self.anime)
+            available = await self.app.services.playback.available_episodes(
+                self.anime, source=self.source
+            )
         except Exception:
             return
         if available:
-            self.sub_title = f"{len(available)} episodes available"
+            src = f" · {self.source.provider}" if self.source else ""
+            self.sub_title = f"{len(available)} episodes available{src}"
             await self._render_episodes(available)
 
     async def _render_episodes(self, numbers: list[float]) -> None:
@@ -77,7 +82,7 @@ class DetailScreen(Screen):
         self.notify(f"Resolving Episode {number:g}…", timeout=4)
         try:
             await self.app.services.playback.play_and_track(
-                self.anime, number, audio=Audio.SUB
+                self.anime, number, audio=Audio.SUB, source=self.source
             )
         except NoStreamsFound:
             self.notify(

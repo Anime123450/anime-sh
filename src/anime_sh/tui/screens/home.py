@@ -9,7 +9,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
 from ..widgets import AnimeItem
-from .detail import DetailScreen
+from .sources import SourcesScreen
 
 
 class HomeScreen(Screen):
@@ -94,8 +94,10 @@ class HomeScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, AnimeItem):
+            # Go through the source picker; it forwards straight to the detail
+            # screen when there's only one match.
             self.app.push_screen(
-                DetailScreen(item.anime, resume_episode=item.resume_episode)
+                SourcesScreen(item.anime, resume_episode=item.resume_episode)
             )
 
     # -- helpers ------------------------------------------------------------ #

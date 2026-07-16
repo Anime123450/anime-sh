@@ -33,12 +33,13 @@ def test_provider_conforms(provider):
     assert provider.api_version == API_VERSION
     assert isinstance(provider, Provider)  # structural (runtime_checkable)
 
-    for method in ("match", "episodes", "candidates"):
+    for method in ("match", "find_sources", "episodes", "candidates"):
         fn = getattr(provider, method)
         assert inspect.iscoroutinefunction(fn), f"{provider.name}.{method} must be async"
 
     # arity: match(anime, audio), episodes(ref, anime_id), candidates(episode)
     assert _param_count(provider.match) == 2
+    assert _param_count(provider.find_sources) == 2
     assert _param_count(provider.episodes) == 2
     assert _param_count(provider.candidates) == 1
 
