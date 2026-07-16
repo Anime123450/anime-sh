@@ -48,17 +48,28 @@ AllAnime + anikoto) and falls through to whichever one actually has your show â€
 so a title missing from one source still plays from another, with no action
 from you.
 
-## Install (dev)
+## Install
 
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/). An external media
-player (`mpv` recommended) and `ffmpeg` are needed for playback/downloads â€”
-`anime doctor` tells you what is missing.
+Needs Python 3.11+, plus an external media player (`mpv` recommended) and
+`ffmpeg` for playback/downloads. `anime doctor` reports what's missing.
+
+```bash
+uv tool install "anime-sh[tui]"     # or: pipx install "anime-sh[tui]"
+anime doctor
+anime "Frieren"
+```
+
+### From source (dev)
 
 ```bash
 git clone <repo> anime-sh && cd anime-sh
-uv sync --extra dev
+uv sync --extra dev --extra tui
 uv run anime doctor
+uv run anime            # launch the TUI
+uv run pytest -q        # tests (no network); add ANIME_SH_LIVE=1 for live ones
 ```
+
+See [`docs/plugins.md`](docs/plugins.md) to add a provider or resolver.
 
 ## Develop
 

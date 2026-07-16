@@ -1,0 +1,43 @@
+name: release
+
+# Build and publish to PyPI on a version tag, using trusted publishing
+# (OIDC) — no API tokens stored in the repo. Configure the publisher once at
+# https://pypi.org/manage/project/anime-sh/settings/publishing/
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Run the full test suite + contracts
+        run: |
+          uv sync --extra dev --extra tui
+          uv run pytest -q
+          uv run lint-imports
+      - name: Build sdist + wheel
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

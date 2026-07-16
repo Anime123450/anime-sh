@@ -74,6 +74,17 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
+## Status: M6 (v1.0 packaging)
+
+Release-ready: PyPI metadata + classifiers + `py.typed`, an `all` extra, a
+trusted-publishing release workflow (`.github/workflows/release.yml`, tag-driven,
+no tokens), a plugin authoring guide with a full example
+([`docs/plugins.md`](plugins.md)), and a `CHANGELOG`. The wheel bundles its data
+files (migrations, TUI CSS, config defaults). `uv build` is clean.
+
+Install: `uv tool install anime-sh` / `pipx install anime-sh` / `pip install
+anime-sh[tui]`. mpv + ffmpeg are external — `anime doctor` reports what's missing.
+
 ## Status: M5 (polish)
 
 The money path is now hands-off, and downloads landed.
