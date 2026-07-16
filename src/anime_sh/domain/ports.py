@@ -177,6 +177,31 @@ class HealthStore(Protocol):
     async def all(self) -> list[ProviderHealth]: ...
 
 
+@runtime_checkable
+class Downloader(Protocol):
+    """Fetches a resolved stream to a local file (ffmpeg for HLS)."""
+
+    def available(self) -> bool: ...
+
+    async def download(
+        self, stream: "Stream", dest: "Path", *,
+        on_line: "Callable[[str], None] | None" = None,
+    ) -> None: ...
+
+
+@runtime_checkable
+class DownloadStore(Protocol):
+    """Records downloads in the sacred store."""
+
+    async def add(self, anime_id: AnimeId, episode: float, path: str) -> int: ...
+
+    async def set_status(
+        self, download_id: int, status: "DownloadStatus", *, path: str | None = None
+    ) -> None: ...
+
+    async def list(self, *, limit: int = 50) -> list["DownloadItem"]: ...
+
+
 class PlaybackEvent(Protocol):
     """Emitted by a PlaybackHandle. Concrete kinds live in infra/players."""
 
@@ -184,3 +209,4 @@ class PlaybackEvent(Protocol):
     duration_s: int
     paused: bool
     eof: bool
+    reason: str | None  # end-file reason: "eof" vs "quit"/"stop"

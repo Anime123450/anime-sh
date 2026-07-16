@@ -259,3 +259,19 @@ class FavoriteItem:
     anime: Anime
     added_at: datetime
     note: str | None = None
+
+
+class DownloadStatus(str, Enum):
+    QUEUED = "queued"
+    DOWNLOADING = "downloading"
+    DONE = "done"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadItem:
+    anime: Anime
+    episode: float
+    path: str | None
+    status: DownloadStatus
+    created_at: datetime

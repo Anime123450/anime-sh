@@ -74,6 +74,26 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
+## Status: M5 (polish)
+
+The money path is now hands-off, and downloads landed.
+
+- **Auto intro/outro skip** — the provider skip data (anikoto's server response,
+  megaplay's `getSources`) flows through as `Stream.skip_times`; the playback
+  loop seeks past the OP/ED when position enters the range (gated by
+  `playback.skip_intro`/`skip_outro`).
+- **Auto-play-next** — on natural EOF (mpv end-file reason `eof`) of a
+  watched-to-completion episode, `play_and_track` rolls straight into the next
+  one, until the season ends or you quit mpv. Quitting early (reason `quit`) or
+  an unfinished episode does *not* advance. Works in both CLI and TUI.
+- **Downloads** — `anime download <title> -e N` resolves through the same
+  provider fan-out and saves via ffmpeg (`DownloadService` + `FfmpegDownloader`,
+  stream-copy, propagating `-referer`/`-user_agent`, `-extension_picky 0`);
+  tracked in the `downloads` table and listed by `anime downloads`. Verified
+  against well-behaved HLS. Deliberately hostile CDNs (cross-origin segment
+  redirects that strip the referer) fail with an honest error — same "hosts are
+  flaky" reality as playback.
+
 ## Status: M4 (TUI)
 
 Bare `anime` now launches a Textual TUI — the second adapter onto the app
