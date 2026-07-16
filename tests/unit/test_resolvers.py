@@ -88,3 +88,49 @@ async def test_mp4upload_extracts_src():
     streams = await r.resolve(StreamCandidate(host="Mp4", url="https://mp4upload.com/embed-x.html"))
     assert streams[0].url == "https://a.mp4upload.com/d/x/video.mp4"
     assert streams[0].kind == StreamKind.MP4
+
+
+# -- megaplay family (vidtube.site / megaplay.buzz / vidwish.live) ----------- #
+class _FakeMegaplayHttp:
+    """Mimics the two-step embed-page -> getSources flow."""
+
+    def __init__(self, cidu="6a5669db1ff22"):
+        self._cidu = cidu
+        self.getsources_id = None
+
+    async def get_text(self, url, *, params=None, headers=None):
+        return f"<script>const settings = {{ cidu : '{self._cidu}' }};</script>"
+
+    async def get_json(self, url, *, params=None, headers=None):
+        self.getsources_id = params["id"]
+        return {
+            "sources": {"file": "https://cdn.mewstream.buzz/anime/x/master.m3u8"},
+            "tracks": [{"file": "https://sub/en.vtt", "label": "English", "kind": "captions", "default": True}],
+            "intro": {"start": 0, "end": 0},
+            "outro": {"start": 90, "end": 120},
+        }
+
+
+def test_megaplay_handles_family_hosts():
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    r = VidtubeResolver(http=_FakeMegaplayHttp())
+    for host in ("vidtube.site", "megaplay.buzz", "vidwish.live"):
+        assert r.handles(StreamCandidate(host="x", url=f"https://{host}/stream/s-5/1/sub"))
+    assert not r.handles(StreamCandidate(host="x", url="https://other.tld/e/1"))
+
+
+async def test_megaplay_resolves_via_cidu_and_getsources():
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    http = _FakeMegaplayHttp(cidu="ABC123")
+    r = VidtubeResolver(http=http)
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-5/830671/sub")
+    streams = await r.resolve(cand)
+    # File id comes from the page cidu, NOT the URL's 830671.
+    assert http.getsources_id == "ABC123"
+    s = streams[0]
+    assert s.url.endswith("master.m3u8") and s.kind == StreamKind.HLS
+    assert len(s.subtitles) == 1 and s.subtitles[0].label == "English"
+    # intro 0..0 ignored; outro 90..120 becomes a skip range.
+    assert s.skip_times is not None and s.skip_times.ed.start_s == 90

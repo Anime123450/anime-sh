@@ -74,6 +74,26 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
+## Status: M3 (plurality — in progress)
+
+The fan-out is now real with a **second provider**:
+
+- **`AnikotoProvider`** (anikototv.to, a HiAnime-family site): search →
+  `/ajax/episode/list` → `/ajax/server/list` → `/ajax/server`, all HTML/JSON
+  parsed offline. It carries per-episode MAL ids and sub/dub availability.
+- **`MegaplayResolver`** (`resolvers/vidtube`): resolves anikoto's rotating
+  megaplay-clone hosts (vidtube.site / megaplay.buzz / vidwish.live). It reads
+  the player's `cidu` from the embed page, then `getSources?id=<cidu>` (an
+  AJAX-only endpoint) returns a plaintext m3u8, subtitle tracks, and skip times.
+- **Verified live end-to-end**: `Smoking Behind the Supermarket with You` — a
+  show AllAnime only has a 1-episode "mini" of — matches on anikoto, resolves to
+  a real `.m3u8`, and plays in mpv. Through the CLI the `ProviderManager` fans
+  out across both providers and falls through AllAnime's dead hosts to anikoto
+  automatically (`tests/integration/test_anikoto_live.py`).
+
+Still to come in M3: circuit breakers (`provider_health`), health-based
+reordering, a registry-wide contract test suite, and the nightly canary.
+
 ## Status: M2 (persistence & resume)
 
 On top of M1, the library is now a first-class store:

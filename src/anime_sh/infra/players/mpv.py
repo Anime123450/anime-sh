@@ -77,21 +77,26 @@ class _Transport:
             self._sock.sendall(data)
 
     def read_line(self) -> bytes:
-        if self._win:
-            buf = b""
-            while not buf.endswith(b"\n"):
-                ch = self._fp.read(1)
+        # A concurrent close() (from stop()) can pull the pipe/socket out from
+        # under this blocking read; treat that as a clean EOF, not a crash.
+        try:
+            if self._win:
+                buf = b""
+                while not buf.endswith(b"\n"):
+                    ch = self._fp.read(1)
+                    if not ch:
+                        return buf
+                    buf += ch
+                return buf
+            chunks = b""
+            while not chunks.endswith(b"\n"):
+                ch = self._sock.recv(1)
                 if not ch:
-                    return buf
-                buf += ch
-            return buf
-        chunks = b""
-        while not chunks.endswith(b"\n"):
-            ch = self._sock.recv(1)
-            if not ch:
-                return chunks
-            chunks += ch
-        return chunks
+                    return chunks
+                chunks += ch
+            return chunks
+        except (ValueError, OSError):
+            return b""
 
     def close(self) -> None:
         try:
