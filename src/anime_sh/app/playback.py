@@ -69,6 +69,7 @@ class PlaybackService:
         skip_intro: bool = True,
         skip_outro: bool = False,
         auto_next: bool = True,
+        stream_proxy=None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
         self._providers = providers
@@ -76,6 +77,8 @@ class PlaybackService:
         self._player = player
         self._library = library
         self._quality = quality
+        # Optional de-obfuscating proxy for hostile CDNs (PNG-disguised segments).
+        self._stream_proxy = stream_proxy
         self._skip_intro = skip_intro
         self._skip_outro = skip_outro
         self._auto_next = auto_next
@@ -177,14 +180,17 @@ class PlaybackService:
             tried += 1
             self._notify(f"Trying {host}…")
             title = f"{anime.title.preferred} - Episode {episode_number:g}"
+            play_stream = (
+                self._stream_proxy.rewrite(stream) if self._stream_proxy else stream
+            )
             try:
-                handle = await self._player.play(stream, title=title, start_s=resume_s)
+                handle = await self._player.play(play_stream, title=title, start_s=resume_s)
             except PlayerError as e:  # mpv exited before playback started
                 log.debug("player failed on %s: %s", host, e)
                 continue
 
             played, last_event = await self._track(
-                handle, anime, episode_number, provider, stream
+                handle, anime, episode_number, provider, play_stream
             )
             if played:
                 return _finished_naturally(last_event)
@@ -258,6 +264,20 @@ class PlaybackService:
 
     def _has_next(self, anime: Anime, number: float) -> bool:
         return anime.episode_count is not None and number < anime.episode_count
+
+    async def available_episodes(
+        self, anime: Anime, *, audio: Audio = Audio.SUB
+    ) -> list[float]:
+        """The union of episode numbers the providers actually have for a show —
+        which, for an airing series, is usually fewer than AniList's planned
+        total. Empty if no provider matches. Used to show an honest episode list
+        instead of one that offers episodes nobody has yet."""
+        refs = await self._providers.resolve_sources(anime, audio)
+        numbers: set[float] = set()
+        for ref in refs:
+            for episode in await self._episodes(ref, anime.id):
+                numbers.add(episode.number)
+        return sorted(numbers)
 
     async def _save(self, anime: Anime, episode_number: float, ev) -> None:
         duration = max(ev.duration_s, 0)

@@ -178,6 +178,17 @@ class HealthStore(Protocol):
 
 
 @runtime_checkable
+class StreamProxy(Protocol):
+    """Rewrites a resolved stream so a player/downloader can consume it — e.g.
+    routing an obfuscated-CDN stream through a local de-obfuscating proxy.
+    Returns the stream unchanged when no rewrite is needed."""
+
+    def rewrite(self, stream: "Stream") -> "Stream": ...
+
+    def stop(self) -> None: ...
+
+
+@runtime_checkable
 class Downloader(Protocol):
     """Fetches a resolved stream to a local file (ffmpeg for HLS)."""
 

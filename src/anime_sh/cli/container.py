@@ -26,6 +26,7 @@ from ..infra.db.library import SqliteLibrary
 from ..infra.downloader import FfmpegDownloader
 from ..infra.metadata import AniListMetadata
 from ..infra.players import MpvPlayer, NullPlayer
+from ..infra.proxy import DeobfuscatingProxy
 
 log = logging.getLogger(__name__)
 
@@ -44,8 +45,10 @@ class Container:
     resolvers: list
     playback: PlaybackService
     download: DownloadService
+    stream_proxy: DeobfuscatingProxy
 
     async def aclose(self) -> None:
+        self.stream_proxy.stop()
         await self.metadata.aclose()
         await self.user_db.close()
         await self.cache_db.close()
@@ -95,6 +98,8 @@ def build_container(config: Config | None = None) -> Container:
         health_store=SqliteHealthStore(user_db),
     )
 
+    stream_proxy = DeobfuscatingProxy()
+
     playback = PlaybackService(
         providers=provider_manager,
         resolvers=resolvers,
@@ -104,6 +109,7 @@ def build_container(config: Config | None = None) -> Container:
         skip_intro=config.playback.skip_intro,
         skip_outro=config.playback.skip_outro,
         auto_next=config.playback.auto_next,
+        stream_proxy=stream_proxy,
     )
 
     download = DownloadService(
@@ -112,6 +118,7 @@ def build_container(config: Config | None = None) -> Container:
         store=SqliteDownloadStore(user_db),
         library=library,
         download_dir=config.downloads.dir,
+        stream_proxy=stream_proxy,
     )
 
     return Container(
@@ -127,4 +134,5 @@ def build_container(config: Config | None = None) -> Container:
         resolvers=resolvers,
         playback=playback,
         download=download,
+        stream_proxy=stream_proxy,
     )
