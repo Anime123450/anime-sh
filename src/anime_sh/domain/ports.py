@@ -22,6 +22,7 @@ from .models import (
     ProviderRef,
     ResumeItem,
     Season,
+    SourceOption,
     Stream,
     StreamCandidate,
     WatchProgress,
@@ -67,7 +68,12 @@ class Provider(Protocol):
     api_version: int
 
     async def match(self, anime: Anime, audio: Audio) -> ProviderRef | None:
-        """Map an identity to this provider's native id. Cached forever."""
+        """Map an identity to this provider's native id (the single best entry).
+        Cached forever."""
+
+    async def find_sources(self, anime: Anime, audio: Audio) -> list["SourceOption"]:
+        """Every entry on this provider that fuzzily matches the show, best
+        first — for the source picker. ``match`` is just the top of this list."""
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
         """List episodes for a matched show. ``anime_id`` is passed in because

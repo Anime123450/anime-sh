@@ -45,7 +45,7 @@ err = Console(stderr=True)
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
-    "seasonal", "calendar", "random",
+    "seasonal", "calendar", "random", "sources",
 }
 
 
@@ -219,6 +219,16 @@ def history(
 ) -> None:
     """Show your watch history."""
     asyncio.run(_history(limit, as_json))
+
+
+@app.command()
+def sources(
+    query: str = typer.Argument(..., help="Title to list sources for."),
+    dub: bool = typer.Option(False, "--dub"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List every provider entry that matches a title (the source picker)."""
+    asyncio.run(_sources(query, dub, as_json))
 
 
 @app.command()
@@ -543,6 +553,45 @@ async def _favorite_rm(query: str) -> None:
         console.print(f"[yellow]☆[/] Removed {anime.title.preferred} from favorites")
     finally:
         await c.aclose()
+
+
+async def _sources(query, dub, as_json) -> None:
+    config = load_config()
+    c = build_container(config)
+    audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        options = await c.playback.list_sources(anime, audio=audio)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [
+                {
+                    "provider": o.provider, "anime_key": o.anime_key,
+                    "title": o.title, "episodes": o.episode_count,
+                    "audio": o.audio.value, "confidence": o.confidence,
+                }
+                for o in options
+            ],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not options:
+        console.print(f"[yellow]No provider entries matched[/] {anime.title.preferred!r}")
+        return
+    table = Table(title=f"Sources for {anime.title.preferred}", title_justify="left", header_style="bold cyan")
+    table.add_column("Title", style="bold")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Eps", justify="right")
+    table.add_column("Audio")
+    for o in options:
+        table.add_row(o.title, o.provider, str(o.episode_count or "?"), o.audio.value.lower())
+    console.print(table)
 
 
 async def _download(query, episode, dub, quality) -> None:

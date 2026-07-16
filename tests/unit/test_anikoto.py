@@ -106,6 +106,23 @@ def test_best_match_uses_title_when_no_episode_count():
     assert best is not None and best["id"] == "8851"
 
 
+async def test_find_sources_returns_all_matches_best_first():
+    class _Http:
+        async def get_text(self, url, *, params=None, headers=None):
+            return SEARCH_HTML
+
+    provider = AnikotoProvider(http=_Http())
+    anime = Anime(
+        id=AnimeId(anilist=196187), episode_count=12,
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+    )
+    sources = await provider.find_sources(anime, Audio.SUB)
+    # Both entries surface; the 12-episode one is first (matches planned count).
+    assert [s.anime_key for s in sources] == ["8851", "8950"]
+    assert sources[0].episode_count == 12 and sources[0].provider == "anikoto"
+
+
 # -- provider over fake HTTP ------------------------------------------------ #
 class FakeHttp:
     def __init__(self):

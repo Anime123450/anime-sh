@@ -25,6 +25,7 @@ from ..domain.models import (
     Anime,
     Audio,
     Episode,
+    SourceOption,
     Stream,
     StreamCandidate,
     WatchProgress,
@@ -86,15 +87,17 @@ class PlaybackService:
         self._notify = on_event or (lambda _msg: None)
 
     async def resolve(
-        self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
+        self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB,
+        source: "SourceOption | None" = None,
     ) -> ResolvedPlayback:
         """Resolve the first playable stream for an episode (for --json /
         downloads). ``play`` uses the full candidate stream, trying each until
         one actually plays."""
         progress = await self._library.get_progress(anime.id, episode_number)
         resume_s = progress.position_s if progress and not progress.completed else 0
+        refs = [source.ref()] if source else None
         async for episode, stream, _provider, _host in self._candidate_streams(
-            anime, episode_number, audio
+            anime, episode_number, audio, refs
         ):
             return ResolvedPlayback(episode, stream, resume_s)
         raise NoStreamsFound(
@@ -102,13 +105,19 @@ class PlaybackService:
             f"ep {episode_number:g}"
         )
 
+    async def list_sources(self, anime: Anime, *, audio: Audio = Audio.SUB):
+        """All matching provider entries for the source picker."""
+        return await self._providers.list_sources(anime, audio)
+
     async def _candidate_streams(
-        self, anime: Anime, episode_number: float, audio: Audio
+        self, anime: Anime, episode_number: float, audio: Audio, refs=None
     ):
         """Yield ``(episode, stream, provider, host)`` for every host that
-        resolves to a stream, across all matched providers in priority order —
-        the pool the player walks looking for the first one that *plays*."""
-        refs = await self._providers.resolve_sources(anime, audio)
+        resolves to a stream. Uses the given provider refs (a chosen source), or
+        fans out across all matched providers in priority order — the pool the
+        player walks looking for the first one that *plays*."""
+        if refs is None:
+            refs = await self._providers.resolve_sources(anime, audio)
         if not refs:
             raise NoStreamsFound(f"no provider has {anime.title.preferred!r}")
         for ref in refs:
@@ -144,22 +153,27 @@ class PlaybackService:
         )
 
     async def play_and_track(
-        self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
+        self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB,
+        source: "SourceOption | None" = None,
     ) -> None:
         """Play an episode (persisting progress + history), auto-skipping the
         intro/outro, and — when the episode plays out naturally — rolling on to
         the next one, until the season ends or the user quits mpv.
+
+        ``source`` pins playback to one chosen provider entry (from the picker);
+        otherwise it fans out across providers.
         """
         number = episode_number
         while True:
-            finished = await self._play_episode(anime, number, audio=audio)
+            finished = await self._play_episode(anime, number, audio=audio, source=source)
             if not (self._auto_next and finished and self._has_next(anime, number)):
                 break
             number += 1
             self._notify(f"Next episode: {number:g}")
 
     async def _play_episode(
-        self, anime: Anime, episode_number: float, *, audio: Audio
+        self, anime: Anime, episode_number: float, *, audio: Audio,
+        source: "SourceOption | None" = None,
     ) -> bool:
         """Play one episode, trying each resolved stream until one actually
         plays (ani-cli-style "first working stream"). Returns True if it played
@@ -173,9 +187,10 @@ class PlaybackService:
         resume_s = progress.position_s if progress and not progress.completed else 0
         await self._library.save_anime(anime)
 
+        refs = [source.ref()] if source else None
         tried = 0
         async for episode, stream, provider, host in self._candidate_streams(
-            anime, episode_number, audio
+            anime, episode_number, audio, refs
         ):
             tried += 1
             self._notify(f"Trying {host}…")
@@ -266,13 +281,13 @@ class PlaybackService:
         return anime.episode_count is not None and number < anime.episode_count
 
     async def available_episodes(
-        self, anime: Anime, *, audio: Audio = Audio.SUB
+        self, anime: Anime, *, audio: Audio = Audio.SUB,
+        source: "SourceOption | None" = None,
     ) -> list[float]:
-        """The union of episode numbers the providers actually have for a show —
-        which, for an airing series, is usually fewer than AniList's planned
-        total. Empty if no provider matches. Used to show an honest episode list
-        instead of one that offers episodes nobody has yet."""
-        refs = await self._providers.resolve_sources(anime, audio)
+        """Episode numbers actually available — for one chosen source, or the
+        union across providers. For an airing series this is usually fewer than
+        AniList's planned total, so the episode list stays honest."""
+        refs = [source.ref()] if source else await self._providers.resolve_sources(anime, audio)
         numbers: set[float] = set()
         for ref in refs:
             for episode in await self._episodes(ref, anime.id):

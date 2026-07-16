@@ -84,6 +84,17 @@ Providers and resolvers are discovered via Python entry points
 plugin is logged and skipped, never fatal; a plugin built against the wrong
 `api_version` is refused with a clear message.
 
+## Source picker
+
+When a show matches more than one provider entry — a complete "[Mini]" batch vs
+a just-aired TV run, or the same show on different providers — anime-sh no longer
+guesses. `Provider.find_sources` returns every fuzzy title match (best-first, the
+one whose episode count fits the planned total ranked highest);
+`ProviderManager.list_sources` merges them across providers. `anime sources
+<title>` lists them, and the TUI shows a picker (auto-forwarding when there's
+only one). The chosen `SourceOption` is threaded through `available_episodes` and
+`play_and_track`, so playback and the episode list come from exactly that entry.
+
 ## Status: M6 (v1.0 packaging)
 
 Release-ready: PyPI metadata + classifiers + `py.typed`, an `all` extra, a

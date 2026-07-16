@@ -52,8 +52,12 @@ class FakeLibrary:
 class FakePlayback:
     def __init__(self):
         self.played = []
-    async def play_and_track(self, anime, number, *, audio=None):
+    async def play_and_track(self, anime, number, *, audio=None, source=None):
         self.played.append((anime.id.anilist, number))
+    async def available_episodes(self, anime, *, audio=None, source=None):
+        return []
+    async def list_sources(self, anime, *, audio=None):
+        return []
 
 
 def _make_app():

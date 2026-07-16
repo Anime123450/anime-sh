@@ -135,6 +135,26 @@ class ProviderRef:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceOption:
+    """One provider entry that matches a show — shown in the source picker so
+    the user can choose (e.g. a complete "[Mini]" batch vs a just-aired TV run,
+    or the same show on a different provider)."""
+
+    provider: str
+    anime_key: str
+    title: str
+    episode_count: int | None
+    audio: Audio = Audio.SUB
+    confidence: float = 0.0
+
+    def ref(self) -> ProviderRef:
+        return ProviderRef(
+            provider=self.provider, anime_key=self.anime_key,
+            audio=self.audio, confidence=self.confidence,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Episode:
     anime_id: AnimeId
     number: float  # float handles 13.5 specials
