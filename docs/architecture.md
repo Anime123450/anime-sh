@@ -50,9 +50,15 @@ and it keeps history/favorites meaningful even when every provider is down.
 5. **First working stream** (`_play_episode`): hand each candidate to the player
    in turn and keep it only if playback actually starts (a positive position
    within a confirm-timeout). A host that resolves but won't play — a dead host,
-   an obfuscated CDN, mpv exiting on a load error — is abandoned and the next is
-   tried, with a status line per attempt. Exhaustion → `NoStreamsFound` with an
-   honest message. This is what makes a stuck host fail fast instead of freezing.
+   mpv exiting on a load error — is abandoned and the next is tried, with a
+   status line per attempt. Exhaustion → `NoStreamsFound` with an honest
+   message. This is what makes a stuck host fail fast instead of freezing.
+6. **De-obfuscating proxy** (`infra/proxy`, a `StreamProxy`): some hosts (the
+   megaplay/nekostream CDN) serve each segment as a PNG-disguised `.ts`. Before
+   playing/downloading such a stream, the composition root rewrites it through a
+   localhost HLS proxy that fetches segments with the right referer and strips
+   the decoy prefix (everything before the first MPEG-TS sync run), so mpv and
+   ffmpeg receive clean `video/mp2t`. Non-obfuscated hosts pass through untouched.
 
 `StreamCandidate` (what a provider returns) vs `Stream` (what a resolver
 returns) is the seam that keeps "providers don't know URLs, resolvers don't know

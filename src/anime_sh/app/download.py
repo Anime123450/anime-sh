@@ -25,12 +25,14 @@ class DownloadService:
         store: DownloadStore,
         library: Library,
         download_dir: str = "~/Videos/anime",
+        stream_proxy=None,
     ) -> None:
         self._playback = playback
         self._downloader = downloader
         self._store = store
         self._library = library
         self._dir = Path(download_dir).expanduser()
+        self._stream_proxy = stream_proxy
 
     def available(self) -> bool:
         return self._downloader.available()
@@ -44,13 +46,17 @@ class DownloadService:
         on_line: Callable[[str], None] | None = None,
     ) -> Path:
         resolved = await self._playback.resolve(anime, episode, audio=audio)
+        stream = (
+            self._stream_proxy.rewrite(resolved.stream)
+            if self._stream_proxy else resolved.stream
+        )
         await self._library.save_anime(anime)
         dest = self.destination(anime, episode)
 
         download_id = await self._store.add(anime.id, episode, str(dest))
         await self._store.set_status(download_id, DownloadStatus.DOWNLOADING)
         try:
-            await self._downloader.download(resolved.stream, dest, on_line=on_line)
+            await self._downloader.download(stream, dest, on_line=on_line)
         except Exception:
             await self._store.set_status(download_id, DownloadStatus.FAILED)
             raise

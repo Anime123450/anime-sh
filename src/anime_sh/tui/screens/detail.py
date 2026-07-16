@@ -39,17 +39,30 @@ class DetailScreen(Screen):
 
     @work(exclusive=True, group="episodes")
     async def _populate_episodes(self) -> None:
+        # Show AniList's count immediately (instant), then refine to what the
+        # providers actually have — for an airing show that's usually fewer.
+        count = self.anime.episode_count or 0
+        await self._render_episodes([float(n) for n in range(1, count + 1)] or [1.0])
+        self._refine_episodes()
+
+    @work(exclusive=True, group="episodes-refine")
+    async def _refine_episodes(self) -> None:
+        try:
+            available = await self.app.services.playback.available_episodes(self.anime)
+        except Exception:
+            return
+        if available:
+            self.sub_title = f"{len(available)} episodes available"
+            await self._render_episodes(available)
+
+    async def _render_episodes(self, numbers: list[float]) -> None:
         lv = self.query_one("#episodes", ListView)
         await lv.clear()
-        count = self.anime.episode_count or 0
-        numbers = [float(n) for n in range(1, count + 1)] or [1.0]
         select_index = 0
         for i, number in enumerate(numbers):
             is_resume = self.resume_episode is not None and number == self.resume_episode
             if is_resume:
                 select_index = i
-            # The playback service reads the exact resume position itself; here
-            # we only flag which episode to jump back into.
             lv.append(EpisodeItem(number, resume_s=1 if is_resume else 0))
         lv.index = select_index
         lv.focus()
