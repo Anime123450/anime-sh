@@ -40,6 +40,11 @@ in a separate `anime.db` from the disposable cache and renders offline.
 > normal operating state, not a bug. When a provider is unreachable, anime-sh
 > degrades cleanly instead of crashing; metadata and your library keep working.
 
+**Multiple providers, merged.** anime-sh fans out across providers (currently
+AllAnime + anikoto) and falls through to whichever one actually has your show —
+so a title missing from one source still plays from another, with no action
+from you.
+
 ## Install (dev)
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/). An external media
