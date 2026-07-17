@@ -30,6 +30,7 @@ from ...domain.models import (
     Episode,
     ProviderRef,
     SourceOption,
+    Status,
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
@@ -276,15 +277,24 @@ def _rank_items(anime: Anime, items: list[dict]) -> list[dict]:
     """Order matches best-first: among genuinely-similar titles, prefer the one
     whose available episode count is closest to AniList's planned total (or the
     most complete when unknown) — so a full "[Mini]" batch outranks a same-named
-    TV run that has only just started airing."""
+    TV run that Anikoto has stalled on.
+
+    While the show is still AIRING that heuristic inverts: no entry can have the
+    planned total yet, so one that does (e.g. a finished "[Mini]" spin-off with
+    the same name) is a *different* production. There the closest title wins,
+    tie-broken by the most-stocked entry within the planned total."""
     if not items:
         return []
     best_sim = max(it["_score"] for it in items)
+    releasing = anime.status is Status.RELEASING
 
     def rank(item: dict) -> tuple:
         strong = item["_score"] >= best_sim - 0.15
         eps = item.get("sub_eps")
         want = anime.episode_count
+        if releasing:
+            within = eps if strong and eps and (want is None or eps <= want) else 0
+            return (-item["_score"], -within)
         if strong and want and eps:
             ep_key = abs(eps - want)
         elif strong and eps:

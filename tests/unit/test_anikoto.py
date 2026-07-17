@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Title
+from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Status, Title
 from anime_sh.providers.anikoto.provider import (
     AnikotoProvider,
     _best_match,
@@ -81,17 +81,34 @@ def test_parse_servers_groups_by_type():
 
 
 def test_best_match_prefers_entry_matching_episode_count():
-    # AniList says 12 eps. Two same-named entries: the TV one has only 2 aired,
-    # the "[Mini]" batch has all 12 — pick the complete one so the whole run is
-    # watchable, even though the TV title is a marginally closer string match.
+    # AniList says 12 eps and the show is FINISHED. Two same-named entries: the
+    # TV one stalled at 2 eps, the "[Mini]" batch has all 12 — pick the complete
+    # one so the whole run is watchable, even though the TV title is a
+    # marginally closer string match.
     anime = Anime(
         id=AnimeId(anilist=196187),
         title=Title(romaji="Super no Ura de Yani Suu Futari",
                     english="Smoking Behind the Supermarket with You"),
         episode_count=12,
+        status=Status.FINISHED,
     )
     best = _best_match(anime, parse_search(SEARCH_HTML))
     assert best is not None and best["id"] == "8851"  # the 12-episode entry
+
+
+def test_best_match_prefers_exact_title_while_airing():
+    # Same entries, but the show is still AIRING: nothing can have the planned
+    # 12 eps yet, so the "[Mini]" entry that does is a different production —
+    # the exact-title TV run (2 eps aired) must win.
+    anime = Anime(
+        id=AnimeId(anilist=196187),
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+        episode_count=12,
+        status=Status.RELEASING,
+    )
+    best = _best_match(anime, parse_search(SEARCH_HTML))
+    assert best is not None and best["id"] == "8950"  # the exact-title TV run
 
 
 def test_best_match_uses_title_when_no_episode_count():

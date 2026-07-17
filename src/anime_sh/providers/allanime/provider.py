@@ -25,6 +25,7 @@ from ...domain.models import (
     Episode,
     ProviderRef,
     SourceOption,
+    Status,
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
@@ -226,7 +227,11 @@ _MATCH_THRESHOLD = 0.55
 def _scored_edges(anime: Anime, edges: list[dict], translation: str) -> list[dict]:
     """Edges whose title fuzzily matches, tagged with ``_score`` and ranked
     best-first — among close titles, the one whose episode count best fits the
-    planned total (or the most complete) wins."""
+    planned total (or the most complete) wins.
+
+    For a still-AIRING show the count-fit heuristic inverts (nothing can have
+    the full total yet, so an entry that does is a different production) —
+    there the closest title wins instead. See anikoto's ``_rank_items``."""
     targets = [
         _norm(t)
         for t in (anime.title.romaji, anime.title.english, *anime.title.synonyms)
@@ -246,11 +251,15 @@ def _scored_edges(anime: Anime, edges: list[dict], translation: str) -> list[dic
     if not scored:
         return []
     best_sim = max(e["_score"] for e in scored)
+    releasing = anime.status is Status.RELEASING
 
     def rank(edge: dict) -> tuple:
         strong = edge["_score"] >= best_sim - 0.15
         eps = _avail(edge, translation)
         want = anime.episode_count
+        if releasing:
+            within = eps if strong and eps and (want is None or eps <= want) else 0
+            return (-edge["_score"], -within)
         if strong and want and eps:
             ep_key = abs(eps - want)
         elif strong and eps:
