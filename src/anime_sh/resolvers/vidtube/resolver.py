@@ -29,7 +29,9 @@ AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Fire
 # Interchangeable megaplay-clone hosts anikoto rotates between.
 _FAMILY_HOSTS = ("vidtube.site", "megaplay.buzz", "vidwish.live")
 # The player's own file id, from the embed page (NOT the numeric id in the URL,
-# which is anikoto's and differs from the megaplay host's).
+# which is anikoto's and differs from the megaplay host's). ``data-id`` is the
+# real file id; ``cidu`` is a per-request nonce — getSources answers it with the
+# same decoy stream for every episode, so it is only a last-resort fallback.
 _CIDU_RE = re.compile(r"cidu\s*:\s*'([^']+)'")
 _DATAID_RE = re.compile(r'data-id="(\d+)"')
 # getSources is AJAX-only and 403s without this header.
@@ -75,7 +77,7 @@ class VidtubeResolver:
         ]
 
     async def _file_id(self, url: str) -> str:
-        """The megaplay file id comes from the embed page (``cidu``), not the
+        """The megaplay file id comes from the embed page (``data-id``), not the
         URL — the numeric URL segment is anikoto's id and does not match."""
         try:
             page = await self._http.get_text(
@@ -83,7 +85,7 @@ class VidtubeResolver:
             )
         except HttpError as e:
             raise ResolverError(f"megaplay embed fetch failed: {e}") from e
-        pm = _CIDU_RE.search(page) or _DATAID_RE.search(page)
+        pm = _DATAID_RE.search(page) or _CIDU_RE.search(page)
         if not pm:
             raise ResolverError("megaplay: no file id in embed page")
         return pm.group(1)
