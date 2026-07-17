@@ -94,12 +94,14 @@ async def test_mp4upload_extracts_src():
 class _FakeMegaplayHttp:
     """Mimics the two-step embed-page -> getSources flow."""
 
-    def __init__(self, cidu="6a5669db1ff22"):
+    def __init__(self, cidu="6a5669db1ff22", data_id=None):
         self._cidu = cidu
+        self._data_id = data_id
         self.getsources_id = None
 
     async def get_text(self, url, *, params=None, headers=None):
-        return f"<script>const settings = {{ cidu : '{self._cidu}' }};</script>"
+        div = f'<div id="megaplay-player" data-id="{self._data_id}"></div>' if self._data_id else ""
+        return f"{div}<script>const settings = {{ cidu : '{self._cidu}' }};</script>"
 
     async def get_json(self, url, *, params=None, headers=None):
         self.getsources_id = params["id"]
@@ -120,17 +122,29 @@ def test_megaplay_handles_family_hosts():
     assert not r.handles(StreamCandidate(host="x", url="https://other.tld/e/1"))
 
 
-async def test_megaplay_resolves_via_cidu_and_getsources():
+async def test_megaplay_resolves_via_dataid_and_getsources():
     from anime_sh.resolvers.vidtube import VidtubeResolver
 
-    http = _FakeMegaplayHttp(cidu="ABC123")
+    # data-id is the real file id and must win over cidu (a nonce that
+    # getSources answers with the same decoy stream for every episode).
+    http = _FakeMegaplayHttp(cidu="ABC123", data_id="176967")
     r = VidtubeResolver(http=http)
     cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-5/830671/sub")
     streams = await r.resolve(cand)
-    # File id comes from the page cidu, NOT the URL's 830671.
-    assert http.getsources_id == "ABC123"
+    # File id comes from the page data-id, NOT the URL's 830671 or the cidu.
+    assert http.getsources_id == "176967"
     s = streams[0]
     assert s.url.endswith("master.m3u8") and s.kind == StreamKind.HLS
     assert len(s.subtitles) == 1 and s.subtitles[0].label == "English"
     # intro 0..0 ignored; outro 90..120 becomes a skip range.
     assert s.skip_times is not None and s.skip_times.ed.start_s == 90
+
+
+async def test_megaplay_falls_back_to_cidu_without_dataid():
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    http = _FakeMegaplayHttp(cidu="ABC123")
+    r = VidtubeResolver(http=http)
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-5/830671/sub")
+    await r.resolve(cand)
+    assert http.getsources_id == "ABC123"
