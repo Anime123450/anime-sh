@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Title
+from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Status, Title
 from anime_sh.infra.http import CloudflareChallenge
 from anime_sh.providers.allanime.decode import (
     decode_source_url,
@@ -61,6 +61,26 @@ def test_best_match_prefers_title_and_episode_count():
 def test_best_match_rejects_weak_matches():
     edges = [{"_id": "z", "name": "Totally Unrelated", "availableEpisodes": {"sub": 1}}]
     assert _best_match(_anime(), edges, "sub") is None
+
+
+def test_best_match_prefers_exact_title_while_airing():
+    # AIRING show, planned 12 eps: the exact-title run with 2 aired must beat a
+    # same-named side entry that already has all 12 (a different production).
+    anime = Anime(
+        id=AnimeId(anilist=196187),
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+        episode_count=12,
+        status=Status.RELEASING,
+    )
+    edges = [
+        {"_id": "mini", "name": "Super no Ura de Yani Suu Futari (Mini)",
+         "availableEpisodes": {"sub": 12}},
+        {"_id": "tv", "name": "Super no Ura de Yani Suu Futari",
+         "availableEpisodes": {"sub": 2}},
+    ]
+    best = _best_match(anime, edges, "sub")
+    assert best is not None and best["_id"] == "tv"
 
 
 # -- provider over a fake HTTP ---------------------------------------------- #
