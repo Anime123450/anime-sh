@@ -89,6 +89,48 @@ async def test_push_skips_when_no_anilist_id():
     assert http.calls == []  # nothing sent
 
 
+async def test_fetch_list_maps_status_and_score():
+    http = _FakeHttp([
+        {"data": {"Viewer": {"id": 7, "name": "Ani"}}},
+        {"data": {"MediaListCollection": {"lists": [{"entries": [
+            {"progress": 5, "status": "CURRENT", "updatedAt": 1_700_000_200, "score": 8.5,
+             "media": {"id": 1, "title": {"romaji": "Now"}, "episodes": 12}},
+            {"progress": 0, "status": "PLANNING", "updatedAt": 1_700_000_100, "score": 0,
+             "media": {"id": 2, "title": {"romaji": "Later"}, "episodes": 24}},
+        ]}]}}},
+    ])
+    tracker = AniListTracker("tok", http=http)
+    entries = await tracker.fetch_list()
+    # Newest-updated first; status + score preserved.
+    assert [(e.anime.id.anilist, e.status, e.progress, e.score) for e in entries] == [
+        (1, "CURRENT", 5, 8.5),
+        (2, "PLANNING", 0, 0.0),
+    ]
+
+
+async def test_set_status_and_score_send_expected_mutations():
+    http = _FakeHttp([
+        {"data": {"SaveMediaListEntry": {"id": 1, "status": "COMPLETED"}}},
+        {"data": {"SaveMediaListEntry": {"id": 1, "score": 9.0}}},
+    ])
+    tracker = AniListTracker("tok", http=http)
+    await tracker.set_status(196187, "completed")
+    assert http.calls[0]["variables"] == {"id": 196187, "status": "COMPLETED"}
+    await tracker.set_score(196187, 9.0)
+    assert http.calls[1]["variables"] == {"id": 196187, "scoreRaw": 90}  # 0-100
+
+
+async def test_set_status_rejects_unknown_and_score_out_of_range():
+    import pytest
+    from anime_sh.domain.errors import MetadataError
+
+    tracker = AniListTracker("tok", http=_FakeHttp([]))
+    with pytest.raises(MetadataError):
+        await tracker.set_status(1, "bogus")
+    with pytest.raises(MetadataError):
+        await tracker.set_score(1, 42)
+
+
 async def test_pull_maps_media_list_to_progress():
     http = _FakeHttp([
         {"data": {"Viewer": {"id": 7, "name": "Ani"}}},

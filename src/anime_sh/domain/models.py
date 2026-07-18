@@ -309,6 +309,18 @@ class FavoriteItem:
     note: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ListEntry:
+    """One entry on the user's external tracker list (AniList), with its status
+    and score — the vocabulary of the My-List manager."""
+
+    anime: Anime
+    status: str  # AniList MediaListStatus: CURRENT/PLANNING/COMPLETED/…
+    progress: int
+    score: float = 0.0  # out of 10; 0 = unrated
+    updated_at: datetime | None = None
+
+
 class DownloadStatus(str, Enum):
     QUEUED = "queued"
     DOWNLOADING = "downloading"
