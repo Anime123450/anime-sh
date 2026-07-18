@@ -58,6 +58,8 @@ class FakePlayback:
         return []
     async def list_sources(self, anime, *, audio=None):
         return []
+    def set_on_event(self, cb):
+        self.on_event = cb
 
 
 def _make_app():

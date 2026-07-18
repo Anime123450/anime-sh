@@ -37,6 +37,8 @@ class DetailScreen(Screen):
 
     def on_mount(self) -> None:
         self.title = self.anime.title.preferred
+        if self.anime.episode_count:
+            self.sub_title = f"{self.anime.episode_count} episodes planned"
         self._populate_episodes()
 
     @work(exclusive=True, group="episodes")
@@ -57,7 +59,9 @@ class DetailScreen(Screen):
             return
         if available:
             src = f" · {self.source.provider}" if self.source else ""
-            self.sub_title = f"{len(available)} episodes available{src}"
+            planned = self.anime.episode_count
+            of = f"/{planned}" if planned else ""
+            self.sub_title = f"{len(available)}{of} episodes available{src}"
             await self._render_episodes(available)
 
     async def _render_episodes(self, numbers: list[float]) -> None:
@@ -79,7 +83,9 @@ class DetailScreen(Screen):
 
     @work(exclusive=True, group="play")
     async def _play(self, number: float) -> None:
-        self.notify(f"Resolving Episode {number:g}…", timeout=4)
+        total = self.anime.episode_count
+        label = f"{number:g}/{total}" if total else f"{number:g}"
+        self.notify(f"Resolving Episode {label}…", timeout=4)
         try:
             await self.app.services.playback.play_and_track(
                 self.anime, number, audio=Audio.SUB, source=self.source

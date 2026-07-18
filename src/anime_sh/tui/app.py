@@ -62,6 +62,12 @@ class AnimeShApp(App):
     def on_mount(self) -> None:
         if self._wanted_theme in _THEMES and _THEMES[self._wanted_theme] in self.available_themes:
             self.theme = _THEMES[self._wanted_theme]
+        # Playback status lines ("Episode 5/12 — trying HD-1…", "Next episode:
+        # 6/12", "Skipped intro") surface as toasts.
+        self.services.playback.set_on_event(lambda msg: self.notify(msg, timeout=3))
+
+    async def on_unmount(self) -> None:
+        self.services.playback.set_on_event(None)
 
     async def action_quit(self) -> None:  # type: ignore[override]
         await self.services.aclose()

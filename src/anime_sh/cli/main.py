@@ -399,6 +399,21 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
             raise typer.Exit(code=1)
         err.print(f"[cyan]▶[/] {anime.title.preferred} — Episode {episode:g} ({audio.value.lower()})")
 
+        if not resolve_only:
+            # Status lines from playback ("Episode 5/12 — trying HD-1…",
+            # "Next episode: 6/12", "Skipped intro") land on stderr.
+            c.playback.set_on_event(lambda msg: err.print(f"[dim]{msg}[/]"))
+            available = await c.playback.available_episodes(anime, audio=audio)
+            if available:
+                planned = f" of {anime.episode_count} planned" if anime.episode_count else ""
+                err.print(
+                    f"[dim]{len(available)} episode(s) available{planned}: "
+                    f"{_ep_list(available)}[/]"
+                )
+                if episode not in available:
+                    err.print(f"[yellow]Episode {episode:g} isn't available (yet).[/]")
+                    raise typer.Exit(code=1)
+
         if resolve_only:
             resolved = await c.playback.resolve(anime, episode, audio=audio)
             json.dump(
@@ -720,6 +735,27 @@ async def _favorite_ls(as_json: bool) -> None:
 # --------------------------------------------------------------------------- #
 # Rendering helpers
 # --------------------------------------------------------------------------- #
+def _ep_list(numbers: list[float]) -> str:
+    """Compact episode list: contiguous whole-numbered runs collapse to
+    "1–12"; gaps and specials stay explicit ("1–3, 5, 13.5")."""
+    parts: list[str] = []
+    run_start = prev = None
+    def flush():
+        if run_start is None:
+            return
+        parts.append(
+            f"{run_start:g}" if run_start == prev else f"{run_start:g}–{prev:g}"
+        )
+    for n in numbers:
+        if prev is not None and n == prev + 1:
+            prev = n
+            continue
+        flush()
+        run_start = prev = n
+    flush()
+    return ", ".join(parts)
+
+
 def _anime_dict(a) -> dict:
     return {
         "anilist_id": a.id.anilist,
