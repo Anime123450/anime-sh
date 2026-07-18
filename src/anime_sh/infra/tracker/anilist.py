@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from ...domain.errors import MetadataError
-from ...domain.models import Anime, AnimeId, WatchProgress
+from ...domain.models import Anime, AnimeId, ListEntry, WatchProgress
 from ..http import HttpClient, HttpError
 from ..metadata.anilist import API, _to_anime
 
@@ -39,23 +39,48 @@ mutation ($mediaId: Int, $progress: Int, $status: MediaListStatus) {
 }
 """
 
-# Pull the user's in-progress + completed list, newest activity first.
+# Pull the user's whole anime list (every status), newest activity first.
 _LIST_Q = """
 query ($userId: Int) {
-  MediaListCollection(userId: $userId, type: ANIME,
-      status_in: [CURRENT, COMPLETED, REPEATING, PAUSED]) {
+  MediaListCollection(userId: $userId, type: ANIME) {
     lists { entries {
-      progress status updatedAt
+      progress status updatedAt score(format: POINT_10_DECIMAL)
       media {
         id idMal
         title { romaji english native }
         synonyms format status episodes season seasonYear genres
-        description(asHtml: false) coverImage { large } duration
+        description(asHtml: false) coverImage { large } bannerImage duration
+        averageScore popularity
+        studios(isMain: true) { nodes { name isAnimationStudio } }
+        nextAiringEpisode { episode airingAt }
       }
     } }
   }
 }
 """
+
+_SAVE_STATUS_M = """
+mutation ($id: Int, $status: MediaListStatus) {
+  SaveMediaListEntry(mediaId: $id, status: $status) { id status }
+}
+"""
+
+_SAVE_SCORE_M = """
+mutation ($id: Int, $scoreRaw: Int) {
+  SaveMediaListEntry(mediaId: $id, scoreRaw: $scoreRaw) { id score }
+}
+"""
+
+# Friendly status names ↔ AniList MediaListStatus.
+STATUS_TO_ANILIST = {
+    "watching": "CURRENT",
+    "planning": "PLANNING",
+    "completed": "COMPLETED",
+    "paused": "PAUSED",
+    "dropped": "DROPPED",
+    "rewatching": "REPEATING",
+}
+STATUS_FROM_ANILIST = {v: k for k, v in STATUS_TO_ANILIST.items()}
 
 
 def authorize_url(client_id: str, *, response_type: str = "code") -> str:
@@ -184,32 +209,66 @@ class AniListTracker:
         return [wp for wp, _ in await self.pull_with_media()]
 
     async def pull_with_media(self) -> list[tuple[WatchProgress, Anime]]:
+        out: list[tuple[WatchProgress, Anime]] = []
+        for e in await self.fetch_list():
+            out.append(
+                (
+                    WatchProgress(
+                        anime_id=e.anime.id,
+                        episode=float(e.progress),
+                        position_s=0,
+                        duration_s=0,
+                        updated_at=e.updated_at or datetime.now(timezone.utc),
+                        completed=e.status == "COMPLETED",
+                    ),
+                    e.anime,
+                )
+            )
+        return out
+
+    async def fetch_list(self) -> list[ListEntry]:
+        """The user's whole anime list as :class:`ListEntry` rows (status +
+        score), most-recently-updated first."""
         if self._viewer_id is None:
             await self.viewer()
         data = await self._query(_LIST_Q, {"userId": self._viewer_id})
-        out: list[tuple[WatchProgress, Anime]] = []
+        entries: list[ListEntry] = []
         collection = (data.get("MediaListCollection") or {}).get("lists") or []
         for lst in collection:
             for entry in lst.get("entries") or []:
                 media = entry.get("media") or {}
                 if not media.get("id"):
                     continue
-                anime = _to_anime(media)
-                completed = entry.get("status") == "COMPLETED"
                 updated = entry.get("updatedAt") or 0
-                out.append(
-                    (
-                        WatchProgress(
-                            anime_id=anime.id,
-                            episode=float(entry.get("progress") or 0),
-                            position_s=0,
-                            duration_s=0,
-                            updated_at=datetime.fromtimestamp(updated, tz=timezone.utc)
-                            if updated
-                            else datetime.now(timezone.utc),
-                            completed=completed,
-                        ),
-                        anime,
+                entries.append(
+                    ListEntry(
+                        anime=_to_anime(media),
+                        status=entry.get("status") or "PLANNING",
+                        progress=int(entry.get("progress") or 0),
+                        score=float(entry.get("score") or 0),
+                        updated_at=datetime.fromtimestamp(updated, tz=timezone.utc)
+                        if updated
+                        else None,
                     )
                 )
-        return out
+        entries.sort(key=lambda e: e.updated_at or datetime.min.replace(tzinfo=timezone.utc),
+                     reverse=True)
+        return entries
+
+    async def set_status(self, media_id: int, status: str) -> None:
+        """Set the list status. ``status`` is a friendly name (watching/…)."""
+        anilist_status = STATUS_TO_ANILIST.get(status.lower())
+        if anilist_status is None:
+            raise MetadataError(
+                f"unknown status {status!r} (use: {', '.join(STATUS_TO_ANILIST)})"
+            )
+        await self._query(_SAVE_STATUS_M, {"id": media_id, "status": anilist_status})
+
+    async def set_score(self, media_id: int, score: float) -> None:
+        """Set the score (0–10). Stored as scoreRaw (0–100) so it is independent
+        of the user's AniList display format."""
+        if not 0 <= score <= 10:
+            raise MetadataError("score must be between 0 and 10")
+        await self._query(
+            _SAVE_SCORE_M, {"id": media_id, "scoreRaw": round(score * 10)}
+        )

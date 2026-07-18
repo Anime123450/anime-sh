@@ -51,7 +51,7 @@ KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
     "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
-    "unmark",
+    "unmark", "list", "rate", "status",
 }
 
 
@@ -356,6 +356,36 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
     asyncio.run(_downloads(as_json))
 
 
+@app.command(name="list")
+def list_cmd(
+    status: str = typer.Option(
+        None, "--status", "-s",
+        help="watching|planning|completed|paused|dropped|rewatching",
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show your AniList list (all statuses, or one). Needs `anime auth login`."""
+    asyncio.run(_list(status, as_json))
+
+
+@app.command()
+def rate(
+    query: str = typer.Argument(..., help="Title on your list."),
+    score: float = typer.Argument(..., help="Score 0–10."),
+) -> None:
+    """Set a show's score on AniList (matched against your list)."""
+    asyncio.run(_rate_or_status(query, score=score))
+
+
+@app.command()
+def status(
+    query: str = typer.Argument(..., help="Title on your list."),
+    new_status: str = typer.Argument(..., help="watching|planning|completed|paused|dropped|rewatching"),
+) -> None:
+    """Move a show to a different list status on AniList."""
+    asyncio.run(_rate_or_status(query, new_status=new_status))
+
+
 @app.command()
 def unmark(query: str = typer.Argument(..., help="Title to clear progress for.")) -> None:
     """Clear all local watch progress for a show (undo a mark / forget it)."""
@@ -431,6 +461,112 @@ async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None
         return
     heading = f"Results for {query!r}" if query else "Browse"
     _print_anime_table(heading, animes)
+
+
+# Display order for list statuses.
+_STATUS_ORDER = ["watching", "rewatching", "paused", "planning", "completed", "dropped"]
+
+
+async def _list(status: str | None, as_json: bool) -> None:
+    from ..infra.tracker.anilist import STATUS_FROM_ANILIST, STATUS_TO_ANILIST
+
+    if status and status.lower() not in STATUS_TO_ANILIST:
+        err.print(f"[red]Unknown status[/] {status!r} "
+                  f"(use: {', '.join(STATUS_TO_ANILIST)})")
+        raise typer.Exit(code=1)
+    c = build_container()
+    try:
+        if c.tracker is None:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/].")
+            raise typer.Exit(code=1)
+        entries = await c.tracker.fetch_list()
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+    if status:
+        want = status.lower()
+        entries = [e for e in entries if STATUS_FROM_ANILIST.get(e.status) == want]
+
+    if as_json:
+        json.dump(
+            [{"anilist_id": e.anime.id.anilist, "title": e.anime.title.preferred,
+              "status": STATUS_FROM_ANILIST.get(e.status, e.status.lower()),
+              "progress": e.progress, "episodes": e.anime.episode_count,
+              "score": e.score} for e in entries],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+
+    if not entries:
+        console.print("[dim]Nothing on your list here.[/]")
+        return
+
+    # Group by status in a sensible order.
+    groups: dict[str, list] = {}
+    for e in entries:
+        groups.setdefault(STATUS_FROM_ANILIST.get(e.status, e.status.lower()), []).append(e)
+    order = [s for s in _STATUS_ORDER if s in groups] + [
+        s for s in groups if s not in _STATUS_ORDER
+    ]
+    for name in order:
+        rows = groups[name]
+        console.print(f"\n[b]{name.title()}[/b] [dim]({len(rows)})[/dim]")
+        for e in rows:
+            total = e.anime.episode_count
+            prog = f"{e.progress}/{total}" if total else f"{e.progress}"
+            score = f"  [green]★{e.score:g}[/green]" if e.score else ""
+            console.print(f"  {e.anime.title.preferred}  [dim]{prog}[/dim]{score}")
+
+
+def _match_list_entry(entries, query: str):
+    """Best title match among the user's own list entries (safer than a global
+    search — avoids picking a same-named spin-off). None if nothing close."""
+    from difflib import SequenceMatcher
+
+    def norm(s: str) -> str:
+        return "".join(ch.lower() for ch in (s or "") if ch.isalnum())
+
+    q = norm(query)
+    best, best_score = None, 0.0
+    for e in entries:
+        titles = (e.anime.title.romaji, e.anime.title.english,
+                  *e.anime.title.synonyms)
+        sim = max((SequenceMatcher(None, norm(t), q).ratio() for t in titles if t),
+                  default=0.0)
+        if sim > best_score:
+            best, best_score = e, sim
+    return best if best_score >= 0.6 else None
+
+
+async def _rate_or_status(query, *, score=None, new_status=None) -> None:
+    c = build_container()
+    try:
+        if c.tracker is None:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/].")
+            raise typer.Exit(code=1)
+        entries = await c.tracker.fetch_list()
+        entry = _match_list_entry(entries, query)
+        if entry is None:
+            err.print(f"[red]{query!r} isn't on your AniList list.[/] "
+                      "Add it first (e.g. `anime mark` or on the site).")
+            raise typer.Exit(code=1)
+        media_id = entry.anime.id.anilist
+        title = entry.anime.title.preferred
+        if score is not None:
+            await c.tracker.set_score(media_id, score)
+            console.print(f"[green]Rated[/] {title} [bold]{score:g}/10[/].")
+        else:
+            await c.tracker.set_status(media_id, new_status)
+            console.print(f"[green]Moved[/] {title} → [bold]{new_status.lower()}[/].")
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
 
 
 async def _unmark(query: str) -> None:
