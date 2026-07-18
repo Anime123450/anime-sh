@@ -29,7 +29,13 @@ from ...domain.models import (
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
-from .decode import decode_source_url, decrypt_tobeparsed
+from .decode import (
+    BUILD_ID,
+    QUERY_HASH as _SOURCES_HASH,
+    build_aa_req,
+    decode_source_url,
+    decrypt_tobeparsed,
+)
 
 log = logging.getLogger(__name__)
 
@@ -37,9 +43,6 @@ API = "https://api.allanime.day/api"
 # ani-cli's headers — these are what actually clears the Cloudflare edge.
 REFERER = "https://youtu-chan.com"
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
-
-# Persisted-query hash for the episode-sources query (from ani-cli).
-_SOURCES_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
 _SEARCH_GQL = (
     "query( $search: SearchInput $limit: Int $page: Int "
@@ -78,11 +81,14 @@ class AllAnimeProvider:
         )
 
     # -- transport helpers -------------------------------------------------- #
-    async def _post(self, query: str, variables: dict) -> dict:
+    async def _post(self, query: str, variables: dict, *, extensions: dict | None = None) -> dict:
+        body = {"variables": variables, "query": query}
+        headers = None
+        if extensions is not None:
+            body["extensions"] = extensions
+            headers = {"x-build-id": str(BUILD_ID)}
         try:
-            data = await self._http.post_json(
-                API, json={"variables": variables, "query": query}
-            )
+            data = await self._http.post_json(API, json=body, headers=headers)
         except CloudflareChallenge as e:
             raise ProviderUnavailable(f"allanime: {e}") from e
         except HttpError as e:
@@ -98,9 +104,15 @@ class AllAnimeProvider:
                 params={
                     "variables": json.dumps(variables),
                     "extensions": json.dumps(
-                        {"persistedQuery": {"version": 1, "sha256Hash": _SOURCES_HASH}}
+                        {
+                            "persistedQuery": {"version": 1, "sha256Hash": _SOURCES_HASH},
+                            # Anti-bot token; without it AllAnime returns
+                            # AA_CRYPTO_MISSING and a null episode.
+                            "aaReq": build_aa_req(),
+                        }
                     ),
                 },
+                headers={"x-build-id": str(BUILD_ID)},
             )
         except CloudflareChallenge as e:
             raise ProviderUnavailable(f"allanime: {e}") from e
@@ -113,8 +125,10 @@ class AllAnimeProvider:
         if isinstance(data, dict) and data.get("episode"):
             return data
 
-        # Fallback: full query over POST.
-        data = await self._post(_SOURCES_GQL, variables)
+        # Fallback: full query over POST (also needs the aaReq token).
+        data = await self._post(
+            _SOURCES_GQL, variables, extensions={"aaReq": build_aa_req()}
+        )
         return data
 
     # -- Provider port ------------------------------------------------------ #
