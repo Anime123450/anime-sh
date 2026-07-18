@@ -13,6 +13,7 @@ from ..domain.models import (
     FavoriteItem,
     HistoryItem,
     ResumeItem,
+    WatchProgress,
 )
 from ..domain.ports import Library
 
@@ -23,6 +24,11 @@ class LibraryService:
 
     async def continue_watching(self, *, limit: int = 20) -> list[ResumeItem]:
         return await self._library.continue_watching(limit=limit)
+
+    async def progress_for(self, anime_id: AnimeId) -> list[WatchProgress]:
+        """Every episode's watch progress for one show — feeds the detail
+        screen's watched/in-progress marks."""
+        return await self._library.all_progress(anime_id)
 
     async def history(self, *, limit: int = 50) -> list[HistoryItem]:
         return await self._library.list_history(limit=limit)

@@ -45,9 +45,23 @@ class DetailScreen(Screen):
     async def _populate_episodes(self) -> None:
         # Show AniList's count immediately (instant), then refine to what the
         # providers actually have — for an airing show that's usually fewer.
+        await self._load_marks()
         count = self.anime.episode_count or 0
         await self._render_episodes([float(n) for n in range(1, count + 1)] or [1.0])
         self._refine_episodes()
+
+    async def _load_marks(self) -> None:
+        """Watched (✓) and in-progress (▸ N%) marks from the library."""
+        self._watched: set[float] = set()
+        self._partial: dict[float, int] = {}
+        try:
+            for p in await self.app.services.library.progress_for(self.anime.id):
+                if p.completed:
+                    self._watched.add(p.episode)
+                elif p.position_s > 0:
+                    self._partial[p.episode] = round(p.fraction * 100)
+        except Exception:
+            pass  # marks are decoration; never block the episode list
 
     @work(exclusive=True, group="episodes-refine")
     async def _refine_episodes(self) -> None:
@@ -74,6 +88,8 @@ class DetailScreen(Screen):
     ) -> None:
         lv = self.query_one("#episodes", ListView)
         await lv.clear()
+        watched = getattr(self, "_watched", set())
+        partial = getattr(self, "_partial", {})
         select_index = 0
         for i, number in enumerate(numbers):
             is_resume = self.resume_episode is not None and number == self.resume_episode
@@ -82,9 +98,22 @@ class DetailScreen(Screen):
             lv.append(
                 EpisodeItem(
                     number,
+                    watched=number in watched,
                     resume_s=1 if is_resume else 0,
+                    progress_pct=partial.get(number),
                     available=available is None or number in available,
                 )
+            )
+        if self.resume_episode is None and (watched or partial):
+            # Land the cursor on the next thing to watch: an in-progress
+            # episode first, else the first unwatched available one.
+            select_index = next(
+                (i for i, n in enumerate(numbers) if n in partial),
+                next(
+                    (i for i, n in enumerate(numbers)
+                     if n not in watched and (available is None or n in available)),
+                    select_index,
+                ),
             )
         lv.index = select_index
         lv.focus()

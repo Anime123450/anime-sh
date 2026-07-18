@@ -1,6 +1,8 @@
-"""Home screen: search-as-you-type, continue watching, and trending."""
+"""Home screen: search-as-you-type, continue watching, this season, trending."""
 
 from __future__ import annotations
+
+from datetime import date
 
 from textual import work
 from textual.app import ComposeResult
@@ -8,8 +10,21 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
+from ...domain.models import Season
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
+
+
+def _current_season() -> tuple[Season, int]:
+    today = date.today()
+    m = today.month
+    if m in (12, 1, 2):
+        return Season.WINTER, today.year + (1 if m == 12 else 0)
+    if m in (3, 4, 5):
+        return Season.SPRING, today.year
+    if m in (6, 7, 8):
+        return Season.SUMMER, today.year
+    return Season.FALL, today.year
 
 
 class HomeScreen(Screen):
@@ -19,6 +34,8 @@ class HomeScreen(Screen):
         with VerticalScroll(id="body"):
             yield Label("Continue Watching", classes="section", id="sec-continue")
             yield ListView(id="continue")
+            yield Label("Airing This Season", classes="section", id="sec-seasonal")
+            yield ListView(id="seasonal")
             yield Label("Trending", classes="section", id="sec-trending")
             yield ListView(id="trending")
             yield Label("Results", classes="section", id="sec-results")
@@ -31,6 +48,7 @@ class HomeScreen(Screen):
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
         self._load_continue()
+        self._load_seasonal()
         self._load_trending()
 
     # -- home data ---------------------------------------------------------- #
@@ -49,6 +67,20 @@ class HomeScreen(Screen):
                 AnimeItem(it.anime, subtitle=f"Ep {it.progress.episode:g} · {pct}%",
                           resume_episode=it.progress.episode)
             )
+
+    @work(exclusive=True, group="seasonal")
+    async def _load_seasonal(self) -> None:
+        season, year = _current_season()
+        try:
+            animes = await self.app.services.metadata.seasonal(season, year)
+        except Exception as e:
+            self.notify(f"Couldn't load this season: {e}", severity="warning")
+            return
+        lv = self.query_one("#seasonal", ListView)
+        await lv.clear()
+        for a in animes[:20]:
+            eps = f"· {a.episode_count} eps" if a.episode_count else ""
+            lv.append(AnimeItem(a, subtitle=f"{a.format.value} {eps}".strip()))
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
@@ -107,7 +139,8 @@ class HomeScreen(Screen):
         self._show_home_sections(not on)
 
     def _show_home_sections(self, on: bool) -> None:
-        for wid in ("#sec-continue", "#continue", "#sec-trending", "#trending"):
+        for wid in ("#sec-continue", "#continue", "#sec-seasonal", "#seasonal",
+                    "#sec-trending", "#trending"):
             node = self.query_one(wid)
             # Continue-watching may have been hidden for being empty; respect that.
             if wid in ("#sec-continue", "#continue") and not self._has_continue():

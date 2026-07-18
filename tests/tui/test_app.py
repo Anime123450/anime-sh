@@ -40,13 +40,19 @@ class FakeMetadata:
     name = "fake"
     async def trending(self, *, limit=20):
         return [_anime(10, "One Piece", eps=1100), _anime(11, "Bleach")]
+    async def seasonal(self, season, year):
+        return [_anime(20, "New Show", eps=12)]
 
 
 class FakeLibrary:
+    def __init__(self):
+        self.progress = []
     async def continue_watching(self, *, limit=20):
         prog = WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400,
                              datetime.now(timezone.utc))
         return [ResumeItem(anime=_anime(1, "Frieren"), progress=prog)]
+    async def progress_for(self, anime_id):
+        return list(self.progress)
 
 
 class FakePlayback:
@@ -85,6 +91,7 @@ async def test_home_populates_trending_and_continue():
         await pilot.pause()
         assert len(app.query_one("#trending", ListView)) == 2
         assert len(app.query_one("#continue", ListView)) == 1
+        assert len(app.query_one("#seasonal", ListView)) == 1
 
 
 async def test_search_shows_results_and_hides_home():
@@ -137,6 +144,33 @@ async def test_selecting_episode_triggers_playback():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert playback.played == [(1, 2.0)]
+
+
+async def test_episode_marks_and_next_up_cursor():
+    # Ep 1 watched, ep 2 half-watched: list shows ✓ / ▸ 50% and the cursor
+    # lands on the in-progress episode.
+    playback = FakePlayback()
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    library.progress = [
+        WatchProgress(AnimeId(anilist=1), 1.0, 1400, 1400, now, completed=True),
+        WatchProgress(AnimeId(anilist=1), 2.0, 700, 1400, now, completed=False),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=3))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        episodes = detail.query_one("#episodes", ListView)
+        items = list(episodes.children)
+        assert [it.watched for it in items] == [True, False, False]
+        assert [it.progress_pct for it in items] == [None, 50, None]
+        assert episodes.index == 1  # next up = the in-progress episode
 
 
 async def test_unavailable_episodes_stay_listed_but_inert():

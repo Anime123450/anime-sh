@@ -22,17 +22,26 @@ class AnimeItem(ListItem):
 class EpisodeItem(ListItem):
     """A ListItem for a single episode number. Unavailable episodes (not yet
     aired / provider lacks them) stay listed but dimmed, so the full season is
-    always visible."""
+    always visible; watched ones get a ✓ and in-progress ones a ▸ with the
+    percentage watched."""
 
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
-                 available: bool = True) -> None:
+                 available: bool = True, progress_pct: int | None = None) -> None:
         self.number = number
         self.available = available
+        self.watched = watched
+        self.progress_pct = progress_pct
         if not available:
             super().__init__(Label(f"[dim]Episode {number:g}  · not available yet[/dim]"))
             return
-        mark = "[green]▸[/green] " if resume_s else ("[dim]✓[/dim] " if watched else "")
-        super().__init__(Label(f"{mark}Episode {number:g}"))
+        if watched:
+            label = f"[green]✓[/green] [dim]Episode {number:g}[/dim]"
+        elif progress_pct or resume_s:
+            pct = f"  [dim]· {progress_pct}%[/dim]" if progress_pct else ""
+            label = f"[green]▸[/green] Episode {number:g}{pct}"
+        else:
+            label = f"Episode {number:g}"
+        super().__init__(Label(label))
 
 
 class SourceItem(ListItem):
