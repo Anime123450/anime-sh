@@ -245,6 +245,10 @@ def auth_login(
         None, "--client-id",
         help="Your AniList API client id (from anilist.co/settings/developer).",
     ),
+    secret: str = typer.Option(
+        None, "--secret",
+        help="Your AniList API client secret — enables the paste-a-code flow.",
+    ),
     token: str = typer.Option(
         None, "--token", help="Paste an access token directly (skips the browser)."
     ),
@@ -254,9 +258,10 @@ def auth_login(
 
     One-time setup: create an API client at
     https://anilist.co/settings/developer (any name; set "Redirect URL" to
-    https://anilist.co/api/v2/oauth/pin). Then run this and paste the token.
+    https://anilist.co/api/v2/oauth/pin). Then run this with --client-id (and
+    --secret to paste a short code instead of a raw token).
     """
-    asyncio.run(_auth_login(client_id, token, no_browser))
+    asyncio.run(_auth_login(client_id, secret, token, no_browser))
 
 
 @auth_app.command("status")
@@ -497,18 +502,20 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
         await c.aclose()
 
 
-async def _auth_login(client_id: str | None, token: str | None, no_browser: bool) -> None:
+async def _auth_login(
+    client_id: str | None, secret: str | None, token: str | None, no_browser: bool
+) -> None:
     import webbrowser
 
     from ..infra.tracker import (
         AniListTracker,
         authorize_url,
+        exchange_code,
         extract_token,
         save_token,
     )
     from ..infra.tracker.tokens import load_client_id
 
-    # A token can be pasted directly; otherwise walk the browser handshake.
     if not token:
         client_id = client_id or load_client_id()
         if not client_id:
@@ -517,19 +524,35 @@ async def _auth_login(client_id: str | None, token: str | None, no_browser: bool
                 "https://anilist.co/settings/developer\n"
                 "  • Name: anything (e.g. anime-sh)\n"
                 "  • Redirect URL: https://anilist.co/api/v2/oauth/pin\n"
-                "Then re-run: [bold]anime auth login --client-id <ID>[/]"
+                "Then re-run: [bold]anime auth login --client-id <ID> --secret <SECRET>[/]"
             )
             raise typer.Exit(code=1)
-        url = authorize_url(client_id)
-        console.print(f"\nOpen this URL and authorise, then copy the token shown:\n[cyan]{url}[/]\n")
-        if not no_browser:
-            with contextlib.suppress(Exception):
-                webbrowser.open(url)
-        pasted = typer.prompt("Paste the access token (or the full redirect URL)")
-        token = extract_token(pasted)
-        if not token:
-            err.print("[red]Couldn't find an access token in that input.[/]")
-            raise typer.Exit(code=1)
+
+        if secret:
+            # Auth-code + PIN flow: the page shows a code; exchange it for a token.
+            url = authorize_url(client_id, response_type="code")
+            console.print(f"\nOpen this URL, authorise, then copy the code shown:\n[cyan]{url}[/]\n")
+            if not no_browser:
+                with contextlib.suppress(Exception):
+                    webbrowser.open(url)
+            code = typer.prompt("Paste the code from the page")
+            try:
+                token = await exchange_code(client_id, secret, code)
+            except AnimeShError as e:
+                err.print(f"[red]{e}[/]")
+                raise typer.Exit(code=1)
+        else:
+            # Implicit grant: the token itself comes back in the redirect URL.
+            url = authorize_url(client_id, response_type="token")
+            console.print(f"\nOpen this URL, authorise, then copy the token:\n[cyan]{url}[/]\n")
+            if not no_browser:
+                with contextlib.suppress(Exception):
+                    webbrowser.open(url)
+            pasted = typer.prompt("Paste the access token (or the full redirect URL)")
+            token = extract_token(pasted)
+            if not token:
+                err.print("[red]Couldn't find an access token in that input.[/]")
+                raise typer.Exit(code=1)
 
     tracker = AniListTracker(token)
     try:

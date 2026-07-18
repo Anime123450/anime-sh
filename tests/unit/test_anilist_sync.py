@@ -9,6 +9,7 @@ from anime_sh.domain.models import Anime, AnimeId, Title, WatchProgress
 from anime_sh.infra.tracker.anilist import (
     AniListTracker,
     authorize_url,
+    exchange_code,
     extract_token,
 )
 
@@ -16,9 +17,25 @@ from .fakes import FakeLibrary
 
 
 # -- token handshake helpers ------------------------------------------------- #
-def test_authorize_url_is_implicit_grant():
+def test_authorize_url_defaults_to_code_flow():
     url = authorize_url("12345")
-    assert "client_id=12345" in url and "response_type=token" in url
+    assert "client_id=12345" in url and "response_type=code" in url
+    assert "oauth%2Fpin" in url or "oauth/pin" in url
+
+
+def test_authorize_url_implicit_variant():
+    url = authorize_url("12345", response_type="token")
+    assert "response_type=token" in url
+
+
+async def test_exchange_code_posts_and_returns_token():
+    http = _FakeHttp([{"access_token": "T.O.K", "token_type": "Bearer"}])
+    tok = await exchange_code("46250", "sekret", "the-code", http=http)
+    assert tok == "T.O.K"
+    sent = http.calls[0]
+    assert sent["grant_type"] == "authorization_code"
+    assert sent["client_id"] == "46250" and sent["client_secret"] == "sekret"
+    assert sent["code"] == "the-code"
 
 
 def test_extract_token_from_various_inputs():

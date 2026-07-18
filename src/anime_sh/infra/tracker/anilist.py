@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import urlencode
 
 from ...domain.errors import MetadataError
 from ...domain.models import Anime, AnimeId, WatchProgress
@@ -23,6 +23,10 @@ from ..http import HttpClient, HttpError
 from ..metadata.anilist import API, _to_anime
 
 _AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize"
+_TOKEN = "https://anilist.co/api/v2/oauth/token"
+# The out-of-band redirect AniList shows the code/token on, so no local server
+# or custom redirect host is needed.
+PIN_REDIRECT = "https://anilist.co/api/v2/oauth/pin"
 
 _VIEWER_Q = "query { Viewer { id name } }"
 
@@ -54,10 +58,49 @@ query ($userId: Int) {
 """
 
 
-def authorize_url(client_id: str) -> str:
-    """The AniList implicit-grant URL to open in a browser. The token comes
-    back in the redirect's URL fragment (``#access_token=…``)."""
-    return f"{_AUTHORIZE}?client_id={client_id}&response_type=token"
+def authorize_url(client_id: str, *, response_type: str = "code") -> str:
+    """The AniList OAuth authorize URL to open in a browser.
+
+    ``code`` (default) uses the auth-code + PIN flow: the redirect page shows a
+    code the user pastes back, exchanged for a token via :func:`exchange_code`
+    (needs the client secret). ``token`` uses implicit grant: the token itself
+    comes back in the redirect fragment (no secret needed)."""
+    params = {
+        "client_id": client_id,
+        "redirect_uri": PIN_REDIRECT,
+        "response_type": response_type,
+    }
+    return f"{_AUTHORIZE}?{urlencode(params)}"
+
+
+async def exchange_code(
+    client_id: str, client_secret: str, code: str, http: HttpClient | None = None
+) -> str:
+    """Exchange an auth code (from the PIN page) for an access token.
+
+    The client secret is used only here and never persisted."""
+    own = http is None
+    http = http or HttpClient(headers={"Accept": "application/json"})
+    try:
+        data = await http.post_json(
+            _TOKEN,
+            json={
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": PIN_REDIRECT,
+                "code": code.strip(),
+            },
+        )
+    except HttpError as e:
+        raise MetadataError(f"AniList token exchange failed: {e}") from e
+    finally:
+        if own:
+            await http.aclose()
+    token = (data or {}).get("access_token")
+    if not token:
+        raise MetadataError(f"AniList token exchange returned no token: {str(data)[:120]}")
+    return token
 
 
 def extract_token(pasted: str) -> str | None:
