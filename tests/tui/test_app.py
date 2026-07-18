@@ -15,6 +15,7 @@ from textual.widgets import ListView
 from anime_sh.domain.models import (
     Anime,
     AnimeId,
+    FavoriteItem,
     Format,
     ResumeItem,
     SearchResult,
@@ -23,6 +24,7 @@ from anime_sh.domain.models import (
 )
 from anime_sh.tui import AnimeShApp, TuiServices
 from anime_sh.tui.screens.detail import DetailScreen
+from anime_sh.tui.screens.help import HelpScreen
 
 
 def _anime(anilist, title, eps=12):
@@ -47,12 +49,15 @@ class FakeMetadata:
 class FakeLibrary:
     def __init__(self):
         self.progress = []
+        self.favorites_list = []
     async def continue_watching(self, *, limit=20):
         prog = WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400,
                              datetime.now(timezone.utc))
         return [ResumeItem(anime=_anime(1, "Frieren"), progress=prog)]
     async def progress_for(self, anime_id):
         return list(self.progress)
+    async def favorites(self):
+        return list(self.favorites_list)
 
 
 class FakePlayback:
@@ -92,6 +97,36 @@ async def test_home_populates_trending_and_continue():
         assert len(app.query_one("#trending", ListView)) == 2
         assert len(app.query_one("#continue", ListView)) == 1
         assert len(app.query_one("#seasonal", ListView)) == 1
+
+
+async def test_favorites_section_shows_when_present_else_hidden():
+    playback = FakePlayback()
+    library = FakeLibrary()
+    library.favorites_list = [FavoriteItem(anime=_anime(3, "Bocchi"),
+                                           added_at=datetime.now(timezone.utc))]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        favs = app.query_one("#favorites", ListView)
+        assert len(favs) == 1 and favs.display is True
+
+
+async def test_help_overlay_opens_on_question_mark():
+    app, _ = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        # Home focuses a browse list by default, so `?` opens help immediately.
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        await pilot.press("escape")  # any key dismisses
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen)
 
 
 async def test_search_shows_results_and_hides_home():

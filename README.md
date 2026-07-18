@@ -33,9 +33,15 @@ anime auth login             # link AniList (one-time); status / logout
 anime sync pull              # import your AniList list; sync push sends yours up
 
 anime doctor                 # player, ffmpeg, config, database, plugins
+anime config get             # dump settings; `config get playback.quality`
+anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
 anime config path | validate
 anime providers ls
 ```
+
+The TUI home shows Continue Watching, Favorites, Airing This Season, and
+Trending; the detail screen renders cover art, score, studio and a live
+next-episode countdown. Press `?` for keys, `/` to search.
 
 **AniList sync.** Link your account once with `anime auth login` (create a free
 API client at [anilist.co/settings/developer](https://anilist.co/settings/developer),

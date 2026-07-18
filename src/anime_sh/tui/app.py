@@ -47,6 +47,8 @@ class AnimeShApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
+        # priority so `?` opens help even while the search box has focus.
+        Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
     ]
 
@@ -78,6 +80,13 @@ class AnimeShApp(App):
             self.query_one("#search").focus()
         except Exception:
             pass
+
+    def action_help(self) -> None:
+        from .screens.help import HelpScreen
+
+        # Don't stack multiple help modals.
+        if not isinstance(self.screen, HelpScreen):
+            self.push_screen(HelpScreen())
 
     def action_back(self) -> None:
         if len(self.screen_stack) > 1:  # keep the base HomeScreen
