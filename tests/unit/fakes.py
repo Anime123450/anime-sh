@@ -140,6 +140,11 @@ class FakeLibrary:
     async def save_progress(self, progress: WatchProgress) -> None:
         self.saved.append(progress)
 
+    async def delete_progress(self, anime_id: AnimeId) -> int:
+        before = len(self.saved)
+        self.saved = [p for p in self.saved if p.anime_id.anilist != anime_id.anilist]
+        return before - len(self.saved)
+
     async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
         return [p for p in ([self._progress] if self._progress else []) + self.saved]
 

@@ -149,6 +149,10 @@ class Library(Protocol):
 
     async def save_progress(self, progress: WatchProgress) -> None: ...
 
+    async def delete_progress(self, anime_id: AnimeId) -> int:
+        """Remove all progress rows for a show (an "unwatch"). Returns the count
+        deleted."""
+
     async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]: ...
 
     async def all_progress_rows(self) -> list[WatchProgress]:
