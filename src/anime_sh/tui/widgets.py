@@ -7,15 +7,26 @@ from textual.widgets import Label, ListItem
 from ..domain.models import Anime
 
 
+def _lit(text: str) -> str:
+    """Escape a string so Textual renders it literally inside a markup label.
+
+    Titles come from AniList/providers and routinely contain square brackets —
+    a "[Mini]" batch, "[Oshi no Ko]" — which Textual's markup parser would
+    otherwise eat as a style tag, making the text vanish. Escaping the opening
+    bracket (after any backslash) keeps it visible.
+    """
+    return text.replace("\\", "\\\\").replace("[", r"\[")
+
+
 class AnimeItem(ListItem):
     """A ListItem that remembers which Anime (and optional resume episode) it is."""
 
     def __init__(self, anime: Anime, *, subtitle: str = "", resume_episode: float | None = None) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
-        label = anime.title.preferred
+        label = _lit(anime.title.preferred)
         if subtitle:
-            label = f"{label}  [dim]{subtitle}[/dim]"
+            label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
         super().__init__(Label(label))
 
 
@@ -51,7 +62,7 @@ class SourceItem(ListItem):
         self.source = source
         eps = f"{source.episode_count} eps" if source.episode_count else "? eps"
         label = (
-            f"{source.title}  "
-            f"[cyan]{source.provider}[/cyan] [dim]· {eps} · {source.audio.value.lower()}[/dim]"
+            f"{_lit(source.title)}  "
+            f"[cyan]{_lit(source.provider)}[/cyan] [dim]· {eps} · {source.audio.value.lower()}[/dim]"
         )
         super().__init__(Label(label))
