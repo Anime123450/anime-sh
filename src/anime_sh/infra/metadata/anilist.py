@@ -47,6 +47,25 @@ query ($search: String, $perPage: Int) {{
 }}
 """
 
+_FILTER_Q = f"""
+query ($search: String, $genres: [String], $year: Int, $format: MediaFormat,
+       $status: MediaStatus, $sort: [MediaSort], $perPage: Int) {{
+  Page(perPage: $perPage) {{
+    media(search: $search, genre_in: $genres, seasonYear: $year, format: $format,
+          status: $status, type: ANIME, sort: $sort) {{ {_MEDIA_FIELDS} }}
+  }}
+}}
+"""
+
+# Friendly sort names → AniList MediaSort enum.
+_SORTS = {
+    "popularity": "POPULARITY_DESC",
+    "score": "SCORE_DESC",
+    "trending": "TRENDING_DESC",
+    "newest": "START_DATE_DESC",
+    "title": "TITLE_ROMAJI",
+}
+
 _GET_Q = f"""
 query ($id: Int, $malId: Int) {{
   Media(id: $id, idMal: $malId, type: ANIME) {{ {_MEDIA_FIELDS} }}
@@ -162,6 +181,36 @@ class AniListMetadata:
 
     async def search(self, query: str, *, limit: int = 20) -> list[Anime]:
         data = await self._query(_SEARCH_Q, {"search": query, "perPage": limit})
+        return [_to_anime(m) for m in data["Page"]["media"]]
+
+    async def search_filtered(
+        self,
+        query: str | None = None,
+        *,
+        genres: list[str] | None = None,
+        year: int | None = None,
+        format: str | None = None,
+        status: str | None = None,
+        sort: str | None = None,
+        limit: int = 20,
+    ) -> list[Anime]:
+        """Search/browse with filters. With no ``query`` this is a discovery
+        browse (defaults to most-popular); with one it ranks by relevance unless
+        a ``sort`` is given. ``sort`` is a friendly name (popularity/score/…)."""
+        sort_enum = _SORTS.get((sort or "").lower()) or (
+            "SEARCH_MATCH" if query else "POPULARITY_DESC"
+        )
+        variables = {
+            "search": query,
+            "genres": [g.title() for g in genres] if genres else None,
+            "year": year,
+            "format": format.upper() if format else None,
+            "status": status.upper() if status else None,
+            "sort": [sort_enum],
+            "perPage": limit,
+        }
+        variables = {k: v for k, v in variables.items() if v is not None}
+        data = await self._query(_FILTER_Q, variables)
         return [_to_anime(m) for m in data["Page"]["media"]]
 
     async def get(self, id: AnimeId) -> Anime:

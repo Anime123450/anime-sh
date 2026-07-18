@@ -7,6 +7,8 @@ the show's metadata so the favorites list renders offline; the identity spine
 
 from __future__ import annotations
 
+from collections import Counter
+
 from ..domain.models import (
     Anime,
     AnimeId,
@@ -14,6 +16,7 @@ from ..domain.models import (
     HistoryItem,
     ResumeItem,
     WatchProgress,
+    WatchStats,
 )
 from ..domain.ports import Library
 
@@ -30,8 +33,51 @@ class LibraryService:
         screen's watched/in-progress marks."""
         return await self._library.all_progress(anime_id)
 
+    async def mark_watched(
+        self, anime: Anime, up_to: float, *, single: bool = False
+    ) -> list[float]:
+        """Mark episodes complete without playing. By default every episode
+        1..``up_to`` (catch-up); ``single`` marks only ``up_to``. Caches the
+        show's metadata so it renders offline. Returns the episodes marked."""
+        from datetime import datetime, timezone
+
+        numbers = [up_to] if single else [float(n) for n in range(1, int(up_to) + 1)]
+        now = datetime.now(timezone.utc)
+        await self._library.save_anime(anime)
+        for n in numbers:
+            await self._library.save_progress(
+                WatchProgress(anime_id=anime.id, episode=n, position_s=1,
+                              duration_s=1, updated_at=now, completed=True)
+            )
+        return numbers
+
     async def history(self, *, limit: int = 50) -> list[HistoryItem]:
         return await self._library.list_history(limit=limit)
+
+    async def stats(self) -> WatchStats:
+        """Summarize watch history: episodes, hours, top providers and genres.
+
+        Time and provider/genre breakdowns come from history (weighted by how
+        much you actually watched); episode/show counts come from progress."""
+        history = await self._library.list_history(limit=1_000_000)
+        progress = await self._library.all_progress_rows()
+        providers: Counter[str] = Counter()
+        genres: Counter[str] = Counter()
+        total_seconds = 0
+        for h in history:
+            total_seconds += max(h.seconds_watched, 0)
+            if h.provider:
+                providers[h.provider] += 1
+            for g in h.anime.genres:
+                genres[g] += 1
+        return WatchStats(
+            episodes_completed=sum(1 for p in progress if p.completed),
+            shows=len({p.anime_id.anilist for p in progress if p.anime_id.anilist}),
+            sessions=len(history),
+            total_seconds=total_seconds,
+            top_providers=tuple(providers.most_common(5)),
+            top_genres=tuple(genres.most_common(8)),
+        )
 
     async def favorites(self) -> list[FavoriteItem]:
         return await self._library.list_favorites()

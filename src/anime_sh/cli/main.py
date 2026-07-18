@@ -12,7 +12,7 @@ import contextlib
 import json
 import random as rng
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import typer
 from rich.console import Console
@@ -22,7 +22,7 @@ from .. import __version__
 from ..config import load_config
 from ..config.loader import config_path
 from ..domain.errors import AnimeShError
-from ..domain.models import Audio, Season
+from ..domain.models import Audio, Season, WatchProgress
 from ..infra import registry
 from .container import build_container
 from .doctor import run_doctor
@@ -50,7 +50,7 @@ err = Console(stderr=True)
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
-    "seasonal", "calendar", "random", "sources", "auth", "sync",
+    "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
 }
 
 
@@ -177,12 +177,21 @@ def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
 # --------------------------------------------------------------------------- #
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Title to search for."),
+    query: str = typer.Argument(None, help="Title to search for (optional with filters)."),
+    genre: list[str] = typer.Option(None, "--genre", "-g", help="Filter by genre (repeatable)."),
+    year: int = typer.Option(None, "--year", help="Filter by release year."),
+    fmt: str = typer.Option(None, "--format", help="TV|MOVIE|OVA|ONA|SPECIAL."),
+    status: str = typer.Option(None, "--status", help="RELEASING|FINISHED|NOT_YET_RELEASED."),
+    sort: str = typer.Option(None, "--sort", help="popularity|score|trending|newest|title."),
     limit: int = typer.Option(20, "-n", "--limit"),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
-    """Search AniList for anime (no providers touched — instant)."""
-    asyncio.run(_search(query, limit, as_json))
+    """Search AniList (no providers touched — instant).
+
+    With filters and no title it browses, e.g.
+    `anime search --genre action --year 2024 --sort score`.
+    """
+    asyncio.run(_search(query, genre, year, fmt, status, sort, limit, as_json))
 
 
 @app.command()
@@ -346,6 +355,27 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
     asyncio.run(_downloads(as_json))
 
 
+@app.command()
+def stats(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Summarize your watch history: episodes, hours, top providers & genres."""
+    asyncio.run(_stats(as_json))
+
+
+@app.command()
+def mark(
+    query: str = typer.Argument(..., help="Title to mark."),
+    episode: float = typer.Option(..., "-e", "--episode", help="Episode watched."),
+    single: bool = typer.Option(
+        False, "--single", help="Mark only this episode (not 1..N)."
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Mark progress without playing — catch up to an episode you watched
+    elsewhere. Sets episodes 1..N complete locally and, if AniList is linked,
+    pushes your progress there too."""
+    asyncio.run(_mark(query, episode, single, as_json))
+
+
 @favorite_app.command("add")
 def favorite_add(query: str = typer.Argument(..., help="Title to favorite.")) -> None:
     """Add the best match for a title to favorites."""
@@ -367,18 +397,101 @@ def favorite_ls(as_json: bool = typer.Option(False, "--json")) -> None:
 # --------------------------------------------------------------------------- #
 # Async implementations
 # --------------------------------------------------------------------------- #
-async def _search(query: str, limit: int, as_json: bool) -> None:
+async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None:
+    filtered = any(x for x in (genre, year, fmt, status, sort))
+    if not query and not filtered:
+        err.print("[red]Give a title to search, or filters to browse[/] "
+                  "(e.g. --genre action --sort score).")
+        raise typer.Exit(code=1)
     c = build_container()
     try:
-        results = await c.search.search(query, limit=limit)
+        if filtered:
+            animes = await c.metadata.search_filtered(
+                query, genres=genre, year=year, format=fmt, status=status,
+                sort=sort, limit=limit,
+            )
+        else:
+            animes = [r.anime for r in await c.search.search(query, limit=limit)]
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
     finally:
         await c.aclose()
 
     if as_json:
-        json.dump([_anime_dict(r.anime) for r in results], sys.stdout)
+        json.dump([_anime_dict(a) for a in animes], sys.stdout)
         sys.stdout.write("\n")
         return
-    _print_anime_table(f"Results for {query!r}", [r.anime for r in results])
+    heading = f"Results for {query!r}" if query else "Browse"
+    _print_anime_table(heading, animes)
+
+
+async def _stats(as_json: bool) -> None:
+    c = build_container()
+    try:
+        s = await c.library_service.stats()
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            {"episodes_completed": s.episodes_completed, "shows": s.shows,
+             "sessions": s.sessions, "hours": s.hours,
+             "total_seconds": s.total_seconds,
+             "top_providers": [list(p) for p in s.top_providers],
+             "top_genres": [list(g) for g in s.top_genres]},
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if s.sessions == 0:
+        console.print("[dim]No watch history yet. Go watch something![/]")
+        return
+    console.print(
+        f"[b]Your anime-sh stats[/b]\n"
+        f"  [cyan]{s.episodes_completed}[/cyan] episodes finished across "
+        f"[cyan]{s.shows}[/cyan] shows\n"
+        f"  [cyan]{s.hours}[/cyan] hours watched over [cyan]{s.sessions}[/cyan] sessions"
+    )
+    if s.top_genres:
+        console.print("  [dim]top genres:[/] " +
+                      ", ".join(f"{g} ({n})" for g, n in s.top_genres[:5]))
+    if s.top_providers:
+        console.print("  [dim]providers:[/]  " +
+                      ", ".join(f"{p} ({n})" for p, n in s.top_providers))
+
+
+async def _mark(query: str, episode: float, single: bool, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        numbers = await c.library_service.mark_watched(anime, episode, single=single)
+        synced = False
+        if c.tracker is not None and anime.id.anilist is not None:
+            try:
+                await c.tracker.push(
+                    WatchProgress(anime.id, episode, 1, 1,
+                                  datetime.now(timezone.utc), completed=True),
+                    total=anime.episode_count,
+                )
+                synced = True
+            except Exception as e:
+                err.print(f"[yellow]Marked locally, but AniList sync failed:[/] {e}")
+        if as_json:
+            json.dump(
+                {"anilist_id": anime.id.anilist, "title": anime.title.preferred,
+                 "marked": numbers, "synced_anilist": synced},
+                sys.stdout,
+            )
+            sys.stdout.write("\n")
+            return
+        span = f"episode {episode:g}" if single else f"episodes 1–{episode:g}"
+        tail = " [dim](synced to AniList)[/]" if synced else ""
+        console.print(f"[green]Marked[/] {anime.title.preferred} {span} watched{tail}.")
+    finally:
+        await c.aclose()
 
 
 async def _trending(limit: int, as_json: bool) -> None:
@@ -978,6 +1091,8 @@ def _anime_dict(a) -> dict:
         "season": a.season.value if a.season else None,
         "year": a.year,
         "genres": list(a.genres),
+        "average_score": a.average_score,
+        "studio": a.studio,
     }
 
 
