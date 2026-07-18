@@ -43,6 +43,15 @@ def _progress(anilist, episode, pos, completed=False):
     )
 
 
+async def test_all_progress_lists_every_episode_for_one_show(library):
+    await library.save_progress(_progress(1, 1.0, 1400, completed=True))
+    await library.save_progress(_progress(1, 2.0, 700))
+    await library.save_progress(_progress(2, 1.0, 100))  # different show
+    rows = await library.all_progress(AnimeId(anilist=1))
+    assert [(p.episode, p.completed) for p in rows] == [(1.0, True), (2.0, False)]
+    assert await library.all_progress(AnimeId(anilist=99)) == []
+
+
 async def test_anime_cache_round_trip(library):
     await library.save_anime(_anime())
     got = await library.get_anime(AnimeId(anilist=154587))

@@ -125,6 +125,28 @@ class SqliteLibrary:
         )
         await conn.commit()
 
+    async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
+        if anime_id.anilist is None:
+            return []
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT episode, position_s, duration_s, completed, updated_at "
+            "FROM progress WHERE anilist_id=? ORDER BY episode",
+            (anime_id.anilist,),
+        )
+        rows = await cur.fetchall()
+        return [
+            WatchProgress(
+                anime_id=anime_id,
+                episode=row["episode"],
+                position_s=row["position_s"],
+                duration_s=row["duration_s"],
+                completed=bool(row["completed"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
     async def continue_watching(self, *, limit: int = 20) -> list[ResumeItem]:
         conn = await self._db.connect()
         cur = await conn.execute(

@@ -143,7 +143,12 @@ class AniListMetadata:
         return [_to_anime(m) for m in data["Page"]["media"]]
 
     async def get(self, id: AnimeId) -> Anime:
-        data = await self._query(_GET_Q, {"id": id.anilist, "malId": id.mal})
+        # Omit missing ids entirely: an explicit {"malId": null} makes AniList
+        # match Media(idMal: null) and 404 even when the AniList id is valid.
+        variables = {
+            k: v for k, v in (("id", id.anilist), ("malId", id.mal)) if v is not None
+        }
+        data = await self._query(_GET_Q, variables)
         media = data.get("Media")
         if not media:
             raise MetadataError(f"AniList has no media for {id.key}")

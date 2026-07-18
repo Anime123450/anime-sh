@@ -140,6 +140,9 @@ class FakeLibrary:
     async def save_progress(self, progress: WatchProgress) -> None:
         self.saved.append(progress)
 
+    async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
+        return [p for p in ([self._progress] if self._progress else []) + self.saved]
+
     async def continue_watching(self, *, limit: int = 20):
         return []
 
