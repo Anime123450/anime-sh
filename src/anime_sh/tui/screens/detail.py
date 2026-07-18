@@ -62,9 +62,16 @@ class DetailScreen(Screen):
             planned = self.anime.episode_count
             of = f"/{planned}" if planned else ""
             self.sub_title = f"{len(available)}{of} episodes available{src}"
-            await self._render_episodes(available)
+            # Keep the whole planned season visible; mark what isn't out yet
+            # instead of hiding it.
+            numbers = sorted(
+                {float(n) for n in range(1, (planned or 0) + 1)} | set(available)
+            )
+            await self._render_episodes(numbers, available=set(available))
 
-    async def _render_episodes(self, numbers: list[float]) -> None:
+    async def _render_episodes(
+        self, numbers: list[float], available: set[float] | None = None
+    ) -> None:
         lv = self.query_one("#episodes", ListView)
         await lv.clear()
         select_index = 0
@@ -72,13 +79,25 @@ class DetailScreen(Screen):
             is_resume = self.resume_episode is not None and number == self.resume_episode
             if is_resume:
                 select_index = i
-            lv.append(EpisodeItem(number, resume_s=1 if is_resume else 0))
+            lv.append(
+                EpisodeItem(
+                    number,
+                    resume_s=1 if is_resume else 0,
+                    available=available is None or number in available,
+                )
+            )
         lv.index = select_index
         lv.focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, EpisodeItem):
+            if not item.available:
+                self.notify(
+                    f"Episode {item.number:g} isn't available yet.",
+                    severity="warning",
+                )
+                return
             self._play(item.number)
 
     @work(exclusive=True, group="play")
