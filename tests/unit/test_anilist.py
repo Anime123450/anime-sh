@@ -11,8 +11,15 @@ class _FakeHttp:
         self.sent = None
         self._page = page
 
+    def __init__(self, page=False, response=None):
+        self.sent = None
+        self._page = page
+        self._response = response
+
     async def post_json(self, url, *, json=None, headers=None):
         self.sent = json
+        if self._response is not None:
+            return self._response
         if self._page:
             return {"data": {"Page": {"media": [{"id": 1, "title": {"romaji": "A"}}]}}}
         return {"data": {"Media": {"id": 196187, "title": {"romaji": "X"}}}}
@@ -48,6 +55,26 @@ async def test_search_filtered_builds_variables_and_maps_sort():
     assert v["sort"] == ["SCORE_DESC"] and v["perPage"] == 5
     assert "search" not in v  # omitted when None
     assert out and out[0].id.anilist == 1
+
+
+async def test_sequel_returns_first_anime_sequel_edge():
+    resp = {"data": {"Media": {"relations": {"edges": [
+        {"relationType": "PREQUEL", "node": {"type": "ANIME", "id": 9,
+         "title": {"romaji": "Prev"}}},
+        {"relationType": "SEQUEL", "node": {"type": "MANGA", "id": 8,
+         "title": {"romaji": "Manga"}}},  # wrong media type, skip
+        {"relationType": "SEQUEL", "node": {"type": "ANIME", "id": 7,
+         "title": {"romaji": "Season 2"}}},
+    ]}}}}
+    meta = AniListMetadata(http=_FakeHttp(response=resp))
+    seq = await meta.sequel(AnimeId(anilist=1))
+    assert seq is not None and seq.id.anilist == 7
+
+
+async def test_sequel_none_when_no_sequel():
+    resp = {"data": {"Media": {"relations": {"edges": []}}}}
+    meta = AniListMetadata(http=_FakeHttp(response=resp))
+    assert await meta.sequel(AnimeId(anilist=1)) is None
 
 
 async def test_search_filtered_defaults_sort_by_context():

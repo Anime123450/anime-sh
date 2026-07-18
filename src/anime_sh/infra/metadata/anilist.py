@@ -72,6 +72,14 @@ query ($id: Int, $malId: Int) {{
 }}
 """
 
+_RELATIONS_Q = f"""
+query ($id: Int) {{
+  Media(id: $id, type: ANIME) {{
+    relations {{ edges {{ relationType node {{ type {_MEDIA_FIELDS} }} }} }}
+  }}
+}}
+"""
+
 _TRENDING_Q = f"""
 query ($perPage: Int) {{
   Page(perPage: $perPage) {{
@@ -224,6 +232,19 @@ class AniListMetadata:
         if not media:
             raise MetadataError(f"AniList has no media for {id.key}")
         return _to_anime(media)
+
+    async def sequel(self, id: AnimeId) -> Anime | None:
+        """The direct sequel (next season) of a show, or None. Only ANIME nodes
+        with a SEQUEL relation are considered."""
+        if id.anilist is None:
+            return None
+        data = await self._query(_RELATIONS_Q, {"id": id.anilist})
+        media = data.get("Media") or {}
+        for edge in (media.get("relations") or {}).get("edges") or []:
+            node = edge.get("node") or {}
+            if edge.get("relationType") == "SEQUEL" and node.get("type") == "ANIME":
+                return _to_anime(node)
+        return None
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
         data = await self._query(_TRENDING_Q, {"perPage": limit})

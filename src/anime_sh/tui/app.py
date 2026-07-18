@@ -30,6 +30,8 @@ class TuiServices:
     library: LibraryService
     playback: PlaybackService
     aclose: Callable[[], Awaitable[None]]
+    # Optional AniList tracker — enables the My List screen when linked.
+    tracker: object | None = None
 
 
 # Map our config theme names onto Textual's built-in themes.
@@ -47,6 +49,7 @@ class AnimeShApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
+        Binding("l", "my_list", "My List"),
         # priority so `?` opens help even while the search box has focus.
         Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
@@ -87,6 +90,16 @@ class AnimeShApp(App):
         # Don't stack multiple help modals.
         if not isinstance(self.screen, HelpScreen):
             self.push_screen(HelpScreen())
+
+    def action_my_list(self) -> None:
+        from .screens.mylist import MyListScreen
+
+        if self.services.tracker is None:
+            self.notify("Link AniList first: run `anime auth login`.",
+                        severity="warning")
+            return
+        if not isinstance(self.screen, MyListScreen):
+            self.push_screen(MyListScreen())
 
     def action_back(self) -> None:
         if len(self.screen_stack) > 1:  # keep the base HomeScreen

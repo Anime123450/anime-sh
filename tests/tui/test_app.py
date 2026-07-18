@@ -17,6 +17,7 @@ from anime_sh.domain.models import (
     AnimeId,
     FavoriteItem,
     Format,
+    ListEntry,
     ResumeItem,
     SearchResult,
     Title,
@@ -25,6 +26,7 @@ from anime_sh.domain.models import (
 from anime_sh.tui import AnimeShApp, TuiServices
 from anime_sh.tui.screens.detail import DetailScreen
 from anime_sh.tui.screens.help import HelpScreen
+from anime_sh.tui.screens.mylist import MyListScreen
 
 
 def _anime(anilist, title, eps=12):
@@ -44,6 +46,15 @@ class FakeMetadata:
         return [_anime(10, "One Piece", eps=1100), _anime(11, "Bleach")]
     async def seasonal(self, season, year):
         return [_anime(20, "New Show", eps=12)]
+    async def sequel(self, anime_id):
+        return None
+
+
+class FakeTracker:
+    def __init__(self, entries=None):
+        self.entries = entries or []
+    async def fetch_list(self):
+        return list(self.entries)
 
 
 class FakeLibrary:
@@ -74,12 +85,12 @@ class FakePlayback:
         self.on_event = cb
 
 
-def _make_app():
+def _make_app(tracker=None):
     playback = FakePlayback()
     services = TuiServices(
         search=FakeSearch(), metadata=FakeMetadata(),
         library=FakeLibrary(), playback=playback,
-        aclose=_noop,
+        aclose=_noop, tracker=tracker,
     )
     return AnimeShApp(services, theme="tokyo-night"), playback
 
@@ -113,6 +124,35 @@ async def test_favorites_section_shows_when_present_else_hidden():
         await pilot.pause()
         favs = app.query_one("#favorites", ListView)
         assert len(favs) == 1 and favs.display is True
+
+
+async def test_my_list_screen_groups_entries():
+    entries = [
+        ListEntry(anime=_anime(1, "Now"), status="CURRENT", progress=5, score=8.0),
+        ListEntry(anime=_anime(2, "Todo"), status="PLANNING", progress=0),
+    ]
+    app, _ = _make_app(tracker=FakeTracker(entries))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.press("l")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, MyListScreen)
+        # Both entries rendered across the grouped lists.
+        total = sum(len(lv) for lv in app.screen.query(ListView))
+        assert total == 2
+
+
+async def test_my_list_warns_without_tracker():
+    app, _ = _make_app(tracker=None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.press("l")
+        await pilot.pause()
+        assert not isinstance(app.screen, MyListScreen)  # stays home; just a toast
 
 
 async def test_help_overlay_opens_on_question_mark():

@@ -51,7 +51,7 @@ KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
     "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
-    "unmark", "list", "rate", "status",
+    "unmark", "list", "rate", "status", "next",
 }
 
 
@@ -83,6 +83,7 @@ def _launch_tui() -> None:
         library=c.library_service,
         playback=c.playback,
         aclose=c.aclose,
+        tracker=c.tracker,
     )
     asyncio.run(run_tui(services, theme=config.ui.theme))
 
@@ -356,6 +357,15 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
     asyncio.run(_downloads(as_json))
 
 
+@app.command()
+def next(
+    query: str = typer.Argument(..., help="Title to find the sequel of."),
+    as_json: bool = typer.Option(False, "--json", help="Show the sequel; don't play."),
+) -> None:
+    """Find and play the next season (sequel) of a show."""
+    asyncio.run(_next(query, as_json))
+
+
 @app.command(name="list")
 def list_cmd(
     status: str = typer.Option(
@@ -465,6 +475,31 @@ async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None
 
 # Display order for list statuses.
 _STATUS_ORDER = ["watching", "rewatching", "paused", "planning", "completed", "dropped"]
+
+
+async def _next(query: str, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        sequel = await c.metadata.sequel(anime.id)
+        if sequel is None:
+            console.print(f"[dim]{anime.title.preferred} has no next season.[/]")
+            raise typer.Exit(code=0)
+        if as_json:
+            json.dump(_anime_dict(sequel), sys.stdout)
+            sys.stdout.write("\n")
+            return
+        err.print(f"[cyan]▶ Next season:[/] {sequel.title.preferred}")
+        audio = Audio.DUB if load_config().playback.audio == "dub" else Audio.SUB
+        await c.playback.play_and_track(sequel, 1.0, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
 
 
 async def _list(status: str | None, as_json: bool) -> None:

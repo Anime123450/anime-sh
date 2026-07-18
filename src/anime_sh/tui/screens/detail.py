@@ -23,7 +23,10 @@ _COVER_COLS = 22
 
 
 class DetailScreen(Screen):
-    BINDINGS = [("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        ("escape", "app.pop_screen", "Back"),
+        ("n", "next_season", "Next season"),
+    ]
 
     DEFAULT_CSS = """
     DetailScreen #detail-top { height: auto; }
@@ -175,6 +178,23 @@ class DetailScreen(Screen):
             )
         except Exception as e:  # keep the TUI alive on any playback failure
             self.notify(f"Playback error: {e}", severity="error")
+
+    def action_next_season(self) -> None:
+        self._open_next_season()
+
+    @work(exclusive=True, group="sequel")
+    async def _open_next_season(self) -> None:
+        try:
+            sequel = await self.app.services.metadata.sequel(self.anime.id)
+        except Exception:
+            sequel = None
+        if sequel is None:
+            self.notify("No next season found.", severity="warning")
+            return
+        from .sources import SourcesScreen
+
+        self.notify(f"Next season: {sequel.title.preferred}")
+        self.app.push_screen(SourcesScreen(sequel))
 
     def _header_text(self) -> str:
         a = self.anime
