@@ -63,6 +63,8 @@ anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
 allanime-clock = "anime_sh.resolvers.allanime:AllAnimeClockResolver"
 mp4upload = "anime_sh.resolvers.mp4upload:Mp4UploadResolver"
 megaplay = "anime_sh.resolvers.vidtube:VidtubeResolver"
+filemoon = "anime_sh.resolvers.filemoon:FilemoonResolver"
+streamwish = "anime_sh.resolvers.streamwish:StreamwishResolver"
 generic = "anime_sh.resolvers.generic:GenericStreamResolver"
 
 [build-system]
