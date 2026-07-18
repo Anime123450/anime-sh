@@ -147,6 +147,25 @@ class SqliteLibrary:
             for row in rows
         ]
 
+    async def all_progress_rows(self) -> list[WatchProgress]:
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT anilist_id, episode, position_s, duration_s, completed, "
+            "updated_at FROM progress ORDER BY anilist_id, episode"
+        )
+        rows = await cur.fetchall()
+        return [
+            WatchProgress(
+                anime_id=AnimeId(anilist=row["anilist_id"]),
+                episode=row["episode"],
+                position_s=row["position_s"],
+                duration_s=row["duration_s"],
+                completed=bool(row["completed"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
     async def continue_watching(self, *, limit: int = 20) -> list[ResumeItem]:
         conn = await self._db.connect()
         cur = await conn.execute(

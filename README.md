@@ -29,10 +29,20 @@ anime history                # what you've watched
 anime favorite add "Frieren" # ★  (also: favorite ls / rm)
 anime download "Frieren" -e 1  # save to disk (ffmpeg); also: anime downloads
 
+anime auth login             # link AniList (one-time); status / logout
+anime sync pull              # import your AniList list; sync push sends yours up
+
 anime doctor                 # player, ffmpeg, config, database, plugins
 anime config path | validate
 anime providers ls
 ```
+
+**AniList sync.** Link your account once with `anime auth login` (create a free
+API client at [anilist.co/settings/developer](https://anilist.co/settings/developer),
+redirect URL `https://anilist.co/api/v2/oauth/pin`, then paste the token — your
+password is never involved). After that, finishing an episode automatically bumps
+your AniList progress. `anime sync pull` imports your existing list into the local
+library; `anime sync push` sends your local history up in one pass.
 
 Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
 `favorite ls` for machine-readable output (`play --json` resolves the stream

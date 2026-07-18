@@ -124,7 +124,9 @@ class Tracker(Protocol):
 
     name: str
 
-    async def push(self, progress: WatchProgress) -> None: ...
+    async def push(self, progress: WatchProgress, *, total: int | None = None) -> None:
+        """Push one show's progress. ``total`` (the planned episode count, when
+        known) lets the tracker mark an entry COMPLETED on its finale."""
 
     async def pull(self) -> list[WatchProgress]: ...
 
@@ -148,6 +150,10 @@ class Library(Protocol):
     async def save_progress(self, progress: WatchProgress) -> None: ...
 
     async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]: ...
+
+    async def all_progress_rows(self) -> list[WatchProgress]:
+        """Every show's latest progress row — for pushing local state to a
+        tracker in one pass."""
 
     async def continue_watching(self, *, limit: int = 20) -> list["ResumeItem"]: ...
 

@@ -30,7 +30,7 @@ from ..domain.models import (
     StreamCandidate,
     WatchProgress,
 )
-from ..domain.ports import Library, Player, Resolver
+from ..domain.ports import Library, Player, Resolver, Tracker
 from ..domain.ranking import pick_stream
 from .providers import ProviderManager
 
@@ -71,6 +71,7 @@ class PlaybackService:
         skip_outro: bool = False,
         auto_next: bool = True,
         stream_proxy=None,
+        tracker: "Tracker | None" = None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
         self._providers = providers
@@ -80,6 +81,8 @@ class PlaybackService:
         self._quality = quality
         # Optional de-obfuscating proxy for hostile CDNs (PNG-disguised segments).
         self._stream_proxy = stream_proxy
+        # Optional list-sync tracker (AniList): progress is pushed on completion.
+        self._tracker = tracker
         self._skip_intro = skip_intro
         self._skip_outro = skip_outro
         self._auto_next = auto_next
@@ -279,7 +282,30 @@ class PlaybackService:
                     provider=provider,
                     seconds_watched=max(last_event.position_s, 0),
                 )
+                if _is_complete(last_event):
+                    await self._sync_progress(anime, episode_number)
         return played, last_event
+
+    async def _sync_progress(self, anime: Anime, episode_number: float) -> None:
+        """Push a completed episode to the list tracker (AniList). Best-effort:
+        a sync failure must never disrupt playback."""
+        if self._tracker is None or anime.id.anilist is None:
+            return
+        try:
+            await self._tracker.push(
+                WatchProgress(
+                    anime_id=anime.id,
+                    episode=episode_number,
+                    position_s=0,
+                    duration_s=0,
+                    updated_at=datetime.now(timezone.utc),
+                    completed=True,
+                ),
+                total=anime.episode_count,
+            )
+            self._notify(f"Synced to {self._tracker.name}: episode {episode_number:g}")
+        except Exception as e:  # pragma: no cover - network best-effort
+            log.debug("tracker push failed: %s", e)
 
     def _has_next(self, anime: Anime, number: float) -> bool:
         return anime.episode_count is not None and number < anime.episode_count
@@ -332,6 +358,12 @@ def _ep_label(anime: Anime, number: float) -> str:
 
 def _window_title(anime: Anime, number: float) -> str:
     return f"{anime.title.preferred} - Episode {_ep_label(anime, number)}"
+
+
+def _is_complete(ev) -> bool:
+    """Whether a playback event crossed the completion threshold."""
+    duration = max(getattr(ev, "duration_s", 0), 0)
+    return duration > 0 and (ev.position_s / duration) >= _COMPLETE_FRACTION
 
 
 def _find_episode(episodes: list[Episode], number: float) -> Episode | None:

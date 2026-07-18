@@ -8,6 +8,7 @@ Bare ``anime`` with no args will launch the TUI (M4); for now it shows help.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random as rng
 import sys
@@ -35,9 +36,13 @@ app = typer.Typer(
 config_app = typer.Typer(help="View and edit configuration.")
 providers_app = typer.Typer(help="Inspect installed provider plugins.")
 favorite_app = typer.Typer(help="Manage favorites.")
+auth_app = typer.Typer(help="Link an AniList account for watch-status sync.")
+sync_app = typer.Typer(help="Sync watch progress with AniList.")
 app.add_typer(config_app, name="config")
 app.add_typer(providers_app, name="providers")
 app.add_typer(favorite_app, name="favorite")
+app.add_typer(auth_app, name="auth")
+app.add_typer(sync_app, name="sync")
 
 console = Console()
 err = Console(stderr=True)
@@ -45,7 +50,7 @@ err = Console(stderr=True)
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
-    "seasonal", "calendar", "random", "sources",
+    "seasonal", "calendar", "random", "sources", "auth", "sync",
 }
 
 
@@ -229,6 +234,58 @@ def sources(
 ) -> None:
     """List every provider entry that matches a title (the source picker)."""
     asyncio.run(_sources(query, dub, as_json))
+
+
+# --------------------------------------------------------------------------- #
+# AniList auth + sync
+# --------------------------------------------------------------------------- #
+@auth_app.command("login")
+def auth_login(
+    client_id: str = typer.Option(
+        None, "--client-id",
+        help="Your AniList API client id (from anilist.co/settings/developer).",
+    ),
+    token: str = typer.Option(
+        None, "--token", help="Paste an access token directly (skips the browser)."
+    ),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
+) -> None:
+    """Link your AniList account so watch progress syncs automatically.
+
+    One-time setup: create an API client at
+    https://anilist.co/settings/developer (any name; set "Redirect URL" to
+    https://anilist.co/api/v2/oauth/pin). Then run this and paste the token.
+    """
+    asyncio.run(_auth_login(client_id, token, no_browser))
+
+
+@auth_app.command("status")
+def auth_status() -> None:
+    """Show whether an AniList account is linked (and who)."""
+    asyncio.run(_auth_status())
+
+
+@auth_app.command("logout")
+def auth_logout() -> None:
+    """Remove the saved AniList token."""
+    from ..infra.tracker import clear_token
+
+    if clear_token():
+        console.print("[green]Logged out[/] — AniList token removed.")
+    else:
+        console.print("[dim]No AniList token was saved.[/]")
+
+
+@sync_app.command("push")
+def sync_push() -> None:
+    """Push all local watch progress up to AniList."""
+    asyncio.run(_sync("push"))
+
+
+@sync_app.command("pull")
+def sync_pull() -> None:
+    """Import your AniList list into the local library."""
+    asyncio.run(_sync("pull"))
 
 
 @app.command()
@@ -433,6 +490,100 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
         else:
             err.print("[dim]Searching providers and resolving stream…[/]")
             await c.playback.play_and_track(anime, episode, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _auth_login(client_id: str | None, token: str | None, no_browser: bool) -> None:
+    import webbrowser
+
+    from ..infra.tracker import (
+        AniListTracker,
+        authorize_url,
+        extract_token,
+        save_token,
+    )
+    from ..infra.tracker.tokens import load_client_id
+
+    # A token can be pasted directly; otherwise walk the browser handshake.
+    if not token:
+        client_id = client_id or load_client_id()
+        if not client_id:
+            err.print(
+                "[yellow]One-time setup:[/] create an API client at "
+                "https://anilist.co/settings/developer\n"
+                "  • Name: anything (e.g. anime-sh)\n"
+                "  • Redirect URL: https://anilist.co/api/v2/oauth/pin\n"
+                "Then re-run: [bold]anime auth login --client-id <ID>[/]"
+            )
+            raise typer.Exit(code=1)
+        url = authorize_url(client_id)
+        console.print(f"\nOpen this URL and authorise, then copy the token shown:\n[cyan]{url}[/]\n")
+        if not no_browser:
+            with contextlib.suppress(Exception):
+                webbrowser.open(url)
+        pasted = typer.prompt("Paste the access token (or the full redirect URL)")
+        token = extract_token(pasted)
+        if not token:
+            err.print("[red]Couldn't find an access token in that input.[/]")
+            raise typer.Exit(code=1)
+
+    tracker = AniListTracker(token)
+    try:
+        viewer = await tracker.viewer()
+    except Exception as e:
+        err.print(f"[red]AniList rejected the token:[/] {e}")
+        raise typer.Exit(code=1)
+    finally:
+        await tracker.aclose()
+
+    save_token(token, client_id=client_id)
+    console.print(
+        f"[green]Linked AniList as[/] [bold]{viewer['name']}[/]. "
+        "Progress will now sync when you finish an episode.\n"
+        "[dim]Tip: `anime sync pull` imports your existing list; "
+        "`anime sync push` sends your local history up.[/]"
+    )
+
+
+async def _auth_status() -> None:
+    from ..infra.tracker import AniListTracker, load_token
+
+    token = load_token()
+    if not token:
+        console.print("[dim]Not linked.[/] Run [bold]anime auth login[/] to connect AniList.")
+        return
+    tracker = AniListTracker(token)
+    try:
+        viewer = await tracker.viewer()
+        console.print(f"[green]Linked[/] as [bold]{viewer['name']}[/] (AniList id {viewer['id']}).")
+    except Exception as e:
+        console.print(f"[yellow]Token saved but not working:[/] {e}\nRe-run [bold]anime auth login[/].")
+    finally:
+        await tracker.aclose()
+
+
+async def _sync(direction: str) -> None:
+    c = build_container()
+    try:
+        if not c.sync.enabled:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/] first.")
+            raise typer.Exit(code=1)
+        if direction == "push":
+            err.print("[dim]Pushing local progress to AniList…[/]")
+            result = await c.sync.push()
+            console.print(
+                f"[green]Pushed[/] {result.pushed} show(s) to AniList"
+                + (f" ([dim]{result.skipped} skipped[/])" if result.skipped else "")
+                + "."
+            )
+        else:
+            err.print("[dim]Importing your AniList list…[/]")
+            result = await c.sync.pull()
+            console.print(f"[green]Imported[/] {result.pulled} ent(y/ies) from AniList.")
     except AnimeShError as e:
         err.print(f"[red]{e}[/]")
         raise typer.Exit(code=2)
