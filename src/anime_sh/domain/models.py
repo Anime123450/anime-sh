@@ -287,6 +287,22 @@ class HistoryItem:
 
 
 @dataclass(frozen=True, slots=True)
+class WatchStats:
+    """Aggregate view of the user's watch history — for ``anime stats``."""
+
+    episodes_completed: int
+    shows: int
+    sessions: int
+    total_seconds: int
+    top_providers: tuple[tuple[str, int], ...] = ()
+    top_genres: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def hours(self) -> float:
+        return round(self.total_seconds / 3600, 1)
+
+
+@dataclass(frozen=True, slots=True)
 class FavoriteItem:
     anime: Anime
     added_at: datetime

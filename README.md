@@ -21,7 +21,10 @@ anime                        # launch the keyboard-driven TUI (needs [tui] extra
 anime "Frieren"              # search + best match + play episode 1
 anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime search "frieren"       # AniList search (instant; no providers touched)
+anime search --genre action --year 2024 --sort score   # browse with filters
 anime trending
+anime mark "Frieren" -e 12    # catch up: mark eps 1–12 watched (syncs to AniList)
+anime stats                   # episodes, hours, top genres & providers
 
 anime continue               # episodes you started but didn't finish
 anime resume                 # jump back into the most recent one

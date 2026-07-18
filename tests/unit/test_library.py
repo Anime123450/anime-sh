@@ -52,6 +52,45 @@ async def test_all_progress_lists_every_episode_for_one_show(library):
     assert await library.all_progress(AnimeId(anilist=99)) == []
 
 
+async def test_mark_watched_catches_up_to_episode(library):
+    svc = LibraryService(library)
+    marked = await svc.mark_watched(_anime(1, "Frieren"), 3.0)
+    assert marked == [1.0, 2.0, 3.0]
+    rows = await library.all_progress(AnimeId(anilist=1))
+    assert [(p.episode, p.completed) for p in rows] == [(1.0, True), (2.0, True), (3.0, True)]
+    # Metadata cached so it renders offline.
+    assert (await library.get_anime(AnimeId(anilist=1))) is not None
+    # Completed episodes don't show up in continue-watching.
+    assert await library.continue_watching() == []
+
+
+async def test_stats_aggregates_history_and_progress(library):
+    svc = LibraryService(library)
+    a = _anime(1, "Frieren")  # genres: Adventure, Fantasy
+    await library.save_anime(a)
+    await library.save_progress(_progress(1, 1.0, 1400, completed=True))
+    await library.save_progress(_progress(1, 2.0, 1400, completed=True))
+    await library.save_progress(_progress(2, 1.0, 100))  # different show, unfinished
+    await library.add_history(a.id, 1.0, provider="anikoto", seconds_watched=1400)
+    await library.add_history(a.id, 2.0, provider="anikoto", seconds_watched=1300)
+
+    s = await svc.stats()
+    assert s.episodes_completed == 2
+    assert s.shows == 2  # two distinct shows have progress
+    assert s.sessions == 2
+    assert s.total_seconds == 2700 and s.hours == round(2700 / 3600, 1)
+    assert ("anikoto", 2) in s.top_providers
+    assert ("Fantasy", 2) in s.top_genres  # weighted by the 2 history rows
+
+
+async def test_mark_watched_single_episode(library):
+    svc = LibraryService(library)
+    marked = await svc.mark_watched(_anime(2, "X"), 5.0, single=True)
+    assert marked == [5.0]
+    rows = await library.all_progress(AnimeId(anilist=2))
+    assert [p.episode for p in rows] == [5.0]
+
+
 async def test_anime_cache_round_trip(library):
     await library.save_anime(_anime())
     got = await library.get_anime(AnimeId(anilist=154587))
