@@ -116,6 +116,42 @@ def config_validate() -> None:
     typer.echo("config OK")
 
 
+@config_app.command("get")
+def config_get(key: str = typer.Argument(None, help="section.field (omit to dump all).")) -> None:
+    """Show a setting, or the whole resolved config."""
+    cfg = load_config()
+    data = cfg.model_dump()
+    if key is None:
+        json.dump(data, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return
+    section, _, field = key.partition(".")
+    if section not in data or (field and field not in data[section]):
+        err.print(f"[red]no such setting:[/] {key}")
+        raise typer.Exit(code=1)
+    typer.echo(data[section][field] if field else data[section])
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="section.field, e.g. playback.quality"),
+    value: str = typer.Argument(..., help="new value (comma-separate lists)"),
+) -> None:
+    """Change a setting and save it to the config file (validated first).
+
+    Examples: anime config set playback.quality 1080p ·
+    anime config set playback.audio dub · anime config set ui.theme nord
+    """
+    from ..config import set_config_value
+
+    try:
+        typed = set_config_value(key, value)
+    except Exception as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Set[/] {key} = [bold]{typed}[/]")
+
+
 @providers_app.command("ls")
 def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
     providers = registry.load_providers()
