@@ -10,6 +10,9 @@ import pytest
 from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Status, Title
 from anime_sh.infra.http import CloudflareChallenge
 from anime_sh.providers.allanime.decode import (
+    BUILD_ID,
+    QUERY_HASH,
+    build_aa_req,
     decode_source_url,
     decrypt_tobeparsed,
     encode_source_url,
@@ -38,6 +41,43 @@ def test_tobeparsed_roundtrip():
     payload = {"episode": {"sourceUrls": [{"sourceName": "Mp4", "sourceUrl": "x"}]}}
     blob = encrypt_tobeparsed(json.dumps(payload).encode())
     assert json.loads(decrypt_tobeparsed(blob).decode()) == payload
+
+
+def test_aa_req_token_shape_and_stability():
+    import base64
+
+    # Fixed timestamp → deterministic token; decodes to \x01 + 12-byte nonce +
+    # ciphertext + 16-byte GCM tag (AllAnime's aaReq layout).
+    tok = build_aa_req(now=1_699_999_800)
+    raw = base64.b64decode(tok)
+    assert raw[0] == 1
+    assert len(raw) >= 1 + 12 + 16
+    # 5-minute rounding: instants in the same 300s bucket ([...800, ...100))
+    # yield the same token; the next bucket differs.
+    assert build_aa_req(now=1_699_999_800) == build_aa_req(now=1_700_000_099)
+    assert build_aa_req(now=1_699_999_800) != build_aa_req(now=1_700_000_100)
+
+
+def test_aa_req_verifies_under_the_shared_key():
+    # The token must actually decrypt/authenticate with the AllAnime key, so a
+    # key/epoch/build-id drift is caught here, not just live.
+    import base64
+    import hashlib
+    import json as _json
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from anime_sh.providers.allanime.decode import _AES_KEY, _EPOCH
+
+    raw = base64.b64decode(build_aa_req(now=1_700_000_100))
+    nonce, ct_and_tag = raw[1:13], raw[13:]
+    payload = _json.loads(AESGCM(_AES_KEY).decrypt(nonce, ct_and_tag, None))
+    assert payload["qh"] == QUERY_HASH
+    assert payload["epoch"] == _EPOCH and payload["buildId"] == str(BUILD_ID)
+    ts = int((1_700_000_100 // 300) * 300 * 1000)
+    assert payload["ts"] == ts
+    # Nonce is sha256(iv_payload)[:12].
+    iv_payload = f"{_EPOCH}:{BUILD_ID}:{QUERY_HASH}:{ts}"
+    assert nonce == hashlib.sha256(iv_payload.encode()).digest()[:12]
 
 
 # -- matching --------------------------------------------------------------- #
