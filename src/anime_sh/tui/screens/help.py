@@ -10,6 +10,7 @@ from textual.widgets import Static
 _HELP = """[b]anime-sh — keys[/b]
 
   [cyan]/[/cyan]        focus search
+  [cyan]l[/cyan]        my AniList list
   [cyan]Enter[/cyan]    open / play the highlighted item
   [cyan]↑ ↓[/cyan]      move within a list
   [cyan]Esc[/cyan]      back / close

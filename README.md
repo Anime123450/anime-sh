@@ -34,6 +34,9 @@ anime download "Frieren" -e 1  # save to disk (ffmpeg); also: anime downloads
 
 anime auth login             # link AniList (one-time); status / logout
 anime sync pull              # import your AniList list; sync push sends yours up
+anime list --status watching # your AniList list by status (also planning/completed…)
+anime rate "Frieren" 9       # set a score; anime status "X" completed
+anime next "Mob Psycho 100"  # find + play the next season (sequel)
 
 anime doctor                 # player, ffmpeg, config, database, plugins
 anime config get             # dump settings; `config get playback.quality`
