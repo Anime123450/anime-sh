@@ -56,6 +56,17 @@ def _find_ts_offset(data: bytes, scan: int = 65536) -> int:
     return 0
 
 
+def _subtitle_content_type(url: str) -> str:
+    path = urlsplit(url).path.lower()
+    if path.endswith(".vtt"):
+        return "text/vtt"
+    if path.endswith(".srt"):
+        return "application/x-subrip"
+    if path.endswith(".ass") or path.endswith(".ssa"):
+        return "text/x-ssa"
+    return "text/plain"
+
+
 def strip_media_prefix(data: bytes) -> bytes:
     """Strip a decoy prefix (e.g. a fake PNG header) before real MPEG-TS.
 
@@ -88,8 +99,18 @@ class DeobfuscatingProxy:
             return stream
         self._ensure_started()
         referer = stream.headers.get("Referer") or stream.headers.get("referer") or ""
+        # Subtitle files on this CDN are referer-gated (403 without one). Since
+        # the proxied stream carries no headers, route the subtitle URLs through
+        # the proxy too so they inherit the referer — otherwise mpv silently
+        # fails to load them and no subs appear.
+        subs = tuple(
+            replace(sub, url=self._proxy_url(sub.url, referer, kind="sub"))
+            for sub in stream.subtitles
+        )
         # Headers are baked into the proxy now, so mpv needs none.
-        return replace(stream, url=self._proxy_url(stream.url, referer), headers={})
+        return replace(
+            stream, url=self._proxy_url(stream.url, referer), headers={}, subtitles=subs
+        )
 
     def stop(self) -> None:
         if self._server is not None:
@@ -126,16 +147,18 @@ class DeobfuscatingProxy:
             log.debug("de-obfuscating proxy started at %s", self._base)
             return self._base
 
-    def _proxy_url(self, real_url: str, referer: str) -> str:
+    def _proxy_url(self, real_url: str, referer: str, kind: str | None = None) -> str:
         u = base64.urlsafe_b64encode(real_url.encode()).decode()
         r = base64.urlsafe_b64encode(referer.encode()).decode()
-        return f"{self._base}/s?u={u}&r={r}"
+        suffix = f"&k={kind}" if kind else ""
+        return f"{self._base}/s?u={u}&r={r}{suffix}"
 
     def _handle(self, req: BaseHTTPRequestHandler) -> None:
         try:
             qs = parse_qs(urlsplit(req.path).query)
             real = base64.urlsafe_b64decode(qs["u"][0]).decode()
             referer = base64.urlsafe_b64decode(qs.get("r", [b""])[0] or "").decode()
+            kind = qs.get("k", [""])[0]
         except Exception:
             req.send_error(400)
             return
@@ -148,7 +171,11 @@ class DeobfuscatingProxy:
                 req.send_error(502)
             return
 
-        if body.lstrip()[:7] == b"#EXTM3U":
+        # Subtitles are plain text (WEBVTT/SRT): pass them through untouched with
+        # a subtitle content-type — never run them through the TS de-obfuscator.
+        if kind == "sub":
+            self._respond(req, body, _subtitle_content_type(real))
+        elif body.lstrip()[:7] == b"#EXTM3U":
             payload = self._rewrite_playlist(body.decode("utf-8", "replace"), real, referer)
             self._respond(req, payload.encode(), "application/vnd.apple.mpegurl")
         else:
