@@ -9,17 +9,27 @@ from __future__ import annotations
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView, Static
 
 from ...domain.errors import NoStreamsFound
 from ...domain.models import Anime, Audio
+from ..coverart import fetch_cover, render_cover
+from ..format import meta_line, next_episode_line
 from ..widgets import EpisodeItem
+
+_COVER_COLS = 22
 
 
 class DetailScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
+
+    DEFAULT_CSS = """
+    DetailScreen #detail-top { height: auto; }
+    DetailScreen #detail-cover { width: 24; height: auto; padding: 0 1; }
+    DetailScreen #detail-meta { width: 1fr; height: auto; }
+    """
 
     def __init__(self, anime: Anime, *, resume_episode: float | None = None,
                  source=None) -> None:
@@ -31,7 +41,9 @@ class DetailScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll():
-            yield Static(self._header_text(), id="detail-meta")
+            with Horizontal(id="detail-top"):
+                yield Static("", id="detail-cover")
+                yield Static(self._header_text(), id="detail-meta")
             yield ListView(id="episodes")
         yield Footer()
 
@@ -39,7 +51,25 @@ class DetailScreen(Screen):
         self.title = self.anime.title.preferred
         if self.anime.episode_count:
             self.sub_title = f"{self.anime.episode_count} episodes planned"
+        self._load_cover()
         self._populate_episodes()
+
+    @work(exclusive=True, group="cover")
+    async def _load_cover(self) -> None:
+        # Cover art is pure decoration: fetch + render off the main path, and
+        # never surface a failure (no Pillow, offline, odd image → just skip).
+        url = self.anime.cover_url
+        if not url:
+            return
+        data = await fetch_cover(url)
+        if not data:
+            return
+        art = render_cover(data, cols=_COVER_COLS)
+        if art is not None:
+            try:
+                self.query_one("#detail-cover", Static).update(art)
+            except Exception:
+                pass
 
     @work(exclusive=True, group="episodes")
     async def _populate_episodes(self) -> None:
@@ -148,12 +178,16 @@ class DetailScreen(Screen):
 
     def _header_text(self) -> str:
         a = self.anime
-        bits = [x for x in (a.format.value, a.status.value.replace("_", " ").title(),
-                            f"{a.episode_count} eps" if a.episode_count else None,
-                            str(a.year) if a.year else None) if x]
-        line = "  ·  ".join(bits)
-        genres = ", ".join(a.genres[:5])
+        lines = [f"[b]{a.title.preferred}[/b]", f"[dim]{meta_line(a)}[/dim]"]
+        nxt = next_episode_line(a)
+        if nxt:
+            lines.append(f"[green]▸ Next: {nxt}[/green]")
+        if a.genres:
+            lines.append(f"[cyan]{', '.join(a.genres[:5])}[/cyan]")
         synopsis = (a.synopsis or "").strip()
         if len(synopsis) > 400:
             synopsis = synopsis[:400].rsplit(" ", 1)[0] + "…"
-        return f"[b]{a.title.preferred}[/b]\n[dim]{line}[/dim]\n[cyan]{genres}[/cyan]\n\n{synopsis}"
+        if synopsis:
+            lines.append("")
+            lines.append(synopsis)
+        return "\n".join(lines)

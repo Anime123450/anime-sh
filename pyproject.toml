@@ -32,15 +32,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tui = ["textual>=8.0"]
+tui = ["textual>=8.0", "pillow>=10.0"]  # pillow renders cover art (optional at runtime)
 discord = ["pypresence>=4.3"]
-all = ["textual>=8.0", "pypresence>=4.3"]
+all = ["textual>=8.0", "pillow>=10.0", "pypresence>=4.3"]
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",
     "import-linter>=2.0",
     "anyio>=4.3",
     "textual>=8.0", # TUI tests run in the default dev env
+    "pillow>=10.0",
 ]
 
 [project.urls]

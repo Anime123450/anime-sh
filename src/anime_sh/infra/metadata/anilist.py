@@ -32,7 +32,11 @@ synonyms
 format status episodes season seasonYear genres
 description(asHtml: false)
 coverImage { large }
+bannerImage
 duration
+averageScore popularity
+studios(isMain: true) { nodes { name isAnimationStudio } }
+nextAiringEpisode { episode airingAt }
 """
 
 _SEARCH_Q = f"""
@@ -89,6 +93,8 @@ def _clean_synopsis(text: str | None) -> str | None:
 
 def _to_anime(m: dict) -> Anime:
     t = m.get("title") or {}
+    next_ep = m.get("nextAiringEpisode") or {}
+    airing_at = next_ep.get("airingAt")
     return Anime(
         id=AnimeId(anilist=m["id"], mal=m.get("idMal")),
         title=Title(
@@ -106,7 +112,23 @@ def _to_anime(m: dict) -> Anime:
         synopsis=_clean_synopsis(m.get("description")),
         cover_url=(m.get("coverImage") or {}).get("large"),
         duration_min=m.get("duration"),
+        average_score=m.get("averageScore"),
+        popularity=m.get("popularity"),
+        studio=_main_studio(m.get("studios")),
+        banner_url=m.get("bannerImage"),
+        next_airing_episode=next_ep.get("episode"),
+        next_airing_at=datetime.fromtimestamp(airing_at, tz=timezone.utc)
+        if airing_at
+        else None,
     )
+
+
+def _main_studio(studios) -> str | None:
+    nodes = (studios or {}).get("nodes") or []
+    # Prefer an actual animation studio; fall back to the first main studio.
+    animation = [n for n in nodes if n.get("isAnimationStudio")]
+    pick = (animation or nodes)
+    return pick[0].get("name") if pick else None
 
 
 def _enum(enum_cls, value):
