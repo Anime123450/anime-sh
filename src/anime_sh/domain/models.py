@@ -119,6 +119,18 @@ class Anime:
     synopsis: str | None = None
     cover_url: str | None = None
     duration_min: int | None = None
+    # Richer catalog fields (populated by AniList; all optional so cached rows
+    # and providers that don't supply them still construct cleanly).
+    average_score: int | None = None  # 0-100
+    popularity: int | None = None
+    studio: str | None = None
+    banner_url: str | None = None
+    next_airing_episode: int | None = None
+    next_airing_at: datetime | None = None
+
+    @property
+    def is_airing(self) -> bool:
+        return self.status is Status.RELEASING
 
 
 # --------------------------------------------------------------------------- #
