@@ -125,6 +125,16 @@ class SqliteLibrary:
         )
         await conn.commit()
 
+    async def delete_progress(self, anime_id: AnimeId) -> int:
+        if anime_id.anilist is None:
+            return 0
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "DELETE FROM progress WHERE anilist_id=?", (anime_id.anilist,)
+        )
+        await conn.commit()
+        return cur.rowcount
+
     async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
         if anime_id.anilist is None:
             return []

@@ -33,6 +33,10 @@ class LibraryService:
         screen's watched/in-progress marks."""
         return await self._library.all_progress(anime_id)
 
+    async def unmark(self, anime_id: AnimeId) -> int:
+        """Clear all local watch progress for a show. Returns rows removed."""
+        return await self._library.delete_progress(anime_id)
+
     async def mark_watched(
         self, anime: Anime, up_to: float, *, single: bool = False
     ) -> list[float]:

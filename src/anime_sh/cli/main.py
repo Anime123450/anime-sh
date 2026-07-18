@@ -51,6 +51,7 @@ KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
     "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
+    "unmark",
 }
 
 
@@ -356,6 +357,12 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
 
 
 @app.command()
+def unmark(query: str = typer.Argument(..., help="Title to clear progress for.")) -> None:
+    """Clear all local watch progress for a show (undo a mark / forget it)."""
+    asyncio.run(_unmark(query))
+
+
+@app.command()
 def stats(as_json: bool = typer.Option(False, "--json")) -> None:
     """Summarize your watch history: episodes, hours, top providers & genres."""
     asyncio.run(_stats(as_json))
@@ -424,6 +431,22 @@ async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None
         return
     heading = f"Results for {query!r}" if query else "Browse"
     _print_anime_table(heading, animes)
+
+
+async def _unmark(query: str) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        removed = await c.library_service.unmark(anime.id)
+        console.print(
+            f"[yellow]Cleared[/] {removed} local progress row(s) for "
+            f"{anime.title.preferred}."
+        )
+    finally:
+        await c.aclose()
 
 
 async def _stats(as_json: bool) -> None:

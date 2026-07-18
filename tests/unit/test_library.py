@@ -83,6 +83,16 @@ async def test_stats_aggregates_history_and_progress(library):
     assert ("Fantasy", 2) in s.top_genres  # weighted by the 2 history rows
 
 
+async def test_unmark_clears_only_that_show(library):
+    svc = LibraryService(library)
+    await svc.mark_watched(_anime(1, "A"), 3.0)
+    await svc.mark_watched(_anime(2, "B"), 2.0)
+    removed = await svc.unmark(AnimeId(anilist=1))
+    assert removed == 3
+    assert await library.all_progress(AnimeId(anilist=1)) == []
+    assert len(await library.all_progress(AnimeId(anilist=2))) == 2  # untouched
+
+
 async def test_mark_watched_single_episode(library):
     svc = LibraryService(library)
     marked = await svc.mark_watched(_anime(2, "X"), 5.0, single=True)
