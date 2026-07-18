@@ -86,6 +86,10 @@ class PlaybackService:
         # Optional UI hook for status lines ("Skipped intro", "Next episode…").
         self._notify = on_event or (lambda _msg: None)
 
+    def set_on_event(self, on_event: "Callable[[str], None] | None") -> None:
+        """Late-bind the status hook — the CLI/TUI attach after construction."""
+        self._notify = on_event or (lambda _msg: None)
+
     async def resolve(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB,
         source: "SourceOption | None" = None,
@@ -147,7 +151,7 @@ class PlaybackService:
     ):
         """Resolve then launch the player. Returns a PlaybackHandle."""
         resolved = await self.resolve(anime, episode_number, audio=audio)
-        title = f"{anime.title.preferred} - Episode {episode_number:g}"
+        title = _window_title(anime, episode_number)
         return await self._player.play(
             resolved.stream, title=title, start_s=resolved.resume_s
         )
@@ -169,7 +173,7 @@ class PlaybackService:
             if not (self._auto_next and finished and self._has_next(anime, number)):
                 break
             number += 1
-            self._notify(f"Next episode: {number:g}")
+            self._notify(f"Next episode: {_ep_label(anime, number)}")
 
     async def _play_episode(
         self, anime: Anime, episode_number: float, *, audio: Audio,
@@ -193,8 +197,8 @@ class PlaybackService:
             anime, episode_number, audio, refs
         ):
             tried += 1
-            self._notify(f"Trying {host}…")
-            title = f"{anime.title.preferred} - Episode {episode_number:g}"
+            self._notify(f"Episode {_ep_label(anime, episode_number)} — trying {host}…")
+            title = _window_title(anime, episode_number)
             play_stream = (
                 self._stream_proxy.rewrite(stream) if self._stream_proxy else stream
             )
@@ -317,6 +321,17 @@ class PlaybackService:
         except Exception as e:
             log.warning("provider %s episodes failed: %s", ref.provider, e)
             return []
+
+
+def _ep_label(anime: Anime, number: float) -> str:
+    """"5/12" when the planned total is known, else "5" — so every status
+    line and window title says where you are in the season."""
+    total = anime.episode_count
+    return f"{number:g}/{total}" if total else f"{number:g}"
+
+
+def _window_title(anime: Anime, number: float) -> str:
+    return f"{anime.title.preferred} - Episode {_ep_label(anime, number)}"
 
 
 def _find_episode(episodes: list[Episode], number: float) -> Episode | None:
