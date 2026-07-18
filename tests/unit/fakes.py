@@ -143,6 +143,9 @@ class FakeLibrary:
     async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
         return [p for p in ([self._progress] if self._progress else []) + self.saved]
 
+    async def all_progress_rows(self) -> list[WatchProgress]:
+        return [p for p in ([self._progress] if self._progress else []) + self.saved]
+
     async def continue_watching(self, *, limit: int = 20):
         return []
 
@@ -150,7 +153,7 @@ class FakeLibrary:
         self.saved_anime.append(anime)
 
     async def get_anime(self, anime_id: AnimeId):
-        return None
+        return next((a for a in self.saved_anime if a.id == anime_id), None)
 
     async def add_history(self, anime_id, episode, *, provider, seconds_watched) -> None:
         self.history.append((anime_id, episode, provider, seconds_watched))
