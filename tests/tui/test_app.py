@@ -52,10 +52,11 @@ class FakeLibrary:
 class FakePlayback:
     def __init__(self):
         self.played = []
+        self.available = []
     async def play_and_track(self, anime, number, *, audio=None, source=None):
         self.played.append((anime.id.anilist, number))
     async def available_episodes(self, anime, *, audio=None, source=None):
-        return []
+        return list(self.available)
     async def list_sources(self, anime, *, audio=None):
         return []
     def set_on_event(self, cb):
@@ -136,3 +137,29 @@ async def test_selecting_episode_triggers_playback():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert playback.played == [(1, 2.0)]
+
+
+async def test_unavailable_episodes_stay_listed_but_inert():
+    # Planned 3 eps, only 1-2 available: the full season stays visible, the
+    # missing one is marked unavailable and selecting it does NOT play.
+    app, playback = _make_app()
+    playback.available = [1.0, 2.0]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=3))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        episodes = detail.query_one("#episodes", ListView)
+        assert len(episodes) == 3  # not trimmed to the 2 available
+        items = list(episodes.children)
+        assert [it.available for it in items] == [True, True, False]
+        assert "3/3" not in (detail.sub_title or "") and "2/3" in detail.sub_title
+        episodes.focus()
+        episodes.index = 2  # the unavailable one
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert playback.played == []  # inert, only a toast

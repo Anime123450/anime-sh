@@ -20,10 +20,17 @@ class AnimeItem(ListItem):
 
 
 class EpisodeItem(ListItem):
-    """A ListItem for a single episode number."""
+    """A ListItem for a single episode number. Unavailable episodes (not yet
+    aired / provider lacks them) stay listed but dimmed, so the full season is
+    always visible."""
 
-    def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0) -> None:
+    def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
+                 available: bool = True) -> None:
         self.number = number
+        self.available = available
+        if not available:
+            super().__init__(Label(f"[dim]Episode {number:g}  · not available yet[/dim]"))
+            return
         mark = "[green]▸[/green] " if resume_s else ("[dim]✓[/dim] " if watched else "")
         super().__init__(Label(f"{mark}Episode {number:g}"))
 
