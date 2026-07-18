@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from anime_sh.infra.proxy import strip_media_prefix
-from anime_sh.infra.proxy.deobfuscate import _find_ts_offset
+from anime_sh.domain.models import Quality, Stream, StreamKind, Subtitle
+from anime_sh.infra.proxy import DeobfuscatingProxy, strip_media_prefix
+from anime_sh.infra.proxy.deobfuscate import _find_ts_offset, _subtitle_content_type
 
 # A minimal fake PNG header (magic + IHDR-ish + IEND), then MPEG-TS packets.
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -42,3 +43,43 @@ def test_clean_ts_is_unchanged():
 def test_non_png_payload_untouched():
     data = b"just some bytes that are not a png or ts"
     assert strip_media_prefix(data) == data
+
+
+# -- subtitle handling (referer-gated .vtt through the proxy) ----------------- #
+def _stream(url, subs=()):
+    return Stream(url=url, kind=StreamKind.HLS, quality=Quality.UNKNOWN,
+                  headers={"Referer": "https://megaplay.buzz/"}, subtitles=subs)
+
+
+def test_rewrite_proxies_subtitle_urls_on_obfuscated_host():
+    # Subs on the referer-gated CDN must be routed through the proxy (which
+    # supplies the referer) — else mpv fetches them headerless and 403s.
+    proxy = DeobfuscatingProxy()
+    try:
+        sub = Subtitle(url="https://mt.nekostream.site/x/subtitles/English.vtt",
+                       lang="English", default=True)
+        out = proxy.rewrite(_stream("https://mt.nekostream.site/x/master.m3u8", (sub,)))
+        assert out.headers == {}  # baked into the proxy
+        assert len(out.subtitles) == 1
+        proxied = out.subtitles[0].url
+        assert proxied.startswith("http://127.0.0.1:") and "k=sub" in proxied
+    finally:
+        proxy.stop()
+
+
+def test_rewrite_leaves_clean_host_subtitles_alone():
+    proxy = DeobfuscatingProxy()
+    try:
+        sub = Subtitle(url="https://cdn.example.com/en.vtt", lang="en")
+        stream = _stream("https://cdn.example.com/video.m3u8", (sub,))
+        out = proxy.rewrite(stream)
+        assert out is stream  # untouched: not an obfuscated host
+    finally:
+        proxy.stop()
+
+
+def test_subtitle_content_type_by_extension():
+    assert _subtitle_content_type("https://x/a/English.vtt") == "text/vtt"
+    assert _subtitle_content_type("https://x/a/sub.srt") == "application/x-subrip"
+    assert _subtitle_content_type("https://x/a/sub.ass?tok=1") == "text/x-ssa"
+    assert _subtitle_content_type("https://x/a/unknown") == "text/plain"
