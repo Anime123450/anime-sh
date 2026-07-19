@@ -38,6 +38,27 @@ def score_badge(score: int | None) -> str | None:
     return f"[{color}]★ {score}%[/{color}]"
 
 
+def home_subtitle(anime: Anime, now: datetime | None = None) -> str:
+    """Compact list-row subtitle. For an airing show it shows how many episodes
+    have actually aired (``2/12``) and a live countdown to the next one — not the
+    misleading planned total. Finished shows show total eps and year."""
+    fmt = anime.format.value
+    if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
+        aired = max(anime.next_airing_episode - 1, 0)
+        total = anime.episode_count
+        count = f"{aired}/{total} eps" if total else f"{aired} eps"
+        return (
+            f"{fmt} · {count} · Ep {anime.next_airing_episode} "
+            f"{countdown(anime.next_airing_at, now)}"
+        )
+    bits = [fmt]
+    if anime.episode_count:
+        bits.append(f"{anime.episode_count} eps")
+    if anime.year:
+        bits.append(str(anime.year))
+    return " · ".join(bits)
+
+
 def meta_line(anime: Anime) -> str:
     """The compact facts line: format · status · eps · year · studio · score."""
     status = anime.status.value.replace("_", " ").title()

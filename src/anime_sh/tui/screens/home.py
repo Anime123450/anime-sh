@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from textual import work
 from textual.app import ComposeResult
@@ -11,6 +11,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
 from ...domain.models import Season
+from ..format import home_subtitle
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -53,12 +54,24 @@ class HomeScreen(Screen):
         self._load_favorites()
         self._load_seasonal()
         self._load_trending()
+        # Tick the airing countdowns in place every minute (no network).
+        self.set_interval(60, self._tick_countdowns)
         # Focus a browse list, not the search box (the placeholder says "press /
         # to focus"). Keeps arrow-nav, Enter, and the global `?` working at once.
         try:
             self.query_one("#trending", ListView).focus()
         except Exception:
             pass
+
+    def _tick_countdowns(self) -> None:
+        for wid in ("#seasonal", "#trending", "#results"):
+            try:
+                lv = self.query_one(wid, ListView)
+            except Exception:
+                continue
+            for item in lv.children:
+                if isinstance(item, AnimeItem) and item.anime.is_airing:
+                    item.set_subtitle(home_subtitle(item.anime))
 
     # -- home data ---------------------------------------------------------- #
     @work(exclusive=True, group="continue")
@@ -104,11 +117,13 @@ class HomeScreen(Screen):
         except Exception as e:
             self.notify(f"Couldn't load this season: {e}", severity="warning")
             return
+        # Soonest-airing first, so the next release to drop sits at the top.
+        far = datetime.max.replace(tzinfo=timezone.utc)
+        animes = sorted(animes, key=lambda a: a.next_airing_at or far)
         lv = self.query_one("#seasonal", ListView)
         await lv.clear()
         for a in animes[:20]:
-            eps = f"· {a.episode_count} eps" if a.episode_count else ""
-            lv.append(AnimeItem(a, subtitle=f"{a.format.value} {eps}".strip()))
+            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
@@ -120,8 +135,7 @@ class HomeScreen(Screen):
         lv = self.query_one("#trending", ListView)
         await lv.clear()
         for a in animes:
-            year = f"· {a.year}" if a.year else ""
-            lv.append(AnimeItem(a, subtitle=f"{a.format.value} {year}".strip()))
+            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
 
     # -- search ------------------------------------------------------------- #
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -143,9 +157,7 @@ class HomeScreen(Screen):
         lv = self.query_one("#results", ListView)
         await lv.clear()
         for r in results:
-            a = r.anime
-            meta = " · ".join(str(x) for x in (a.format.value, a.year) if x)
-            lv.append(AnimeItem(a, subtitle=meta))
+            lv.append(AnimeItem(r.anime, subtitle=home_subtitle(r.anime)))
         self._toggle_results(True)
         if results:
             lv.index = 0

@@ -24,10 +24,19 @@ class AnimeItem(ListItem):
     def __init__(self, anime: Anime, *, subtitle: str = "", resume_episode: float | None = None) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
-        label = _lit(anime.title.preferred)
+        self._label = Label(self._compose_label(subtitle))
+        super().__init__(self._label)
+
+    def _compose_label(self, subtitle: str) -> str:
+        label = _lit(self.anime.title.preferred)
         if subtitle:
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
-        super().__init__(Label(label))
+        return label
+
+    def set_subtitle(self, subtitle: str) -> None:
+        """Update the row's subtitle in place — used to tick airing countdowns
+        without rebuilding (and disrupting selection in) the list."""
+        self._label.update(self._compose_label(subtitle))
 
 
 class EpisodeItem(ListItem):
