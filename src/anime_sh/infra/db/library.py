@@ -181,8 +181,17 @@ class SqliteLibrary:
         cur = await conn.execute(
             f"SELECT p.anilist_id, p.episode, p.position_s, p.duration_s, "
             f"p.completed, p.updated_at, {_ANIME_COLS} "
-            "FROM progress p LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
-            "WHERE p.completed=0 ORDER BY p.updated_at DESC LIMIT ?",
+            "FROM progress p "
+            # One card per show: the most recently-updated in-progress episode.
+            "JOIN (SELECT anilist_id, MAX(updated_at) AS mu FROM progress "
+            "      WHERE completed=0 AND position_s > 0 GROUP BY anilist_id) g "
+            "  ON g.anilist_id = p.anilist_id AND g.mu = p.updated_at "
+            "LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
+            # position_s>0 keeps this to episodes actually started here — an
+            # AniList import (progress but no local position) belongs on the My
+            # List screen, not cluttering Continue Watching at 0%.
+            "WHERE p.completed=0 AND p.position_s > 0 "
+            "GROUP BY p.anilist_id ORDER BY p.updated_at DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()

@@ -125,6 +125,31 @@ async def test_continue_watching_excludes_completed(library):
     assert await library.continue_watching() == []
 
 
+async def test_continue_watching_excludes_zero_position_imports(library):
+    # An AniList-import row (progress but no local position) must not clutter
+    # Continue Watching; only actually-started episodes show.
+    await library.save_anime(_anime())
+    await library.save_progress(_progress(154587, 3.0, 0))       # imported, pos=0
+    await library.save_progress(_progress(154587, 4.0, 500))     # started locally
+    items = await library.continue_watching()
+    assert [it.progress.episode for it in items] == [4.0]
+
+
+async def test_continue_watching_one_card_per_show(library):
+    # Several in-progress episodes of the same show collapse to one card — the
+    # most recently updated — instead of listing the show many times.
+    await library.save_anime(_anime())
+    import datetime as _dt
+    for ep, pos, day in [(1.0, 300, 1), (2.0, 400, 2), (5.0, 200, 3)]:
+        await library.save_progress(WatchProgress(
+            anime_id=AnimeId(anilist=154587), episode=ep, position_s=pos,
+            duration_s=1400, completed=False,
+            updated_at=_dt.datetime(2026, 7, day, tzinfo=_dt.timezone.utc),
+        ))
+    items = await library.continue_watching()
+    assert len(items) == 1 and items[0].progress.episode == 5.0  # latest
+
+
 async def test_continue_watching_placeholder_when_uncached(library):
     # Progress exists but metadata was never cached -> placeholder, not a crash.
     await library.save_progress(_progress(999, 3.0, 100))

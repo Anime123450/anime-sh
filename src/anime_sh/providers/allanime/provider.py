@@ -72,7 +72,10 @@ def _norm(s: str) -> str:
 
 class AllAnimeProvider:
     name = "allanime"
-    priority = 90
+    # Broad catalog, but its streams come from third-party embed hosts
+    # (filemoon/streamwish/…) that are frequently geo/ISP-blocked — so it's the
+    # fallback, tried after the direct-stream providers.
+    priority = 70
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:

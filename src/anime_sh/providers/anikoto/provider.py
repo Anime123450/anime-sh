@@ -47,7 +47,9 @@ def _norm(s: str) -> str:
 
 class AnikotoProvider:
     name = "anikoto"
-    priority = 80
+    # Above AllAnime: its stream is direct (via the de-obfuscating proxy) rather
+    # than a third-party embed host that is often geo/ISP-blocked.
+    priority = 85
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:

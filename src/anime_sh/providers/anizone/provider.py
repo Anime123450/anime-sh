@@ -45,7 +45,9 @@ def _norm(s: str) -> str:
 
 class AnizoneProvider:
     name = "anizone"
-    priority = 70
+    # Highest priority: it hands over a direct, un-obfuscated m3u8 that plays
+    # without a proxy or a third-party embed host, so it's the most reliable.
+    priority = 90
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:
