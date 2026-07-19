@@ -86,13 +86,31 @@ def _png(w, h, color=(200, 40, 40)) -> bytes:
     return buf.getvalue()
 
 
-def test_render_cover_produces_half_block_grid():
+def test_render_cover_produces_quadrant_grid():
+    from anime_sh.tui.coverart import _QUADRANTS
+
     art = render_cover(_png(60, 90), cols=10)
     assert art is not None
     rows = art.plain.split("\n")
     assert all(len(r) == 10 for r in rows)  # every row is `cols` wide
-    assert rows and all(ch == "▀" for ch in rows[0])
+    assert all(ch in _QUADRANTS for ch in art.plain if ch != "\n")
     assert art.spans, "expected per-cell color styles"
+
+
+def test_render_cover_resolves_horizontal_detail():
+    # Vertical stripes must yield left/right quadrant blocks — proof the render
+    # has real horizontal sub-cell resolution (not just vertical half-blocks).
+    from PIL import Image
+    import io
+
+    img = Image.new("RGB", (40, 40))
+    for y in range(40):
+        for x in range(40):
+            img.putpixel((x, y), (255, 255, 255) if x % 2 == 0 else (0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    art = render_cover(buf.getvalue(), cols=10)
+    assert "▌" in art.plain  # left-half block appears
 
 
 def test_render_cover_returns_none_on_garbage():
