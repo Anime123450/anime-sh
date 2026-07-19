@@ -28,7 +28,9 @@ class FilemoonResolver:
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:
-        self._http = http or HttpClient(headers={"User-Agent": AGENT})
+        # Fail fast: often geo/ISP-blocked, so one short attempt (no retry loop)
+        # keeps a dead host from stalling the resolve walk.
+        self._http = http or HttpClient(headers={"User-Agent": AGENT}, timeout=8.0, retries=0)
 
     def handles(self, candidate: StreamCandidate) -> bool:
         url = candidate.url.lower()

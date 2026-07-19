@@ -42,6 +42,9 @@ _COMPLETE_FRACTION = 0.9
 _MAX_STREAM_ATTEMPTS = 8
 # How long to wait for a stream to actually start playing before abandoning it.
 _CONFIRM_TIMEOUT_S = 25.0
+# How long to let one resolver work on one candidate before abandoning it — a
+# blocked/dead host (e.g. an ISP-blocked embed) must not stall the whole walk.
+_RESOLVE_TIMEOUT_S = 10.0
 
 log = logging.getLogger(__name__)
 
@@ -137,8 +140,11 @@ class PlaybackService:
                     if not resolver.handles(candidate):
                         continue
                     try:
-                        streams = await resolver.resolve(candidate)
-                    except ResolverError as e:
+                        async with asyncio.timeout(_RESOLVE_TIMEOUT_S):
+                            streams = await resolver.resolve(candidate)
+                    except (ResolverError, TimeoutError, asyncio.TimeoutError) as e:
+                        # A blocked/dead host must not stall the walk — bound it
+                        # and move on to the next host/provider.
                         log.debug("resolver %s failed on %s: %s", resolver.name, candidate.host, e)
                         continue
                     except Exception as e:

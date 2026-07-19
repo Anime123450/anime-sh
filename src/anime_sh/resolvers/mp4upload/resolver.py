@@ -25,7 +25,8 @@ class Mp4UploadResolver:
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:
-        self._http = http or HttpClient(headers={"User-Agent": AGENT})
+        # Fail fast on a blocked/dead host so the resolve walk moves on quickly.
+        self._http = http or HttpClient(headers={"User-Agent": AGENT}, timeout=8.0, retries=0)
 
     def handles(self, candidate: StreamCandidate) -> bool:
         return "mp4upload.com" in candidate.url

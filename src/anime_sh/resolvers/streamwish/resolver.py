@@ -30,7 +30,9 @@ class StreamwishResolver:
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:
-        self._http = http or HttpClient(headers={"User-Agent": AGENT})
+        # Fail fast: these hosts are often geo/ISP-blocked, and a slow retry loop
+        # would stall the resolve walk. One short attempt, then move on.
+        self._http = http or HttpClient(headers={"User-Agent": AGENT}, timeout=8.0, retries=0)
 
     def handles(self, candidate: StreamCandidate) -> bool:
         url = candidate.url.lower()
