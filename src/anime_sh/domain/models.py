@@ -179,13 +179,18 @@ class Episode:
 
 @dataclass(frozen=True, slots=True)
 class StreamCandidate:
-    """What a provider hands you: an embed page, not a video."""
+    """What a provider hands you: usually an embed page a resolver must unwrap.
+
+    A provider that already knows the direct media URL (and any subtitle tracks)
+    can attach them here; the generic passthrough resolver carries them onto the
+    :class:`Stream` unchanged."""
 
     host: str  # "mp4upload"
     url: str
     audio: Audio = Audio.SUB
     headers: Mapping[str, str] = field(default_factory=dict)
     quality_hint: str | None = None
+    subtitles: "tuple[Subtitle, ...]" = ()
 
 
 # --------------------------------------------------------------------------- #
