@@ -52,3 +52,18 @@ async def test_anime_item_keeps_bracketed_title():
     anime = Anime(id=AnimeId(anilist=1), title=Title(romaji="[Oshi no Ko]"))
     plain = await _mounted_plain(AnimeItem(anime, subtitle="TV · 2023"))
     assert plain.startswith("[Oshi no Ko]")
+
+
+async def test_anime_item_set_subtitle_updates_in_place():
+    anime = Anime(id=AnimeId(anilist=1), title=Title(romaji="Frieren"))
+    item = AnimeItem(anime, subtitle="TV · 12 eps")
+
+    class _App(App):
+        def compose(self):
+            yield item
+
+    async with _App().run_test():
+        item.set_subtitle("TV · 2/12 eps · Ep 3 in 4d 6h")
+        content = item.query_one(Label).content
+        plain = Content.from_markup(content).plain if isinstance(content, str) else content.plain
+        assert plain.startswith("Frieren") and "Ep 3 in 4d 6h" in plain

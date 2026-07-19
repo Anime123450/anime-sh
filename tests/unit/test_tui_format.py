@@ -6,7 +6,13 @@ from datetime import datetime, timedelta, timezone
 
 from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title
 from anime_sh.tui.coverart import render_cover
-from anime_sh.tui.format import countdown, meta_line, next_episode_line, score_badge
+from anime_sh.tui.format import (
+    countdown,
+    home_subtitle,
+    meta_line,
+    next_episode_line,
+    score_badge,
+)
 
 _NOW = datetime(2026, 7, 18, tzinfo=timezone.utc)
 
@@ -44,6 +50,30 @@ def test_next_episode_line_only_when_airing_data_present():
     airing = _anime(next_airing_episode=3, next_airing_at=_NOW + timedelta(days=1))
     assert next_episode_line(airing, _NOW) == "Ep 3 in 1d 0h"
     assert next_episode_line(_anime(), _NOW) is None
+
+
+def test_home_subtitle_airing_shows_aired_over_total_and_countdown():
+    a = _anime(format=Format.TV, status=Status.RELEASING, episode_count=12,
+               next_airing_episode=3, next_airing_at=_NOW + timedelta(days=4, hours=6))
+    # 2 aired of 12 (next is ep 3), plus the countdown — not the planned "12 eps".
+    assert home_subtitle(a, _NOW) == "TV · 2/12 eps · Ep 3 in 4d 6h"
+
+
+def test_home_subtitle_airing_without_total():
+    a = _anime(format=Format.TV, status=Status.RELEASING,
+               next_airing_episode=4, next_airing_at=_NOW + timedelta(hours=5))
+    assert home_subtitle(a, _NOW) == "TV · 3 eps · Ep 4 in 5h 0m"
+
+
+def test_home_subtitle_finished_shows_total_and_year():
+    a = _anime(format=Format.TV, status=Status.FINISHED, episode_count=12, year=2026)
+    assert home_subtitle(a, _NOW) == "TV · 12 eps · 2026"
+
+
+def test_home_subtitle_airing_without_schedule_falls_back():
+    # RELEASING but AniList has no nextAiringEpisode (between cours) → no bogus count.
+    a = _anime(format=Format.TV, status=Status.RELEASING, episode_count=24, year=2026)
+    assert home_subtitle(a, _NOW) == "TV · 24 eps · 2026"
 
 
 # -- cover art (Pillow-backed, graceful) ------------------------------------- #
