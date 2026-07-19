@@ -58,6 +58,7 @@ anime-sh = "anime_sh.cli.main:main"
 [project.entry-points."anime_sh.providers"]
 allanime = "anime_sh.providers.allanime:AllAnimeProvider"
 anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
+anizone = "anime_sh.providers.anizone:AnizoneProvider"
 
 [project.entry-points."anime_sh.resolvers"]
 allanime-clock = "anime_sh.resolvers.allanime:AllAnimeClockResolver"

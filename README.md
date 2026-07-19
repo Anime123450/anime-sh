@@ -66,9 +66,10 @@ in a separate `anime.db` from the disposable cache and renders offline.
 > degrades cleanly instead of crashing; metadata and your library keep working.
 
 **Multiple providers, merged.** anime-sh fans out across providers (currently
-AllAnime + anikoto) and falls through to whichever one actually has your show —
-so a title missing from one source still plays from another, with no action
-from you.
+AllAnime + anikoto + AniZone) and falls through to whichever one actually has
+your show — so a title missing from one source still plays from another, with no
+action from you. AniZone serves a clean, un-obfuscated HLS stream with soft
+English subs, so it plays where Cloudflare-gated sites can't.
 
 ## Install
 
