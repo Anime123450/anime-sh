@@ -1,10 +1,16 @@
-"""AllAnime provider — protocol ported faithfully from ani-cli.
+"""AllAnime provider — protocol ported faithfully from the current site.
 
-Reachability depends entirely on getting the request shape right: POST GraphQL
-with Referer/Origin ``https://youtu-chan.com`` and a Firefox UA gets past the
-Cloudflare edge that blocks naive clients. Episode sources come back inside an
-AES-256-CTR ``tobeparsed`` blob; each source URL inside is then XOR-obfuscated.
-Both are undone in :mod:`.decode`.
+Reachability depends entirely on getting the request shape right. The API
+(``api.allanime.day``) sits behind a Cloudflare edge cleared by a Firefox UA
+plus the site's own ``Origin``/``Referer``. AllAnime rebranded to
+``mkissa.to`` and now binds its crypto to that origin — sending the old
+``youtu-chan.com`` origin makes the sources query fail with ``AA_CRYPTO_STALE``.
+
+Episode sources are additionally gated: the query must carry a short-lived
+``aaReq`` AES-256-GCM token (built with a per-build key + rotating ``epoch``,
+tracked by :mod:`.keygen`) or the API answers ``AA_CRYPTO_MISSING``. The reply
+comes back inside an AES-256-GCM ``tobeparsed`` blob; each source URL inside is
+then XOR-obfuscated. All three layers are undone in :mod:`.decode`.
 
 The provider returns stream *candidates* (embed URLs per host); resolvers turn
 those into playable streams. When AllAnime is unreachable the provider degrades
@@ -28,17 +34,19 @@ from ...domain.models import (
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
-from .decode import decode_source_url, decrypt_tobeparsed
+from .decode import build_aareq, decode_source_url, decrypt_tobeparsed
+from .keygen import Keygen, fetch_keygen
 
 log = logging.getLogger(__name__)
 
 API = "https://api.allanime.day/api"
-# ani-cli's headers — these are what actually clears the Cloudflare edge.
+# The current site origin. The API binds its source-crypto to this origin, and a
+# Firefox UA clears the Cloudflare edge.
+SITE = "https://mkissa.to"
+# Playback referer for the resolved CDN/clock streams (unchanged; see the clock
+# resolver). This is *not* the API origin.
 REFERER = "https://youtu-chan.com"
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
-
-# Persisted-query hash for the episode-sources query (from ani-cli).
-_SOURCES_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
 _SEARCH_GQL = (
     "query( $search: SearchInput $limit: Int $page: Int "
@@ -54,12 +62,8 @@ _EPISODES_GQL = (
     "{ _id availableEpisodesDetail }}"
 )
 
-_SOURCES_GQL = (
-    "query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, "
-    "$episodeString: String!) { episode( showId: $showId "
-    "translationType: $translationType episodeString: $episodeString ) "
-    "{ episodeString sourceUrls }}"
-)
+# The sources query is a server-side *persisted* query addressed only by its
+# rotating hash (see :mod:`.keygen`); there is no client-sent query string.
 
 
 def _norm(s: str) -> str:
@@ -71,10 +75,15 @@ class AllAnimeProvider:
     priority = 90
     api_version = 1
 
-    def __init__(self, http: HttpClient | None = None) -> None:
+    def __init__(
+        self, http: HttpClient | None = None, keygen: Keygen | None = None
+    ) -> None:
         self._http = http or HttpClient(
-            headers={"User-Agent": AGENT, "Referer": REFERER, "Origin": REFERER}
+            headers={"User-Agent": AGENT, "Referer": f"{SITE}/", "Origin": SITE}
         )
+        # An injected keygen pins the crypto (tests); otherwise it is fetched and
+        # cached lazily on first source request.
+        self._keygen = keygen
 
     # -- transport helpers -------------------------------------------------- #
     async def _post(self, query: str, variables: dict) -> dict:
@@ -88,33 +97,58 @@ class AllAnimeProvider:
             raise ProviderError(f"allanime request failed: {e}") from e
         return _unwrap(data)
 
+    async def _get_keygen(self) -> Keygen:
+        if self._keygen is None or self._keygen.stale:
+            try:
+                self._keygen = await fetch_keygen(self._http)
+            except CloudflareChallenge as e:
+                raise ProviderUnavailable(f"allanime: {e}") from e
+            except HttpError as e:
+                raise ProviderUnavailable(f"allanime: keygen unavailable: {e}") from e
+        return self._keygen
+
     async def _sources_payload(self, variables: dict) -> dict:
-        """Fetch episode sources via the persisted-query GET, decrypting the
-        ``tobeparsed`` blob. Falls back to a full POST query if needed."""
+        """Fetch episode sources via the ``aaReq``-signed persisted-query GET and
+        decrypt the ``tobeparsed`` blob. Returns ``{}`` when the API declines to
+        return sources (e.g. an uncached persisted query or crypto rotation)."""
+        keygen = await self._get_keygen()
+        key = keygen.key_bytes
+        aareq = build_aareq(key, keygen.query_hash, keygen.epoch)
         try:
+            # Send the full persisted-query text (APQ register): the server only
+            # keeps the hash warm intermittently, so hash-only alone returns
+            # ``PersistedQueryNotFound`` on a cold instance.
             raw = await self._http.get_json(
                 API,
                 params={
+                    "query": keygen.query,
                     "variables": json.dumps(variables),
                     "extensions": json.dumps(
-                        {"persistedQuery": {"version": 1, "sha256Hash": _SOURCES_HASH}}
+                        {
+                            "persistedQuery": {
+                                "version": 1,
+                                "sha256Hash": keygen.query_hash,
+                            },
+                            "aaReq": aareq,
+                        }
                     ),
                 },
             )
         except CloudflareChallenge as e:
             raise ProviderUnavailable(f"allanime: {e}") from e
-        except HttpError:
-            raw = None
+        except HttpError as e:
+            raise ProviderError(f"allanime sources request failed: {e}") from e
 
-        data = (raw or {}).get("data") if isinstance(raw, dict) else None
-        if isinstance(data, dict) and "tobeparsed" in data:
-            return json.loads(decrypt_tobeparsed(data["tobeparsed"]).decode("utf-8", "replace"))
+        data = raw.get("data") if isinstance(raw, dict) else None
+        if isinstance(data, dict) and data.get("tobeparsed"):
+            plain = decrypt_tobeparsed(data["tobeparsed"], key)
+            return json.loads(plain.decode("utf-8", "replace"))
         if isinstance(data, dict) and data.get("episode"):
             return data
-
-        # Fallback: full query over POST.
-        data = await self._post(_SOURCES_GQL, variables)
-        return data
+        # GraphQL errors (PersistedQueryNotFound / AA_CRYPTO_*): no usable sources.
+        if isinstance(raw, dict) and raw.get("errors"):
+            log.debug("allanime sources: %s", raw["errors"])
+        return {}
 
     # -- Provider port ------------------------------------------------------ #
     async def match(self, anime: Anime, audio: Audio) -> ProviderRef | None:

@@ -48,9 +48,16 @@ load, never fatal.
 
 ## Provider notes (change often — canary tracks them)
 
-- **AllAnime**: ani-cli protocol. POST GraphQL, Referer/Origin `youtu-chan.com`,
-  Firefox UA; sources via persisted-query GET, AES-CTR `tobeparsed` blob (key =
-  sha256("Xot36i3lK3:v1")), then XOR-0x38 per source URL.
+- **AllAnime** (rebranded to `mkissa.to`): Firefox UA. Search/episodes are plain
+  POST GraphQL. Sources are gated — the crypto (rotating `epoch`, per-build AES
+  key, persisted-query text+hash) is derived from the live site's JS bundle in
+  `keygen.py`. The sources GET carries `Origin: mkissa.to` (the old
+  `youtu-chan.com` origin now yields `AA_CRYPTO_STALE`), the full persisted-query
+  text (hash-only alone → `PersistedQueryNotFound` on cold instances), and an
+  `extensions.aaReq` AES-256-GCM token (`build_aareq`) or the API returns
+  `AA_CRYPTO_MISSING`. The reply is an AES-256-GCM `tobeparsed` blob (per-build
+  key, legacy sha256("Xot36i3lK3:v1") fallback), then XOR-0x38 per source URL.
+  Playback referer stays `youtu-chan.com` (the clock/CDN, not the API).
 - **anikoto**: HiAnime-family. `/search` → `/ajax/episode/list/<id>` →
   `/ajax/server/list?servers=<data-ids>` → `/ajax/server?get=<link-id>`. Streams
   on megaplay clones (vidtube.site/megaplay.buzz/vidwish.live): read `cidu` from
