@@ -33,3 +33,10 @@ def user_db_path() -> Path:
 def cache_db_path() -> Path:
     """The disposable store — metadata/search/candidate caches."""
     return cache_dir() / "cache.db"
+
+
+def anilist_token_path() -> Path:
+    """Where the AniList OAuth token is cached. No OS keyring is bundled, so
+    this file is the store; it is created 0600 and holds only the token, never
+    the user's password."""
+    return config_dir() / "anilist_token.json"

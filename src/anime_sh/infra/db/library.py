@@ -125,13 +125,73 @@ class SqliteLibrary:
         )
         await conn.commit()
 
+    async def delete_progress(self, anime_id: AnimeId) -> int:
+        if anime_id.anilist is None:
+            return 0
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "DELETE FROM progress WHERE anilist_id=?", (anime_id.anilist,)
+        )
+        await conn.commit()
+        return cur.rowcount
+
+    async def all_progress(self, anime_id: AnimeId) -> list[WatchProgress]:
+        if anime_id.anilist is None:
+            return []
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT episode, position_s, duration_s, completed, updated_at "
+            "FROM progress WHERE anilist_id=? ORDER BY episode",
+            (anime_id.anilist,),
+        )
+        rows = await cur.fetchall()
+        return [
+            WatchProgress(
+                anime_id=anime_id,
+                episode=row["episode"],
+                position_s=row["position_s"],
+                duration_s=row["duration_s"],
+                completed=bool(row["completed"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
+    async def all_progress_rows(self) -> list[WatchProgress]:
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT anilist_id, episode, position_s, duration_s, completed, "
+            "updated_at FROM progress ORDER BY anilist_id, episode"
+        )
+        rows = await cur.fetchall()
+        return [
+            WatchProgress(
+                anime_id=AnimeId(anilist=row["anilist_id"]),
+                episode=row["episode"],
+                position_s=row["position_s"],
+                duration_s=row["duration_s"],
+                completed=bool(row["completed"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
     async def continue_watching(self, *, limit: int = 20) -> list[ResumeItem]:
         conn = await self._db.connect()
         cur = await conn.execute(
             f"SELECT p.anilist_id, p.episode, p.position_s, p.duration_s, "
             f"p.completed, p.updated_at, {_ANIME_COLS} "
-            "FROM progress p LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
-            "WHERE p.completed=0 ORDER BY p.updated_at DESC LIMIT ?",
+            "FROM progress p "
+            # One card per show: the most recently-updated in-progress episode.
+            "JOIN (SELECT anilist_id, MAX(updated_at) AS mu FROM progress "
+            "      WHERE completed=0 AND position_s > 0 GROUP BY anilist_id) g "
+            "  ON g.anilist_id = p.anilist_id AND g.mu = p.updated_at "
+            "LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
+            # position_s>0 keeps this to episodes actually started here — an
+            # AniList import (progress but no local position) belongs on the My
+            # List screen, not cluttering Continue Watching at 0%.
+            "WHERE p.completed=0 AND p.position_s > 0 "
+            "GROUP BY p.anilist_id ORDER BY p.updated_at DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()

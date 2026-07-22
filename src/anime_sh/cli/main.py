@@ -8,10 +8,11 @@ Bare ``anime`` with no args will launch the TUI (M4); for now it shows help.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random as rng
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import typer
 from rich.console import Console
@@ -21,7 +22,7 @@ from .. import __version__
 from ..config import load_config
 from ..config.loader import config_path
 from ..domain.errors import AnimeShError
-from ..domain.models import Audio, Season
+from ..domain.models import Audio, Season, WatchProgress
 from ..infra import registry
 from .container import build_container
 from .doctor import run_doctor
@@ -35,9 +36,13 @@ app = typer.Typer(
 config_app = typer.Typer(help="View and edit configuration.")
 providers_app = typer.Typer(help="Inspect installed provider plugins.")
 favorite_app = typer.Typer(help="Manage favorites.")
+auth_app = typer.Typer(help="Link an AniList account for watch-status sync.")
+sync_app = typer.Typer(help="Sync watch progress with AniList.")
 app.add_typer(config_app, name="config")
 app.add_typer(providers_app, name="providers")
 app.add_typer(favorite_app, name="favorite")
+app.add_typer(auth_app, name="auth")
+app.add_typer(sync_app, name="sync")
 
 console = Console()
 err = Console(stderr=True)
@@ -45,7 +50,8 @@ err = Console(stderr=True)
 KNOWN_COMMANDS = {
     "version", "doctor", "config", "providers", "search", "play", "trending",
     "history", "favorite", "continue", "resume", "download", "downloads",
-    "seasonal", "calendar", "random", "sources",
+    "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
+    "unmark", "list", "rate", "status", "next",
 }
 
 
@@ -77,6 +83,7 @@ def _launch_tui() -> None:
         library=c.library_service,
         playback=c.playback,
         aclose=c.aclose,
+        tracker=c.tracker,
     )
     asyncio.run(run_tui(services, theme=config.ui.theme))
 
@@ -111,6 +118,42 @@ def config_validate() -> None:
     typer.echo("config OK")
 
 
+@config_app.command("get")
+def config_get(key: str = typer.Argument(None, help="section.field (omit to dump all).")) -> None:
+    """Show a setting, or the whole resolved config."""
+    cfg = load_config()
+    data = cfg.model_dump()
+    if key is None:
+        json.dump(data, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return
+    section, _, field = key.partition(".")
+    if section not in data or (field and field not in data[section]):
+        err.print(f"[red]no such setting:[/] {key}")
+        raise typer.Exit(code=1)
+    typer.echo(data[section][field] if field else data[section])
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="section.field, e.g. playback.quality"),
+    value: str = typer.Argument(..., help="new value (comma-separate lists)"),
+) -> None:
+    """Change a setting and save it to the config file (validated first).
+
+    Examples: anime config set playback.quality 1080p ·
+    anime config set playback.audio dub · anime config set ui.theme nord
+    """
+    from ..config import set_config_value
+
+    try:
+        typed = set_config_value(key, value)
+    except Exception as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Set[/] {key} = [bold]{typed}[/]")
+
+
 @providers_app.command("ls")
 def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
     providers = registry.load_providers()
@@ -136,12 +179,21 @@ def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
 # --------------------------------------------------------------------------- #
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Title to search for."),
+    query: str = typer.Argument(None, help="Title to search for (optional with filters)."),
+    genre: list[str] = typer.Option(None, "--genre", "-g", help="Filter by genre (repeatable)."),
+    year: int = typer.Option(None, "--year", help="Filter by release year."),
+    fmt: str = typer.Option(None, "--format", help="TV|MOVIE|OVA|ONA|SPECIAL."),
+    status: str = typer.Option(None, "--status", help="RELEASING|FINISHED|NOT_YET_RELEASED."),
+    sort: str = typer.Option(None, "--sort", help="popularity|score|trending|newest|title."),
     limit: int = typer.Option(20, "-n", "--limit"),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
-    """Search AniList for anime (no providers touched — instant)."""
-    asyncio.run(_search(query, limit, as_json))
+    """Search AniList (no providers touched — instant).
+
+    With filters and no title it browses, e.g.
+    `anime search --genre action --year 2024 --sort score`.
+    """
+    asyncio.run(_search(query, genre, year, fmt, status, sort, limit, as_json))
 
 
 @app.command()
@@ -231,6 +283,63 @@ def sources(
     asyncio.run(_sources(query, dub, as_json))
 
 
+# --------------------------------------------------------------------------- #
+# AniList auth + sync
+# --------------------------------------------------------------------------- #
+@auth_app.command("login")
+def auth_login(
+    client_id: str = typer.Option(
+        None, "--client-id",
+        help="Your AniList API client id (from anilist.co/settings/developer).",
+    ),
+    secret: str = typer.Option(
+        None, "--secret",
+        help="Your AniList API client secret — enables the paste-a-code flow.",
+    ),
+    token: str = typer.Option(
+        None, "--token", help="Paste an access token directly (skips the browser)."
+    ),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a browser."),
+) -> None:
+    """Link your AniList account so watch progress syncs automatically.
+
+    One-time setup: create an API client at
+    https://anilist.co/settings/developer (any name; set "Redirect URL" to
+    https://anilist.co/api/v2/oauth/pin). Then run this with --client-id (and
+    --secret to paste a short code instead of a raw token).
+    """
+    asyncio.run(_auth_login(client_id, secret, token, no_browser))
+
+
+@auth_app.command("status")
+def auth_status() -> None:
+    """Show whether an AniList account is linked (and who)."""
+    asyncio.run(_auth_status())
+
+
+@auth_app.command("logout")
+def auth_logout() -> None:
+    """Remove the saved AniList token."""
+    from ..infra.tracker import clear_token
+
+    if clear_token():
+        console.print("[green]Logged out[/] — AniList token removed.")
+    else:
+        console.print("[dim]No AniList token was saved.[/]")
+
+
+@sync_app.command("push")
+def sync_push() -> None:
+    """Push all local watch progress up to AniList."""
+    asyncio.run(_sync("push"))
+
+
+@sync_app.command("pull")
+def sync_pull() -> None:
+    """Import your AniList list into the local library."""
+    asyncio.run(_sync("pull"))
+
+
 @app.command()
 def download(
     query: str = typer.Argument(..., help="Title to download."),
@@ -246,6 +355,72 @@ def download(
 def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
     """List downloads."""
     asyncio.run(_downloads(as_json))
+
+
+@app.command()
+def next(
+    query: str = typer.Argument(..., help="Title to find the sequel of."),
+    as_json: bool = typer.Option(False, "--json", help="Show the sequel; don't play."),
+) -> None:
+    """Find and play the next season (sequel) of a show."""
+    asyncio.run(_next(query, as_json))
+
+
+@app.command(name="list")
+def list_cmd(
+    status: str = typer.Option(
+        None, "--status", "-s",
+        help="watching|planning|completed|paused|dropped|rewatching",
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show your AniList list (all statuses, or one). Needs `anime auth login`."""
+    asyncio.run(_list(status, as_json))
+
+
+@app.command()
+def rate(
+    query: str = typer.Argument(..., help="Title on your list."),
+    score: float = typer.Argument(..., help="Score 0–10."),
+) -> None:
+    """Set a show's score on AniList (matched against your list)."""
+    asyncio.run(_rate_or_status(query, score=score))
+
+
+@app.command()
+def status(
+    query: str = typer.Argument(..., help="Title on your list."),
+    new_status: str = typer.Argument(..., help="watching|planning|completed|paused|dropped|rewatching"),
+) -> None:
+    """Move a show to a different list status on AniList."""
+    asyncio.run(_rate_or_status(query, new_status=new_status))
+
+
+@app.command()
+def unmark(query: str = typer.Argument(..., help="Title to clear progress for.")) -> None:
+    """Clear all local watch progress for a show (undo a mark / forget it)."""
+    asyncio.run(_unmark(query))
+
+
+@app.command()
+def stats(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Summarize your watch history: episodes, hours, top providers & genres."""
+    asyncio.run(_stats(as_json))
+
+
+@app.command()
+def mark(
+    query: str = typer.Argument(..., help="Title to mark."),
+    episode: float = typer.Option(..., "-e", "--episode", help="Episode watched."),
+    single: bool = typer.Option(
+        False, "--single", help="Mark only this episode (not 1..N)."
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Mark progress without playing — catch up to an episode you watched
+    elsewhere. Sets episodes 1..N complete locally and, if AniList is linked,
+    pushes your progress there too."""
+    asyncio.run(_mark(query, episode, single, as_json))
 
 
 @favorite_app.command("add")
@@ -269,18 +444,248 @@ def favorite_ls(as_json: bool = typer.Option(False, "--json")) -> None:
 # --------------------------------------------------------------------------- #
 # Async implementations
 # --------------------------------------------------------------------------- #
-async def _search(query: str, limit: int, as_json: bool) -> None:
+async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None:
+    filtered = any(x for x in (genre, year, fmt, status, sort))
+    if not query and not filtered:
+        err.print("[red]Give a title to search, or filters to browse[/] "
+                  "(e.g. --genre action --sort score).")
+        raise typer.Exit(code=1)
     c = build_container()
     try:
-        results = await c.search.search(query, limit=limit)
+        if filtered:
+            animes = await c.metadata.search_filtered(
+                query, genres=genre, year=year, format=fmt, status=status,
+                sort=sort, limit=limit,
+            )
+        else:
+            animes = [r.anime for r in await c.search.search(query, limit=limit)]
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
     finally:
         await c.aclose()
 
     if as_json:
-        json.dump([_anime_dict(r.anime) for r in results], sys.stdout)
+        json.dump([_anime_dict(a) for a in animes], sys.stdout)
         sys.stdout.write("\n")
         return
-    _print_anime_table(f"Results for {query!r}", [r.anime for r in results])
+    heading = f"Results for {query!r}" if query else "Browse"
+    _print_anime_table(heading, animes)
+
+
+# Display order for list statuses.
+_STATUS_ORDER = ["watching", "rewatching", "paused", "planning", "completed", "dropped"]
+
+
+async def _next(query: str, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        sequel = await c.metadata.sequel(anime.id)
+        if sequel is None:
+            console.print(f"[dim]{anime.title.preferred} has no next season.[/]")
+            raise typer.Exit(code=0)
+        if as_json:
+            json.dump(_anime_dict(sequel), sys.stdout)
+            sys.stdout.write("\n")
+            return
+        err.print(f"[cyan]▶ Next season:[/] {sequel.title.preferred}")
+        audio = Audio.DUB if load_config().playback.audio == "dub" else Audio.SUB
+        await c.playback.play_and_track(sequel, 1.0, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _list(status: str | None, as_json: bool) -> None:
+    from ..infra.tracker.anilist import STATUS_FROM_ANILIST, STATUS_TO_ANILIST
+
+    if status and status.lower() not in STATUS_TO_ANILIST:
+        err.print(f"[red]Unknown status[/] {status!r} "
+                  f"(use: {', '.join(STATUS_TO_ANILIST)})")
+        raise typer.Exit(code=1)
+    c = build_container()
+    try:
+        if c.tracker is None:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/].")
+            raise typer.Exit(code=1)
+        entries = await c.tracker.fetch_list()
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+    if status:
+        want = status.lower()
+        entries = [e for e in entries if STATUS_FROM_ANILIST.get(e.status) == want]
+
+    if as_json:
+        json.dump(
+            [{"anilist_id": e.anime.id.anilist, "title": e.anime.title.preferred,
+              "status": STATUS_FROM_ANILIST.get(e.status, e.status.lower()),
+              "progress": e.progress, "episodes": e.anime.episode_count,
+              "score": e.score} for e in entries],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+
+    if not entries:
+        console.print("[dim]Nothing on your list here.[/]")
+        return
+
+    # Group by status in a sensible order.
+    groups: dict[str, list] = {}
+    for e in entries:
+        groups.setdefault(STATUS_FROM_ANILIST.get(e.status, e.status.lower()), []).append(e)
+    order = [s for s in _STATUS_ORDER if s in groups] + [
+        s for s in groups if s not in _STATUS_ORDER
+    ]
+    for name in order:
+        rows = groups[name]
+        console.print(f"\n[b]{name.title()}[/b] [dim]({len(rows)})[/dim]")
+        for e in rows:
+            total = e.anime.episode_count
+            prog = f"{e.progress}/{total}" if total else f"{e.progress}"
+            score = f"  [green]★{e.score:g}[/green]" if e.score else ""
+            console.print(f"  {e.anime.title.preferred}  [dim]{prog}[/dim]{score}")
+
+
+def _match_list_entry(entries, query: str):
+    """Best title match among the user's own list entries (safer than a global
+    search — avoids picking a same-named spin-off). None if nothing close."""
+    from difflib import SequenceMatcher
+
+    def norm(s: str) -> str:
+        return "".join(ch.lower() for ch in (s or "") if ch.isalnum())
+
+    q = norm(query)
+    best, best_score = None, 0.0
+    for e in entries:
+        titles = (e.anime.title.romaji, e.anime.title.english,
+                  *e.anime.title.synonyms)
+        sim = max((SequenceMatcher(None, norm(t), q).ratio() for t in titles if t),
+                  default=0.0)
+        if sim > best_score:
+            best, best_score = e, sim
+    return best if best_score >= 0.6 else None
+
+
+async def _rate_or_status(query, *, score=None, new_status=None) -> None:
+    c = build_container()
+    try:
+        if c.tracker is None:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/].")
+            raise typer.Exit(code=1)
+        entries = await c.tracker.fetch_list()
+        entry = _match_list_entry(entries, query)
+        if entry is None:
+            err.print(f"[red]{query!r} isn't on your AniList list.[/] "
+                      "Add it first (e.g. `anime mark` or on the site).")
+            raise typer.Exit(code=1)
+        media_id = entry.anime.id.anilist
+        title = entry.anime.title.preferred
+        if score is not None:
+            await c.tracker.set_score(media_id, score)
+            console.print(f"[green]Rated[/] {title} [bold]{score:g}/10[/].")
+        else:
+            await c.tracker.set_status(media_id, new_status)
+            console.print(f"[green]Moved[/] {title} → [bold]{new_status.lower()}[/].")
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _unmark(query: str) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        removed = await c.library_service.unmark(anime.id)
+        console.print(
+            f"[yellow]Cleared[/] {removed} local progress row(s) for "
+            f"{anime.title.preferred}."
+        )
+    finally:
+        await c.aclose()
+
+
+async def _stats(as_json: bool) -> None:
+    c = build_container()
+    try:
+        s = await c.library_service.stats()
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            {"episodes_completed": s.episodes_completed, "shows": s.shows,
+             "sessions": s.sessions, "hours": s.hours,
+             "total_seconds": s.total_seconds,
+             "top_providers": [list(p) for p in s.top_providers],
+             "top_genres": [list(g) for g in s.top_genres]},
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if s.sessions == 0:
+        console.print("[dim]No watch history yet. Go watch something![/]")
+        return
+    console.print(
+        f"[b]Your anime-sh stats[/b]\n"
+        f"  [cyan]{s.episodes_completed}[/cyan] episodes finished across "
+        f"[cyan]{s.shows}[/cyan] shows\n"
+        f"  [cyan]{s.hours}[/cyan] hours watched over [cyan]{s.sessions}[/cyan] sessions"
+    )
+    if s.top_genres:
+        console.print("  [dim]top genres:[/] " +
+                      ", ".join(f"{g} ({n})" for g, n in s.top_genres[:5]))
+    if s.top_providers:
+        console.print("  [dim]providers:[/]  " +
+                      ", ".join(f"{p} ({n})" for p, n in s.top_providers))
+
+
+async def _mark(query: str, episode: float, single: bool, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        numbers = await c.library_service.mark_watched(anime, episode, single=single)
+        synced = False
+        if c.tracker is not None and anime.id.anilist is not None:
+            try:
+                await c.tracker.push(
+                    WatchProgress(anime.id, episode, 1, 1,
+                                  datetime.now(timezone.utc), completed=True),
+                    total=anime.episode_count,
+                )
+                synced = True
+            except Exception as e:
+                err.print(f"[yellow]Marked locally, but AniList sync failed:[/] {e}")
+        if as_json:
+            json.dump(
+                {"anilist_id": anime.id.anilist, "title": anime.title.preferred,
+                 "marked": numbers, "synced_anilist": synced},
+                sys.stdout,
+            )
+            sys.stdout.write("\n")
+            return
+        span = f"episode {episode:g}" if single else f"episodes 1–{episode:g}"
+        tail = " [dim](synced to AniList)[/]" if synced else ""
+        console.print(f"[green]Marked[/] {anime.title.preferred} {span} watched{tail}.")
+    finally:
+        await c.aclose()
 
 
 async def _trending(limit: int, as_json: bool) -> None:
@@ -399,6 +804,21 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
             raise typer.Exit(code=1)
         err.print(f"[cyan]▶[/] {anime.title.preferred} — Episode {episode:g} ({audio.value.lower()})")
 
+        if not resolve_only:
+            # Status lines from playback ("Episode 5/12 — trying HD-1…",
+            # "Next episode: 6/12", "Skipped intro") land on stderr.
+            c.playback.set_on_event(lambda msg: err.print(f"[dim]{msg}[/]"))
+            available = await c.playback.available_episodes(anime, audio=audio)
+            if available:
+                planned = f" of {anime.episode_count} planned" if anime.episode_count else ""
+                err.print(
+                    f"[dim]{len(available)} episode(s) available{planned}: "
+                    f"{_ep_list(available)}[/]"
+                )
+                if episode not in available:
+                    err.print(f"[yellow]Episode {episode:g} isn't available (yet).[/]")
+                    raise typer.Exit(code=1)
+
         if resolve_only:
             resolved = await c.playback.resolve(anime, episode, audio=audio)
             json.dump(
@@ -418,6 +838,118 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
         else:
             err.print("[dim]Searching providers and resolving stream…[/]")
             await c.playback.play_and_track(anime, episode, audio=audio)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+
+
+async def _auth_login(
+    client_id: str | None, secret: str | None, token: str | None, no_browser: bool
+) -> None:
+    import webbrowser
+
+    from ..infra.tracker import (
+        AniListTracker,
+        authorize_url,
+        exchange_code,
+        extract_token,
+        save_token,
+    )
+    from ..infra.tracker.tokens import load_client_id
+
+    if not token:
+        client_id = client_id or load_client_id()
+        if not client_id:
+            err.print(
+                "[yellow]One-time setup:[/] create an API client at "
+                "https://anilist.co/settings/developer\n"
+                "  • Name: anything (e.g. anime-sh)\n"
+                "  • Redirect URL: https://anilist.co/api/v2/oauth/pin\n"
+                "Then re-run: [bold]anime auth login --client-id <ID> --secret <SECRET>[/]"
+            )
+            raise typer.Exit(code=1)
+
+        if secret:
+            # Auth-code + PIN flow: the page shows a code; exchange it for a token.
+            url = authorize_url(client_id, response_type="code")
+            console.print(f"\nOpen this URL, authorise, then copy the code shown:\n[cyan]{url}[/]\n")
+            if not no_browser:
+                with contextlib.suppress(Exception):
+                    webbrowser.open(url)
+            code = typer.prompt("Paste the code from the page")
+            try:
+                token = await exchange_code(client_id, secret, code)
+            except AnimeShError as e:
+                err.print(f"[red]{e}[/]")
+                raise typer.Exit(code=1)
+        else:
+            # Implicit grant: the token itself comes back in the redirect URL.
+            url = authorize_url(client_id, response_type="token")
+            console.print(f"\nOpen this URL, authorise, then copy the token:\n[cyan]{url}[/]\n")
+            if not no_browser:
+                with contextlib.suppress(Exception):
+                    webbrowser.open(url)
+            pasted = typer.prompt("Paste the access token (or the full redirect URL)")
+            token = extract_token(pasted)
+            if not token:
+                err.print("[red]Couldn't find an access token in that input.[/]")
+                raise typer.Exit(code=1)
+
+    tracker = AniListTracker(token)
+    try:
+        viewer = await tracker.viewer()
+    except Exception as e:
+        err.print(f"[red]AniList rejected the token:[/] {e}")
+        raise typer.Exit(code=1)
+    finally:
+        await tracker.aclose()
+
+    save_token(token, client_id=client_id)
+    console.print(
+        f"[green]Linked AniList as[/] [bold]{viewer['name']}[/]. "
+        "Progress will now sync when you finish an episode.\n"
+        "[dim]Tip: `anime sync pull` imports your existing list; "
+        "`anime sync push` sends your local history up.[/]"
+    )
+
+
+async def _auth_status() -> None:
+    from ..infra.tracker import AniListTracker, load_token
+
+    token = load_token()
+    if not token:
+        console.print("[dim]Not linked.[/] Run [bold]anime auth login[/] to connect AniList.")
+        return
+    tracker = AniListTracker(token)
+    try:
+        viewer = await tracker.viewer()
+        console.print(f"[green]Linked[/] as [bold]{viewer['name']}[/] (AniList id {viewer['id']}).")
+    except Exception as e:
+        console.print(f"[yellow]Token saved but not working:[/] {e}\nRe-run [bold]anime auth login[/].")
+    finally:
+        await tracker.aclose()
+
+
+async def _sync(direction: str) -> None:
+    c = build_container()
+    try:
+        if not c.sync.enabled:
+            err.print("[yellow]Not linked to AniList.[/] Run [bold]anime auth login[/] first.")
+            raise typer.Exit(code=1)
+        if direction == "push":
+            err.print("[dim]Pushing local progress to AniList…[/]")
+            result = await c.sync.push()
+            console.print(
+                f"[green]Pushed[/] {result.pushed} show(s) to AniList"
+                + (f" ([dim]{result.skipped} skipped[/])" if result.skipped else "")
+                + "."
+            )
+        else:
+            err.print("[dim]Importing your AniList list…[/]")
+            result = await c.sync.pull()
+            console.print(f"[green]Imported[/] {result.pulled} ent(y/ies) from AniList.")
     except AnimeShError as e:
         err.print(f"[red]{e}[/]")
         raise typer.Exit(code=2)
@@ -720,6 +1252,27 @@ async def _favorite_ls(as_json: bool) -> None:
 # --------------------------------------------------------------------------- #
 # Rendering helpers
 # --------------------------------------------------------------------------- #
+def _ep_list(numbers: list[float]) -> str:
+    """Compact episode list: contiguous whole-numbered runs collapse to
+    "1–12"; gaps and specials stay explicit ("1–3, 5, 13.5")."""
+    parts: list[str] = []
+    run_start = prev = None
+    def flush():
+        if run_start is None:
+            return
+        parts.append(
+            f"{run_start:g}" if run_start == prev else f"{run_start:g}–{prev:g}"
+        )
+    for n in numbers:
+        if prev is not None and n == prev + 1:
+            prev = n
+            continue
+        flush()
+        run_start = prev = n
+    flush()
+    return ", ".join(parts)
+
+
 def _anime_dict(a) -> dict:
     return {
         "anilist_id": a.id.anilist,
@@ -732,6 +1285,8 @@ def _anime_dict(a) -> dict:
         "season": a.season.value if a.season else None,
         "year": a.year,
         "genres": list(a.genres),
+        "average_score": a.average_score,
+        "studio": a.studio,
     }
 
 

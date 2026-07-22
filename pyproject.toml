@@ -32,15 +32,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tui = ["textual>=8.0"]
+tui = ["textual>=8.0", "pillow>=10.0"]  # pillow renders cover art (optional at runtime)
 discord = ["pypresence>=4.3"]
-all = ["textual>=8.0", "pypresence>=4.3"]
+all = ["textual>=8.0", "pillow>=10.0", "pypresence>=4.3"]
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",
     "import-linter>=2.0",
     "anyio>=4.3",
     "textual>=8.0", # TUI tests run in the default dev env
+    "pillow>=10.0",
 ]
 
 [project.urls]
@@ -57,11 +58,14 @@ anime-sh = "anime_sh.cli.main:main"
 [project.entry-points."anime_sh.providers"]
 allanime = "anime_sh.providers.allanime:AllAnimeProvider"
 anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
+anizone = "anime_sh.providers.anizone:AnizoneProvider"
 
 [project.entry-points."anime_sh.resolvers"]
 allanime-clock = "anime_sh.resolvers.allanime:AllAnimeClockResolver"
 mp4upload = "anime_sh.resolvers.mp4upload:Mp4UploadResolver"
 megaplay = "anime_sh.resolvers.vidtube:VidtubeResolver"
+filemoon = "anime_sh.resolvers.filemoon:FilemoonResolver"
+streamwish = "anime_sh.resolvers.streamwish:StreamwishResolver"
 generic = "anime_sh.resolvers.generic:GenericStreamResolver"
 
 [build-system]

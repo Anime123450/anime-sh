@@ -15,6 +15,7 @@ from ..app.library import LibraryService
 from ..app.playback import PlaybackService
 from ..app.providers import ProviderManager
 from ..app.search import SearchService
+from ..app.sync import SyncService
 from ..config import Config, load_config
 from ..config.paths import cache_db_path, user_db_path
 from ..infra import registry
@@ -27,6 +28,7 @@ from ..infra.downloader import FfmpegDownloader
 from ..infra.metadata import AniListMetadata
 from ..infra.players import MpvPlayer, NullPlayer
 from ..infra.proxy import DeobfuscatingProxy
+from ..infra.tracker import AniListTracker, load_token
 
 log = logging.getLogger(__name__)
 
@@ -46,10 +48,14 @@ class Container:
     playback: PlaybackService
     download: DownloadService
     stream_proxy: DeobfuscatingProxy
+    sync: SyncService
+    tracker: AniListTracker | None
 
     async def aclose(self) -> None:
         self.stream_proxy.stop()
         await self.metadata.aclose()
+        if self.tracker is not None:
+            await self.tracker.aclose()
         await self.user_db.close()
         await self.cache_db.close()
 
@@ -100,6 +106,12 @@ def build_container(config: Config | None = None) -> Container:
 
     stream_proxy = DeobfuscatingProxy()
 
+    # AniList list-sync is active whenever a token has been saved (anime auth
+    # login) — that token is the opt-in. When active, playback pushes progress
+    # on completion and `anime sync` can push/pull the whole list.
+    token = load_token()
+    tracker = AniListTracker(token) if token else None
+
     playback = PlaybackService(
         providers=provider_manager,
         resolvers=resolvers,
@@ -110,7 +122,9 @@ def build_container(config: Config | None = None) -> Container:
         skip_outro=config.playback.skip_outro,
         auto_next=config.playback.auto_next,
         stream_proxy=stream_proxy,
+        tracker=tracker,
     )
+    sync = SyncService(library, tracker)
 
     download = DownloadService(
         playback=playback,
@@ -135,4 +149,6 @@ def build_container(config: Config | None = None) -> Container:
         playback=playback,
         download=download,
         stream_proxy=stream_proxy,
+        sync=sync,
+        tracker=tracker,
     )

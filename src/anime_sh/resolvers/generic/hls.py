@@ -26,5 +26,6 @@ class GenericStreamResolver:
                 kind=kind_from_url(candidate.url),
                 quality=quality_from_str(candidate.quality_hint),
                 headers=dict(candidate.headers),
+                subtitles=tuple(candidate.subtitles),
             )
         ]

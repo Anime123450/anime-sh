@@ -32,7 +32,11 @@ synonyms
 format status episodes season seasonYear genres
 description(asHtml: false)
 coverImage { large }
+bannerImage
 duration
+averageScore popularity
+studios(isMain: true) { nodes { name isAnimationStudio } }
+nextAiringEpisode { episode airingAt }
 """
 
 _SEARCH_Q = f"""
@@ -43,9 +47,36 @@ query ($search: String, $perPage: Int) {{
 }}
 """
 
+_FILTER_Q = f"""
+query ($search: String, $genres: [String], $year: Int, $format: MediaFormat,
+       $status: MediaStatus, $sort: [MediaSort], $perPage: Int) {{
+  Page(perPage: $perPage) {{
+    media(search: $search, genre_in: $genres, seasonYear: $year, format: $format,
+          status: $status, type: ANIME, sort: $sort) {{ {_MEDIA_FIELDS} }}
+  }}
+}}
+"""
+
+# Friendly sort names → AniList MediaSort enum.
+_SORTS = {
+    "popularity": "POPULARITY_DESC",
+    "score": "SCORE_DESC",
+    "trending": "TRENDING_DESC",
+    "newest": "START_DATE_DESC",
+    "title": "TITLE_ROMAJI",
+}
+
 _GET_Q = f"""
 query ($id: Int, $malId: Int) {{
   Media(id: $id, idMal: $malId, type: ANIME) {{ {_MEDIA_FIELDS} }}
+}}
+"""
+
+_RELATIONS_Q = f"""
+query ($id: Int) {{
+  Media(id: $id, type: ANIME) {{
+    relations {{ edges {{ relationType node {{ type {_MEDIA_FIELDS} }} }} }}
+  }}
 }}
 """
 
@@ -89,6 +120,8 @@ def _clean_synopsis(text: str | None) -> str | None:
 
 def _to_anime(m: dict) -> Anime:
     t = m.get("title") or {}
+    next_ep = m.get("nextAiringEpisode") or {}
+    airing_at = next_ep.get("airingAt")
     return Anime(
         id=AnimeId(anilist=m["id"], mal=m.get("idMal")),
         title=Title(
@@ -106,7 +139,23 @@ def _to_anime(m: dict) -> Anime:
         synopsis=_clean_synopsis(m.get("description")),
         cover_url=(m.get("coverImage") or {}).get("large"),
         duration_min=m.get("duration"),
+        average_score=m.get("averageScore"),
+        popularity=m.get("popularity"),
+        studio=_main_studio(m.get("studios")),
+        banner_url=m.get("bannerImage"),
+        next_airing_episode=next_ep.get("episode"),
+        next_airing_at=datetime.fromtimestamp(airing_at, tz=timezone.utc)
+        if airing_at
+        else None,
     )
+
+
+def _main_studio(studios) -> str | None:
+    nodes = (studios or {}).get("nodes") or []
+    # Prefer an actual animation studio; fall back to the first main studio.
+    animation = [n for n in nodes if n.get("isAnimationStudio")]
+    pick = (animation or nodes)
+    return pick[0].get("name") if pick else None
 
 
 def _enum(enum_cls, value):
@@ -142,12 +191,60 @@ class AniListMetadata:
         data = await self._query(_SEARCH_Q, {"search": query, "perPage": limit})
         return [_to_anime(m) for m in data["Page"]["media"]]
 
+    async def search_filtered(
+        self,
+        query: str | None = None,
+        *,
+        genres: list[str] | None = None,
+        year: int | None = None,
+        format: str | None = None,
+        status: str | None = None,
+        sort: str | None = None,
+        limit: int = 20,
+    ) -> list[Anime]:
+        """Search/browse with filters. With no ``query`` this is a discovery
+        browse (defaults to most-popular); with one it ranks by relevance unless
+        a ``sort`` is given. ``sort`` is a friendly name (popularity/score/…)."""
+        sort_enum = _SORTS.get((sort or "").lower()) or (
+            "SEARCH_MATCH" if query else "POPULARITY_DESC"
+        )
+        variables = {
+            "search": query,
+            "genres": [g.title() for g in genres] if genres else None,
+            "year": year,
+            "format": format.upper() if format else None,
+            "status": status.upper() if status else None,
+            "sort": [sort_enum],
+            "perPage": limit,
+        }
+        variables = {k: v for k, v in variables.items() if v is not None}
+        data = await self._query(_FILTER_Q, variables)
+        return [_to_anime(m) for m in data["Page"]["media"]]
+
     async def get(self, id: AnimeId) -> Anime:
-        data = await self._query(_GET_Q, {"id": id.anilist, "malId": id.mal})
+        # Omit missing ids entirely: an explicit {"malId": null} makes AniList
+        # match Media(idMal: null) and 404 even when the AniList id is valid.
+        variables = {
+            k: v for k, v in (("id", id.anilist), ("malId", id.mal)) if v is not None
+        }
+        data = await self._query(_GET_Q, variables)
         media = data.get("Media")
         if not media:
             raise MetadataError(f"AniList has no media for {id.key}")
         return _to_anime(media)
+
+    async def sequel(self, id: AnimeId) -> Anime | None:
+        """The direct sequel (next season) of a show, or None. Only ANIME nodes
+        with a SEQUEL relation are considered."""
+        if id.anilist is None:
+            return None
+        data = await self._query(_RELATIONS_Q, {"id": id.anilist})
+        media = data.get("Media") or {}
+        for edge in (media.get("relations") or {}).get("edges") or []:
+            node = edge.get("node") or {}
+            if edge.get("relationType") == "SEQUEL" and node.get("type") == "ANIME":
+                return _to_anime(node)
+        return None
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
         data = await self._query(_TRENDING_Q, {"perPage": limit})
