@@ -53,11 +53,24 @@ async def test_progress_round_trip(user_db):
 
 
 async def test_continue_watching_orders_recent_first(user_db):
+    from datetime import datetime, timezone
+
+    from anime_sh.domain.models import AnimeId, WatchProgress
+
     lib = SqliteLibrary(user_db)
-    await lib.save_progress(resume_at(100, episode=1.0))
-    await lib.save_progress(resume_at(200, episode=2.0))
+
+    def prog(anilist, day):
+        return WatchProgress(
+            anime_id=AnimeId(anilist=anilist), episode=1.0, position_s=100,
+            duration_s=1400, completed=False,
+            updated_at=datetime(2026, 7, day, tzinfo=timezone.utc),
+        )
+
+    # Two different shows — one card each, newest first.
+    await lib.save_progress(prog(111, 1))
+    await lib.save_progress(prog(222, 2))
     rows = await lib.continue_watching()
-    assert len(rows) == 2
+    assert [r.anime.id.anilist for r in rows] == [222, 111]
 
 
 async def test_cache_ttl_expiry(cache_db):

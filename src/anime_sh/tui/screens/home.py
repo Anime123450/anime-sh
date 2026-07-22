@@ -1,6 +1,8 @@
-"""Home screen: search-as-you-type, continue watching, and trending."""
+"""Home screen: search-as-you-type, continue watching, this season, trending."""
 
 from __future__ import annotations
+
+from datetime import date, datetime, timezone
 
 from textual import work
 from textual.app import ComposeResult
@@ -8,8 +10,22 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
+from ...domain.models import Season
+from ..format import home_subtitle
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
+
+
+def _current_season() -> tuple[Season, int]:
+    today = date.today()
+    m = today.month
+    if m in (12, 1, 2):
+        return Season.WINTER, today.year + (1 if m == 12 else 0)
+    if m in (3, 4, 5):
+        return Season.SPRING, today.year
+    if m in (6, 7, 8):
+        return Season.SUMMER, today.year
+    return Season.FALL, today.year
 
 
 class HomeScreen(Screen):
@@ -19,6 +35,10 @@ class HomeScreen(Screen):
         with VerticalScroll(id="body"):
             yield Label("Continue Watching", classes="section", id="sec-continue")
             yield ListView(id="continue")
+            yield Label("Favorites", classes="section", id="sec-favorites")
+            yield ListView(id="favorites")
+            yield Label("Airing This Season", classes="section", id="sec-seasonal")
+            yield ListView(id="seasonal")
             yield Label("Trending", classes="section", id="sec-trending")
             yield ListView(id="trending")
             yield Label("Results", classes="section", id="sec-results")
@@ -31,7 +51,27 @@ class HomeScreen(Screen):
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
         self._load_continue()
+        self._load_favorites()
+        self._load_seasonal()
         self._load_trending()
+        # Tick the airing countdowns in place every minute (no network).
+        self.set_interval(60, self._tick_countdowns)
+        # Focus a browse list, not the search box (the placeholder says "press /
+        # to focus"). Keeps arrow-nav, Enter, and the global `?` working at once.
+        try:
+            self.query_one("#trending", ListView).focus()
+        except Exception:
+            pass
+
+    def _tick_countdowns(self) -> None:
+        for wid in ("#seasonal", "#trending", "#results"):
+            try:
+                lv = self.query_one(wid, ListView)
+            except Exception:
+                continue
+            for item in lv.children:
+                if isinstance(item, AnimeItem) and item.anime.is_airing:
+                    item.set_subtitle(home_subtitle(item.anime))
 
     # -- home data ---------------------------------------------------------- #
     @work(exclusive=True, group="continue")
@@ -50,6 +90,41 @@ class HomeScreen(Screen):
                           resume_episode=it.progress.episode)
             )
 
+    @work(exclusive=True, group="favorites")
+    async def _load_favorites(self) -> None:
+        try:
+            items = await self.app.services.library.favorites()
+        except Exception:
+            items = []
+        lv = self.query_one("#favorites", ListView)
+        await lv.clear()
+        # Empty favorites: hide the section rather than show a blank row.
+        if not items:
+            self.query_one("#sec-favorites").display = False
+            lv.display = False
+            return
+        self.query_one("#sec-favorites").display = True
+        lv.display = True
+        for fav in items:
+            meta = " · ".join(str(x) for x in (fav.anime.format.value, fav.anime.year) if x)
+            lv.append(AnimeItem(fav.anime, subtitle=meta))
+
+    @work(exclusive=True, group="seasonal")
+    async def _load_seasonal(self) -> None:
+        season, year = _current_season()
+        try:
+            animes = await self.app.services.metadata.seasonal(season, year)
+        except Exception as e:
+            self.notify(f"Couldn't load this season: {e}", severity="warning")
+            return
+        # Soonest-airing first, so the next release to drop sits at the top.
+        far = datetime.max.replace(tzinfo=timezone.utc)
+        animes = sorted(animes, key=lambda a: a.next_airing_at or far)
+        lv = self.query_one("#seasonal", ListView)
+        await lv.clear()
+        for a in animes[:20]:
+            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
+
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
         try:
@@ -60,8 +135,7 @@ class HomeScreen(Screen):
         lv = self.query_one("#trending", ListView)
         await lv.clear()
         for a in animes:
-            year = f"· {a.year}" if a.year else ""
-            lv.append(AnimeItem(a, subtitle=f"{a.format.value} {year}".strip()))
+            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
 
     # -- search ------------------------------------------------------------- #
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -83,9 +157,7 @@ class HomeScreen(Screen):
         lv = self.query_one("#results", ListView)
         await lv.clear()
         for r in results:
-            a = r.anime
-            meta = " · ".join(str(x) for x in (a.format.value, a.year) if x)
-            lv.append(AnimeItem(a, subtitle=meta))
+            lv.append(AnimeItem(r.anime, subtitle=home_subtitle(r.anime)))
         self._toggle_results(True)
         if results:
             lv.index = 0
@@ -107,16 +179,20 @@ class HomeScreen(Screen):
         self._show_home_sections(not on)
 
     def _show_home_sections(self, on: bool) -> None:
-        for wid in ("#sec-continue", "#continue", "#sec-trending", "#trending"):
+        for wid in ("#sec-continue", "#continue", "#sec-favorites", "#favorites",
+                    "#sec-seasonal", "#seasonal", "#sec-trending", "#trending"):
             node = self.query_one(wid)
-            # Continue-watching may have been hidden for being empty; respect that.
-            if wid in ("#sec-continue", "#continue") and not self._has_continue():
+            # Continue-watching and favorites hide themselves when empty; respect
+            # that instead of forcing them back on when search results close.
+            if wid in ("#sec-continue", "#continue") and not self._has_rows("#continue"):
+                node.display = False
+            elif wid in ("#sec-favorites", "#favorites") and not self._has_rows("#favorites"):
                 node.display = False
             else:
                 node.display = on
 
-    def _has_continue(self) -> bool:
+    def _has_rows(self, selector: str) -> bool:
         try:
-            return len(self.query_one("#continue", ListView)) > 0
+            return len(self.query_one(selector, ListView)) > 0
         except Exception:
             return False

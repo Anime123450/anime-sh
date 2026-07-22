@@ -21,7 +21,10 @@ anime                        # launch the keyboard-driven TUI (needs [tui] extra
 anime "Frieren"              # search + best match + play episode 1
 anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime search "frieren"       # AniList search (instant; no providers touched)
+anime search --genre action --year 2024 --sort score   # browse with filters
 anime trending
+anime mark "Frieren" -e 12    # catch up: mark eps 1–12 watched (syncs to AniList)
+anime stats                   # episodes, hours, top genres & providers
 
 anime continue               # episodes you started but didn't finish
 anime resume                 # jump back into the most recent one
@@ -29,10 +32,29 @@ anime history                # what you've watched
 anime favorite add "Frieren" # ★  (also: favorite ls / rm)
 anime download "Frieren" -e 1  # save to disk (ffmpeg); also: anime downloads
 
+anime auth login             # link AniList (one-time); status / logout
+anime sync pull              # import your AniList list; sync push sends yours up
+anime list --status watching # your AniList list by status (also planning/completed…)
+anime rate "Frieren" 9       # set a score; anime status "X" completed
+anime next "Mob Psycho 100"  # find + play the next season (sequel)
+
 anime doctor                 # player, ffmpeg, config, database, plugins
+anime config get             # dump settings; `config get playback.quality`
+anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
 anime config path | validate
 anime providers ls
 ```
+
+The TUI home shows Continue Watching, Favorites, Airing This Season, and
+Trending; the detail screen renders cover art, score, studio and a live
+next-episode countdown. Press `?` for keys, `/` to search.
+
+**AniList sync.** Link your account once with `anime auth login` (create a free
+API client at [anilist.co/settings/developer](https://anilist.co/settings/developer),
+redirect URL `https://anilist.co/api/v2/oauth/pin`, then paste the token — your
+password is never involved). After that, finishing an episode automatically bumps
+your AniList progress. `anime sync pull` imports your existing list into the local
+library; `anime sync push` sends your local history up in one pass.
 
 Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
 `favorite ls` for machine-readable output (`play --json` resolves the stream
@@ -44,9 +66,10 @@ in a separate `anime.db` from the disposable cache and renders offline.
 > degrades cleanly instead of crashing; metadata and your library keep working.
 
 **Multiple providers, merged.** anime-sh fans out across providers (currently
-AllAnime + anikoto) and falls through to whichever one actually has your show —
-so a title missing from one source still plays from another, with no action
-from you.
+AllAnime + anikoto + AniZone) and falls through to whichever one actually has
+your show — so a title missing from one source still plays from another, with no
+action from you. AniZone serves a clean, un-obfuscated HLS stream with soft
+English subs, so it plays where Cloudflare-gated sites can't.
 
 ## Install
 

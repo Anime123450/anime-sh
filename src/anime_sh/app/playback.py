@@ -30,7 +30,7 @@ from ..domain.models import (
     StreamCandidate,
     WatchProgress,
 )
-from ..domain.ports import Library, Player, Resolver
+from ..domain.ports import Library, Player, Resolver, Tracker
 from ..domain.ranking import pick_stream
 from .providers import ProviderManager
 
@@ -42,6 +42,9 @@ _COMPLETE_FRACTION = 0.9
 _MAX_STREAM_ATTEMPTS = 8
 # How long to wait for a stream to actually start playing before abandoning it.
 _CONFIRM_TIMEOUT_S = 25.0
+# How long to let one resolver work on one candidate before abandoning it — a
+# blocked/dead host (e.g. an ISP-blocked embed) must not stall the whole walk.
+_RESOLVE_TIMEOUT_S = 10.0
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +74,7 @@ class PlaybackService:
         skip_outro: bool = False,
         auto_next: bool = True,
         stream_proxy=None,
+        tracker: "Tracker | None" = None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
         self._providers = providers
@@ -80,10 +84,16 @@ class PlaybackService:
         self._quality = quality
         # Optional de-obfuscating proxy for hostile CDNs (PNG-disguised segments).
         self._stream_proxy = stream_proxy
+        # Optional list-sync tracker (AniList): progress is pushed on completion.
+        self._tracker = tracker
         self._skip_intro = skip_intro
         self._skip_outro = skip_outro
         self._auto_next = auto_next
         # Optional UI hook for status lines ("Skipped intro", "Next episode…").
+        self._notify = on_event or (lambda _msg: None)
+
+    def set_on_event(self, on_event: "Callable[[str], None] | None") -> None:
+        """Late-bind the status hook — the CLI/TUI attach after construction."""
         self._notify = on_event or (lambda _msg: None)
 
     async def resolve(
@@ -130,8 +140,11 @@ class PlaybackService:
                     if not resolver.handles(candidate):
                         continue
                     try:
-                        streams = await resolver.resolve(candidate)
-                    except ResolverError as e:
+                        async with asyncio.timeout(_RESOLVE_TIMEOUT_S):
+                            streams = await resolver.resolve(candidate)
+                    except (ResolverError, TimeoutError, asyncio.TimeoutError) as e:
+                        # A blocked/dead host must not stall the walk — bound it
+                        # and move on to the next host/provider.
                         log.debug("resolver %s failed on %s: %s", resolver.name, candidate.host, e)
                         continue
                     except Exception as e:
@@ -147,7 +160,7 @@ class PlaybackService:
     ):
         """Resolve then launch the player. Returns a PlaybackHandle."""
         resolved = await self.resolve(anime, episode_number, audio=audio)
-        title = f"{anime.title.preferred} - Episode {episode_number:g}"
+        title = _window_title(anime, episode_number)
         return await self._player.play(
             resolved.stream, title=title, start_s=resolved.resume_s
         )
@@ -169,7 +182,7 @@ class PlaybackService:
             if not (self._auto_next and finished and self._has_next(anime, number)):
                 break
             number += 1
-            self._notify(f"Next episode: {number:g}")
+            self._notify(f"Next episode: {_ep_label(anime, number)}")
 
     async def _play_episode(
         self, anime: Anime, episode_number: float, *, audio: Audio,
@@ -193,8 +206,8 @@ class PlaybackService:
             anime, episode_number, audio, refs
         ):
             tried += 1
-            self._notify(f"Trying {host}…")
-            title = f"{anime.title.preferred} - Episode {episode_number:g}"
+            self._notify(f"Episode {_ep_label(anime, episode_number)} — trying {host}…")
+            title = _window_title(anime, episode_number)
             play_stream = (
                 self._stream_proxy.rewrite(stream) if self._stream_proxy else stream
             )
@@ -275,7 +288,30 @@ class PlaybackService:
                     provider=provider,
                     seconds_watched=max(last_event.position_s, 0),
                 )
+                if _is_complete(last_event):
+                    await self._sync_progress(anime, episode_number)
         return played, last_event
+
+    async def _sync_progress(self, anime: Anime, episode_number: float) -> None:
+        """Push a completed episode to the list tracker (AniList). Best-effort:
+        a sync failure must never disrupt playback."""
+        if self._tracker is None or anime.id.anilist is None:
+            return
+        try:
+            await self._tracker.push(
+                WatchProgress(
+                    anime_id=anime.id,
+                    episode=episode_number,
+                    position_s=0,
+                    duration_s=0,
+                    updated_at=datetime.now(timezone.utc),
+                    completed=True,
+                ),
+                total=anime.episode_count,
+            )
+            self._notify(f"Synced to {self._tracker.name}: episode {episode_number:g}")
+        except Exception as e:  # pragma: no cover - network best-effort
+            log.debug("tracker push failed: %s", e)
 
     def _has_next(self, anime: Anime, number: float) -> bool:
         return anime.episode_count is not None and number < anime.episode_count
@@ -317,6 +353,23 @@ class PlaybackService:
         except Exception as e:
             log.warning("provider %s episodes failed: %s", ref.provider, e)
             return []
+
+
+def _ep_label(anime: Anime, number: float) -> str:
+    """"5/12" when the planned total is known, else "5" — so every status
+    line and window title says where you are in the season."""
+    total = anime.episode_count
+    return f"{number:g}/{total}" if total else f"{number:g}"
+
+
+def _window_title(anime: Anime, number: float) -> str:
+    return f"{anime.title.preferred} - Episode {_ep_label(anime, number)}"
+
+
+def _is_complete(ev) -> bool:
+    """Whether a playback event crossed the completion threshold."""
+    duration = max(getattr(ev, "duration_s", 0), 0)
+    return duration > 0 and (ev.position_s / duration) >= _COMPLETE_FRACTION
 
 
 def _find_episode(episodes: list[Episode], number: float) -> Episode | None:

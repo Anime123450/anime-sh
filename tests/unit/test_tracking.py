@@ -54,14 +54,28 @@ class _ScriptedPlayer:
         return h
 
 
-def _service(events, library):
+def _service(events, library, tracker=None):
     return PlaybackService(
         providers=ProviderManager([FakeProvider("p", candidate_hosts=["mp4upload"])]),
         resolvers=[FakeResolver("mp4", host="mp4upload")],
         player=_ScriptedPlayer(events),
         library=library,
         quality="best",
+        tracker=tracker,
     )
+
+
+class _FakeTracker:
+    name = "anilist"
+
+    def __init__(self):
+        self.pushed = []
+
+    async def push(self, progress, *, total=None):
+        self.pushed.append((progress.anime_id.anilist, int(progress.episode), total))
+
+    async def pull(self):
+        return []
 
 
 async def test_progress_saved_and_marked_complete():
@@ -85,6 +99,20 @@ async def test_partial_watch_not_completed():
     await _service(events, lib).play_and_track(make_anime(), 1.0)
     assert lib.saved[-1].completed is False
     assert lib.saved[-1].position_s == 120
+
+
+async def test_completed_episode_pushed_to_tracker():
+    lib, tracker = FakeLibrary(), _FakeTracker()
+    events = [_Ev(950, 1000, False, True)]  # past 90% -> completed -> synced
+    await _service(events, lib, tracker).play_and_track(make_anime(), 18.0)
+    assert tracker.pushed == [(154587, 18, None)]  # make_anime has no episode_count
+
+
+async def test_partial_watch_not_pushed_to_tracker():
+    lib, tracker = FakeLibrary(), _FakeTracker()
+    events = [_Ev(100, 1400, False, True)]  # stopped early -> no sync
+    await _service(events, lib, tracker).play_and_track(make_anime(), 18.0)
+    assert tracker.pushed == []
 
 
 async def test_play_records_history_and_caches_metadata():

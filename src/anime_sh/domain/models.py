@@ -119,6 +119,18 @@ class Anime:
     synopsis: str | None = None
     cover_url: str | None = None
     duration_min: int | None = None
+    # Richer catalog fields (populated by AniList; all optional so cached rows
+    # and providers that don't supply them still construct cleanly).
+    average_score: int | None = None  # 0-100
+    popularity: int | None = None
+    studio: str | None = None
+    banner_url: str | None = None
+    next_airing_episode: int | None = None
+    next_airing_at: datetime | None = None
+
+    @property
+    def is_airing(self) -> bool:
+        return self.status is Status.RELEASING
 
 
 # --------------------------------------------------------------------------- #
@@ -167,13 +179,18 @@ class Episode:
 
 @dataclass(frozen=True, slots=True)
 class StreamCandidate:
-    """What a provider hands you: an embed page, not a video."""
+    """What a provider hands you: usually an embed page a resolver must unwrap.
+
+    A provider that already knows the direct media URL (and any subtitle tracks)
+    can attach them here; the generic passthrough resolver carries them onto the
+    :class:`Stream` unchanged."""
 
     host: str  # "mp4upload"
     url: str
     audio: Audio = Audio.SUB
     headers: Mapping[str, str] = field(default_factory=dict)
     quality_hint: str | None = None
+    subtitles: "tuple[Subtitle, ...]" = ()
 
 
 # --------------------------------------------------------------------------- #
@@ -275,10 +292,38 @@ class HistoryItem:
 
 
 @dataclass(frozen=True, slots=True)
+class WatchStats:
+    """Aggregate view of the user's watch history — for ``anime stats``."""
+
+    episodes_completed: int
+    shows: int
+    sessions: int
+    total_seconds: int
+    top_providers: tuple[tuple[str, int], ...] = ()
+    top_genres: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def hours(self) -> float:
+        return round(self.total_seconds / 3600, 1)
+
+
+@dataclass(frozen=True, slots=True)
 class FavoriteItem:
     anime: Anime
     added_at: datetime
     note: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListEntry:
+    """One entry on the user's external tracker list (AniList), with its status
+    and score — the vocabulary of the My-List manager."""
+
+    anime: Anime
+    status: str  # AniList MediaListStatus: CURRENT/PLANNING/COMPLETED/…
+    progress: int
+    score: float = 0.0  # out of 10; 0 = unrated
+    updated_at: datetime | None = None
 
 
 class DownloadStatus(str, Enum):

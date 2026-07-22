@@ -43,6 +43,64 @@ def _progress(anilist, episode, pos, completed=False):
     )
 
 
+async def test_all_progress_lists_every_episode_for_one_show(library):
+    await library.save_progress(_progress(1, 1.0, 1400, completed=True))
+    await library.save_progress(_progress(1, 2.0, 700))
+    await library.save_progress(_progress(2, 1.0, 100))  # different show
+    rows = await library.all_progress(AnimeId(anilist=1))
+    assert [(p.episode, p.completed) for p in rows] == [(1.0, True), (2.0, False)]
+    assert await library.all_progress(AnimeId(anilist=99)) == []
+
+
+async def test_mark_watched_catches_up_to_episode(library):
+    svc = LibraryService(library)
+    marked = await svc.mark_watched(_anime(1, "Frieren"), 3.0)
+    assert marked == [1.0, 2.0, 3.0]
+    rows = await library.all_progress(AnimeId(anilist=1))
+    assert [(p.episode, p.completed) for p in rows] == [(1.0, True), (2.0, True), (3.0, True)]
+    # Metadata cached so it renders offline.
+    assert (await library.get_anime(AnimeId(anilist=1))) is not None
+    # Completed episodes don't show up in continue-watching.
+    assert await library.continue_watching() == []
+
+
+async def test_stats_aggregates_history_and_progress(library):
+    svc = LibraryService(library)
+    a = _anime(1, "Frieren")  # genres: Adventure, Fantasy
+    await library.save_anime(a)
+    await library.save_progress(_progress(1, 1.0, 1400, completed=True))
+    await library.save_progress(_progress(1, 2.0, 1400, completed=True))
+    await library.save_progress(_progress(2, 1.0, 100))  # different show, unfinished
+    await library.add_history(a.id, 1.0, provider="anikoto", seconds_watched=1400)
+    await library.add_history(a.id, 2.0, provider="anikoto", seconds_watched=1300)
+
+    s = await svc.stats()
+    assert s.episodes_completed == 2
+    assert s.shows == 2  # two distinct shows have progress
+    assert s.sessions == 2
+    assert s.total_seconds == 2700 and s.hours == round(2700 / 3600, 1)
+    assert ("anikoto", 2) in s.top_providers
+    assert ("Fantasy", 2) in s.top_genres  # weighted by the 2 history rows
+
+
+async def test_unmark_clears_only_that_show(library):
+    svc = LibraryService(library)
+    await svc.mark_watched(_anime(1, "A"), 3.0)
+    await svc.mark_watched(_anime(2, "B"), 2.0)
+    removed = await svc.unmark(AnimeId(anilist=1))
+    assert removed == 3
+    assert await library.all_progress(AnimeId(anilist=1)) == []
+    assert len(await library.all_progress(AnimeId(anilist=2))) == 2  # untouched
+
+
+async def test_mark_watched_single_episode(library):
+    svc = LibraryService(library)
+    marked = await svc.mark_watched(_anime(2, "X"), 5.0, single=True)
+    assert marked == [5.0]
+    rows = await library.all_progress(AnimeId(anilist=2))
+    assert [p.episode for p in rows] == [5.0]
+
+
 async def test_anime_cache_round_trip(library):
     await library.save_anime(_anime())
     got = await library.get_anime(AnimeId(anilist=154587))
@@ -65,6 +123,31 @@ async def test_continue_watching_excludes_completed(library):
     await library.save_anime(_anime())
     await library.save_progress(_progress(154587, 1.0, 1390, completed=True))
     assert await library.continue_watching() == []
+
+
+async def test_continue_watching_excludes_zero_position_imports(library):
+    # An AniList-import row (progress but no local position) must not clutter
+    # Continue Watching; only actually-started episodes show.
+    await library.save_anime(_anime())
+    await library.save_progress(_progress(154587, 3.0, 0))       # imported, pos=0
+    await library.save_progress(_progress(154587, 4.0, 500))     # started locally
+    items = await library.continue_watching()
+    assert [it.progress.episode for it in items] == [4.0]
+
+
+async def test_continue_watching_one_card_per_show(library):
+    # Several in-progress episodes of the same show collapse to one card — the
+    # most recently updated — instead of listing the show many times.
+    await library.save_anime(_anime())
+    import datetime as _dt
+    for ep, pos, day in [(1.0, 300, 1), (2.0, 400, 2), (5.0, 200, 3)]:
+        await library.save_progress(WatchProgress(
+            anime_id=AnimeId(anilist=154587), episode=ep, position_s=pos,
+            duration_s=1400, completed=False,
+            updated_at=_dt.datetime(2026, 7, day, tzinfo=_dt.timezone.utc),
+        ))
+    items = await library.continue_watching()
+    assert len(items) == 1 and items[0].progress.episode == 5.0  # latest
 
 
 async def test_continue_watching_placeholder_when_uncached(library):

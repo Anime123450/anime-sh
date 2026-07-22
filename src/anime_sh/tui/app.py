@@ -30,6 +30,8 @@ class TuiServices:
     library: LibraryService
     playback: PlaybackService
     aclose: Callable[[], Awaitable[None]]
+    # Optional AniList tracker — enables the My List screen when linked.
+    tracker: object | None = None
 
 
 # Map our config theme names onto Textual's built-in themes.
@@ -47,6 +49,9 @@ class AnimeShApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
+        Binding("l", "my_list", "My List"),
+        # priority so `?` opens help even while the search box has focus.
+        Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
     ]
 
@@ -62,6 +67,12 @@ class AnimeShApp(App):
     def on_mount(self) -> None:
         if self._wanted_theme in _THEMES and _THEMES[self._wanted_theme] in self.available_themes:
             self.theme = _THEMES[self._wanted_theme]
+        # Playback status lines ("Episode 5/12 — trying HD-1…", "Next episode:
+        # 6/12", "Skipped intro") surface as toasts.
+        self.services.playback.set_on_event(lambda msg: self.notify(msg, timeout=3))
+
+    async def on_unmount(self) -> None:
+        self.services.playback.set_on_event(None)
 
     async def action_quit(self) -> None:  # type: ignore[override]
         await self.services.aclose()
@@ -72,6 +83,23 @@ class AnimeShApp(App):
             self.query_one("#search").focus()
         except Exception:
             pass
+
+    def action_help(self) -> None:
+        from .screens.help import HelpScreen
+
+        # Don't stack multiple help modals.
+        if not isinstance(self.screen, HelpScreen):
+            self.push_screen(HelpScreen())
+
+    def action_my_list(self) -> None:
+        from .screens.mylist import MyListScreen
+
+        if self.services.tracker is None:
+            self.notify("Link AniList first: run `anime auth login`.",
+                        severity="warning")
+            return
+        if not isinstance(self.screen, MyListScreen):
+            self.push_screen(MyListScreen())
 
     def action_back(self) -> None:
         if len(self.screen_stack) > 1:  # keep the base HomeScreen

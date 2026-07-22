@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from anime_sh.app.playback import PlaybackService
+from anime_sh.app.playback import PlaybackService, _ep_label, _window_title
 from anime_sh.app.providers import ProviderManager
 from anime_sh.domain.errors import NoStreamsFound
 from anime_sh.domain.models import Quality
@@ -32,6 +32,16 @@ def _service(providers, resolvers, *, library=None, quality="best") -> PlaybackS
         library=library or FakeLibrary(),
         quality=quality,
     )
+
+
+def test_episode_labels_show_season_position():
+    import dataclasses
+
+    anime = dataclasses.replace(make_anime(title="Show"), episode_count=12)
+    assert _ep_label(anime, 5.0) == "5/12"
+    assert _window_title(anime, 5.0) == "Show - Episode 5/12"
+    # Unknown total → plain number, no "/None".
+    assert _ep_label(make_anime(title="Show"), 5.0) == "5"
 
 
 async def test_happy_path_resolves_first_host():
