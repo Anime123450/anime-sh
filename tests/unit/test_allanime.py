@@ -1,8 +1,9 @@
-"""AllAnime provider: decoders (XOR + AES tobeparsed), fuzzy matching, and
-candidate parsing — all offline via an injected fake HTTP client."""
+"""AllAnime provider: decoders (XOR + GCM tobeparsed + aaReq), fuzzy matching,
+and candidate parsing — all offline via an injected fake HTTP client."""
 
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -10,15 +11,25 @@ import pytest
 from anime_sh.domain.models import Anime, AnimeId, Audio, Episode, ProviderRef, Status, Title
 from anime_sh.infra.http import CloudflareChallenge
 from anime_sh.providers.allanime.decode import (
-    BUILD_ID,
-    QUERY_HASH,
-    build_aa_req,
+    build_aareq,
     decode_source_url,
     decrypt_tobeparsed,
     encode_source_url,
     encrypt_tobeparsed,
 )
+from anime_sh.providers.allanime.keygen import (
+    Keygen,
+    derive_key,
+    parse_aacrypto,
+    resolve_source_query,
+)
 from anime_sh.providers.allanime.provider import AllAnimeProvider, _best_match
+
+# A deterministic 32-byte key for signing/decryption in offline tests.
+_TEST_KEY_HEX = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+_TEST_KEYGEN = Keygen(
+    epoch=6884, key=_TEST_KEY_HEX, query_hash="deadbeef", query="query { episode }"
+)
 
 
 # -- decoders --------------------------------------------------------------- #
@@ -37,47 +48,27 @@ def test_decode_passthrough_plain_url():
     assert decode_source_url("https://cdn/x.m3u8") == "https://cdn/x.m3u8"
 
 
-def test_tobeparsed_roundtrip():
+def test_tobeparsed_roundtrip_legacy_key():
     payload = {"episode": {"sourceUrls": [{"sourceName": "Mp4", "sourceUrl": "x"}]}}
     blob = encrypt_tobeparsed(json.dumps(payload).encode())
+    # No key given -> the legacy static key both seals and (as fallback) opens it.
     assert json.loads(decrypt_tobeparsed(blob).decode()) == payload
 
 
-def test_aa_req_token_shape_and_stability():
-    import base64
+def test_tobeparsed_roundtrip_rotating_key():
+    key = bytes.fromhex(_TEST_KEY_HEX)
+    payload = {"episode": {"sourceUrls": []}}
+    blob = encrypt_tobeparsed(json.dumps(payload).encode(), key)
+    assert json.loads(decrypt_tobeparsed(blob, key).decode()) == payload
 
-    # Fixed timestamp → deterministic token; decodes to \x01 + 12-byte nonce +
-    # ciphertext + 16-byte GCM tag (AllAnime's aaReq layout).
-    tok = build_aa_req(now=1_699_999_800)
-    raw = base64.b64decode(tok)
+
+def test_build_aareq_shape():
+    key = bytes.fromhex(_TEST_KEY_HEX)
+    token = build_aareq(key, "deadbeef", 6884, now_ms=1_784_616_000_000)
+    raw = base64.b64decode(token)
+    # version byte, 12-byte IV, then ciphertext+16-byte GCM tag.
     assert raw[0] == 1
-    assert len(raw) >= 1 + 12 + 16
-    # 5-minute rounding: instants in the same 300s bucket ([...800, ...100))
-    # yield the same token; the next bucket differs.
-    assert build_aa_req(now=1_699_999_800) == build_aa_req(now=1_700_000_099)
-    assert build_aa_req(now=1_699_999_800) != build_aa_req(now=1_700_000_100)
-
-
-def test_aa_req_verifies_under_the_shared_key():
-    # The token must actually decrypt/authenticate with the AllAnime key, so a
-    # key/epoch/build-id drift is caught here, not just live.
-    import base64
-    import hashlib
-    import json as _json
-
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from anime_sh.providers.allanime.decode import _AES_KEY, _EPOCH
-
-    raw = base64.b64decode(build_aa_req(now=1_700_000_100))
-    nonce, ct_and_tag = raw[1:13], raw[13:]
-    payload = _json.loads(AESGCM(_AES_KEY).decrypt(nonce, ct_and_tag, None))
-    assert payload["qh"] == QUERY_HASH
-    assert payload["epoch"] == _EPOCH and payload["buildId"] == str(BUILD_ID)
-    ts = int((1_700_000_100 // 300) * 300 * 1000)
-    assert payload["ts"] == ts
-    # Nonce is sha256(iv_payload)[:12].
-    iv_payload = f"{_EPOCH}:{BUILD_ID}:{QUERY_HASH}:{ts}"
-    assert nonce == hashlib.sha256(iv_payload.encode()).digest()[:12]
+    assert len(raw) > 1 + 12 + 16
 
 
 # -- matching --------------------------------------------------------------- #
@@ -153,7 +144,7 @@ async def test_candidates_decode_and_order_by_priority():
             }
         }
     }
-    provider = AllAnimeProvider(http=FakeHttp(get=payload))
+    provider = AllAnimeProvider(http=FakeHttp(get=payload), keygen=_TEST_KEYGEN)
     ref = ProviderRef(provider="allanime", anime_key="k", audio=Audio.SUB)
     ep = Episode(anime_id=AnimeId(anilist=1), number=1.0, provider_ref=ref, episode_key="1")
     cands = await provider.candidates(ep)
@@ -166,12 +157,53 @@ async def test_candidates_decode_and_order_by_priority():
 
 async def test_candidates_decrypts_tobeparsed():
     inner = {"episode": {"sourceUrls": [{"sourceName": "Mp4", "sourceUrl": "https://mp4upload.com/embed-y.html", "priority": 4}]}}
-    blob = encrypt_tobeparsed(json.dumps(inner).encode())
-    provider = AllAnimeProvider(http=FakeHttp(get={"data": {"tobeparsed": blob}}))
+    # Sealed with the rotating per-build key from the injected keygen.
+    blob = encrypt_tobeparsed(json.dumps(inner).encode(), _TEST_KEYGEN.key_bytes)
+    provider = AllAnimeProvider(http=FakeHttp(get={"data": {"tobeparsed": blob}}), keygen=_TEST_KEYGEN)
     ref = ProviderRef(provider="allanime", anime_key="k", audio=Audio.SUB)
     ep = Episode(anime_id=AnimeId(anilist=1), number=1.0, provider_ref=ref, episode_key="1")
     cands = await provider.candidates(ep)
     assert cands[0].host == "Mp4" and "mp4upload" in cands[0].url
+
+
+async def test_candidates_empty_on_api_error():
+    # The API declined (uncached persisted query / crypto rotation): no crash.
+    payload = {"errors": [{"message": "PersistedQueryNotFound"}], "data": {"episode": None}}
+    provider = AllAnimeProvider(http=FakeHttp(get=payload), keygen=_TEST_KEYGEN)
+    ref = ProviderRef(provider="allanime", anime_key="k", audio=Audio.SUB)
+    ep = Episode(anime_id=AnimeId(anilist=1), number=1.0, provider_ref=ref, episode_key="1")
+    assert await provider.candidates(ep) == []
+
+
+def test_keygen_parse_aacrypto():
+    part_b = bytes(range(32))
+    import base64 as _b64
+
+    html = (
+        'foo <script>window.__aaCrypto={"epoch":6884,"partB":"'
+        + _b64.b64encode(part_b).decode()
+        + '"};</script> bar'
+    )
+    epoch, pb = parse_aacrypto(html)
+    assert epoch == 6884 and pb == part_b
+
+
+def test_keygen_derive_key_is_mask_xor_partb():
+    mask_hex = "ff" * 32
+    part_b = bytes([0x0F]) * 32
+    assert derive_key(mask_hex, part_b) == bytes([0xF0]) * 32
+
+
+def test_keygen_resolve_source_query_interpolates_template():
+    # A minimal crypto chunk: a source query template with a ${extra} fragment.
+    chunk = (
+        "const extra=`thumbnail\nnotes`;\n"
+        "const q=`\nquery( $showId: String! ) {\nepisode( showId: $showId ) "
+        "{\nepisodeString\nsourceUrls\n${extra}\n}\n}\n`;"
+    )
+    query = resolve_source_query(chunk)
+    assert query is not None
+    assert "sourceUrls" in query and "thumbnail" in query and "${" not in query
 
 
 async def test_cloudflare_challenge_surfaces_as_provider_unavailable():

@@ -1,6 +1,7 @@
-"""Live AllAnime provider check — proves the ani-cli protocol works end to end:
-Cloudflare-passing headers, POST search, persisted-query sources, AES tobeparsed
-decrypt, and XOR source-URL decode.
+"""Live AllAnime provider check — proves the current protocol works end to end:
+Cloudflare-passing headers on the mkissa.to origin, POST search, aaReq-signed
+persisted-query sources, AES-256-GCM tobeparsed decrypt, and XOR source-URL
+decode.
 
 Gated behind ANIME_SH_LIVE=1 because it hits the real AllAnime API. Resolving a
 candidate to a playable file is deliberately NOT asserted here — individual host

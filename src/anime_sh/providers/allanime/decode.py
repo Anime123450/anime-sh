@@ -1,21 +1,20 @@
-"""AllAnime response de-obfuscation + request signing, ported from ani-cli.
+"""AllAnime response de-obfuscation and request signing, ported from the site.
 
-Three layers:
+Three layers, all pure (no HTTP):
 
-1. The episode-sources request must carry an ``aaReq`` anti-bot token — an
-   AES-256-GCM signature of a small timestamped payload. Missing/invalid tokens
-   get ``AA_CRYPTO_MISSING`` and a null episode. See :func:`build_aa_req`.
-2. The GraphQL sources response wraps its payload in a ``tobeparsed`` blob,
-   AES-256-CTR encrypted under :data:`_AES_KEY`. See :func:`decrypt_tobeparsed`.
-3. Each individual ``sourceUrl`` is then obfuscated with a single-byte XOR
-   cipher (``--`` prefix + hex byte-pairs, each byte XOR 0x38). See
-   :func:`decode_source_url`. The full substitution table in ani-cli is exactly
-   this XOR, verified pair-by-pair.
-
-The key/epoch/build-id below track ani-cli's constants (v4.15.0). When AllAnime
-rotates them and every candidate list goes empty again, these are what to bump —
-they live in ani-cli's MAIN block (``allanime_key`` / ``allanime_epoch`` /
-``allanime_build_id`` / ``allanime_query_hash``).
+1. **Source-URL XOR.** Each ``sourceUrl`` is obfuscated with a single-byte XOR
+   cipher (``--`` prefix + hex byte-pairs, each byte XOR ``0x38``). See
+   :func:`decode_source_url`. Unchanged for years.
+2. **``tobeparsed`` AES-256-GCM.** The sources response wraps its JSON payload in
+   a base64 ``tobeparsed`` blob: ``0x01 || iv(12) || ciphertext || tag(16)``,
+   AES-256-GCM. The key rotates per site build (fetched via keygen); the old
+   static key ``sha256("Xot36i3lK3:v1")`` is kept as a fallback. See
+   :func:`decrypt_tobeparsed`.
+3. **``aaReq`` request token.** The sources query is now gated: the request must
+   carry a short-lived AES-256-GCM token in ``extensions.aaReq`` or the API
+   answers ``AA_CRYPTO_MISSING``. The token seals ``{v,ts,epoch,qh}`` under the
+   same rotating key, with a deterministic per-request IV. See
+   :func:`build_aareq`.
 """
 
 from __future__ import annotations
@@ -25,40 +24,16 @@ import hashlib
 import json
 import time
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 _XOR_KEY = 0x38
-# AllAnime's shared secret (ani-cli v4.15.0). Used both as the AES-256-GCM key
-# for the aaReq request token and the AES-256-CTR key for the tobeparsed
-# response. Was sha256("Xot36i3lK3:v1") before AllAnime's 2026-07 crypto change.
-_AES_KEY = bytes.fromhex(
-    "cf4777b5778aeadc9449e12769ea545d00c43cd8ff65d482364586cde204f359"
-)
-# Persisted-query hash for the episode-sources query; also signed into aaReq.
-QUERY_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
-# aaReq payload constants (ani-cli MAIN block).
-_EPOCH = 4130
-BUILD_ID = 41
+# Legacy static key — still authenticates some ``tobeparsed`` responses, so it
+# stays as a decrypt fallback behind the rotating per-build key.
+_LEGACY_KEY = hashlib.sha256(b"Xot36i3lK3:v1").digest()
 
-
-def build_aa_req(now: float | None = None) -> str:
-    """Build the ``aaReq`` anti-bot token for the episode-sources request.
-
-    Mirrors ani-cli's ``get_aa_req`` (v4.15.0): a 5-minute-rounded millisecond
-    timestamp is signed into a JSON payload, AES-256-GCM encrypted under
-    :data:`_AES_KEY` with a 12-byte nonce = ``sha256(iv_payload)[:12]``. The
-    token is ``base64('\\x01' || nonce || ciphertext || tag)``.
-    """
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-    ts = int((int(now if now is not None else time.time()) // 300) * 300 * 1000)
-    iv_payload = f"{_EPOCH}:{BUILD_ID}:{QUERY_HASH}:{ts}"
-    nonce = hashlib.sha256(iv_payload.encode()).digest()[:12]
-    payload = json.dumps(
-        {"v": 1, "ts": ts, "epoch": _EPOCH, "buildId": str(BUILD_ID), "qh": QUERY_HASH},
-        separators=(",", ":"),
-    ).encode()
-    # AESGCM.encrypt returns ciphertext||tag, matching ani-cli's layout.
-    ct_and_tag = AESGCM(_AES_KEY).encrypt(nonce, payload, None)
-    return base64.b64encode(b"\x01" + nonce + ct_and_tag).decode()
+# The token/response IVs are pinned to a 5-minute window (``Math.floor(now/Cm)``
+# in the site JS, ``Cm = 5 * 60_000``).
+_TS_WINDOW_MS = 5 * 60_000
 
 
 def decode_source_url(encoded: str) -> str:
@@ -80,28 +55,50 @@ def encode_source_url(plain: str) -> str:
     return "--" + "".join(f"{ord(c) ^ _XOR_KEY:02x}" for c in plain)
 
 
-def decrypt_tobeparsed(blob_b64: str) -> bytes:
-    """Decrypt a base64 ``tobeparsed`` blob (AES-256-CTR).
+def decrypt_tobeparsed(blob_b64: str, key: bytes | None = None) -> bytes:
+    """Decrypt a base64 ``tobeparsed`` blob (AES-256-GCM).
 
-    Layout (from ani-cli's ``process_response``): byte 0 is a prefix, bytes
-    1..12 are the 12-byte IV, the counter is ``IV || 00000002``, and the last
-    16 bytes (an unused auth tag) are dropped. CTR needs no padding.
+    Layout: byte 0 is a version prefix, bytes 1..12 are the 12-byte IV, and the
+    remainder is ``ciphertext || tag`` (the trailing 16 bytes are the GCM auth
+    tag). The response may be sealed with either the current per-build ``key``
+    or the legacy static key, so both are tried.
     """
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
     raw = base64.b64decode(blob_b64)
-    counter = raw[1:13] + bytes.fromhex("00000002")
-    ciphertext = raw[13 : len(raw) - 16]
-    decryptor = Cipher(algorithms.AES(_AES_KEY), modes.CTR(counter)).decryptor()
-    return decryptor.update(ciphertext) + decryptor.finalize()
+    iv, ct_and_tag = raw[1:13], raw[13:]
+    last: Exception | None = None
+    for candidate in (key, _LEGACY_KEY):
+        if not candidate:
+            continue
+        try:
+            return AESGCM(candidate).decrypt(iv, ct_and_tag, None)
+        except Exception as e:  # InvalidTag et al. — try the next key
+            last = e
+    raise ValueError("tobeparsed could not be decrypted with any known key") from last
 
 
-def encrypt_tobeparsed(plaintext: bytes, iv: bytes = b"123456789012") -> str:
+def encrypt_tobeparsed(
+    plaintext: bytes, key: bytes | None = None, iv: bytes = b"123456789012"
+) -> str:
     """Inverse of :func:`decrypt_tobeparsed` for tests. ``iv`` must be 12 bytes."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    ct_and_tag = AESGCM(key or _LEGACY_KEY).encrypt(iv, plaintext, None)
+    return base64.b64encode(b"\x01" + iv + ct_and_tag).decode()
 
-    counter = iv + bytes.fromhex("00000002")
-    encryptor = Cipher(algorithms.AES(_AES_KEY), modes.CTR(counter)).encryptor()
-    ct = encryptor.update(plaintext) + encryptor.finalize()
-    blob = b"\x00" + iv + ct + b"\x00" * 16
-    return base64.b64encode(blob).decode()
+
+def build_aareq(
+    key: bytes, query_hash: str, epoch: int, *, now_ms: int | None = None
+) -> str:
+    """Build the ``extensions.aaReq`` token for the sources query.
+
+    Mirrors the site's signer: seal ``{v,ts,epoch,qh}`` (compact JSON) with
+    AES-256-GCM under ``key``, using ``iv = sha256("<epoch>:<qh>:<ts>")[:12]``,
+    and emit ``base64(0x01 || iv || ciphertext || tag)``. ``ts`` is the current
+    time floored to a 5-minute window.
+    """
+    ms = int(time.time() * 1000) if now_ms is None else now_ms
+    ts = ms // _TS_WINDOW_MS * _TS_WINDOW_MS
+    payload = json.dumps(
+        {"v": 1, "ts": ts, "epoch": epoch, "qh": query_hash}, separators=(",", ":")
+    ).encode()
+    iv = hashlib.sha256(f"{epoch}:{query_hash}:{ts}".encode()).digest()[:12]
+    ct_and_tag = AESGCM(key).encrypt(iv, payload, None)
+    return base64.b64encode(b"\x01" + iv + ct_and_tag).decode()
