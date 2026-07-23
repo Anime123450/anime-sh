@@ -73,6 +73,10 @@ class VidtubeResolver:
                 headers={"Referer": f"{origin}/"},
                 subtitles=_subtitles(data.get("tracks")),
                 skip_times=_skips(data),
+                # The megaplay family serves PNG-disguised segments off a CDN
+                # whose hostname rotates (nekostream → kotocdn → …). Flag it
+                # here so the proxy never has to guess from the host.
+                obfuscated=True,
             )
         ]
 

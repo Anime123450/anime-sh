@@ -226,6 +226,10 @@ class Stream:
     headers: Mapping[str, str] = field(default_factory=dict)
     subtitles: tuple[Subtitle, ...] = ()
     skip_times: SkipTimes | None = None
+    # Segments arrive disguised (e.g. a fake PNG header) and need stripping
+    # before a player can read them. Set by the resolver, which knows the host
+    # family it just talked to — CDN hostnames rotate, that knowledge doesn't.
+    obfuscated: bool = False
 
 
 # --------------------------------------------------------------------------- #

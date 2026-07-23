@@ -78,6 +78,37 @@ def test_rewrite_leaves_clean_host_subtitles_alone():
         proxy.stop()
 
 
+def test_rewrite_proxies_flagged_stream_on_unknown_host():
+    # The regression that broke every anikoto play: the CDN rotated to a
+    # hostname the allowlist had never heard of, so the proxy stood down and
+    # mpv choked on PNG-disguised segments. The resolver's flag must be enough
+    # on its own, with no hostname match.
+    proxy = DeobfuscatingProxy()
+    try:
+        stream = Stream(
+            url="https://vidtub.brand-new-cdn.example/abc/master.m3u8",
+            kind=StreamKind.HLS,
+            headers={"Referer": "https://vidtube.site/"},
+            obfuscated=True,
+        )
+        out = proxy.rewrite(stream)
+        assert out is not stream
+        assert out.url.startswith("http://127.0.0.1:")
+        assert out.headers == {}  # referer baked into the proxy
+    finally:
+        proxy.stop()
+
+
+def test_rewrite_ignores_unflagged_stream_on_unknown_host():
+    # The flag must not make the proxy greedy: a clean host stays direct.
+    proxy = DeobfuscatingProxy()
+    try:
+        stream = Stream(url="https://clean.example/v.m3u8", kind=StreamKind.HLS)
+        assert proxy.rewrite(stream) is stream
+    finally:
+        proxy.stop()
+
+
 def test_subtitle_content_type_by_extension():
     assert _subtitle_content_type("https://x/a/English.vtt") == "text/vtt"
     assert _subtitle_content_type("https://x/a/sub.srt") == "application/x-subrip"

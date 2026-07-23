@@ -31,7 +31,11 @@ log = logging.getLogger(__name__)
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 
 # CDN hosts known to serve PNG-disguised segments (the megaplay family).
-_OBFUSCATED_HOSTS = ("nekostream", "mewstream", "lostproject")
+#
+# This list is only a fallback for streams that arrive without the flag —
+# these hostnames rotate (nekostream → kotocdn → …), so the authoritative
+# signal is ``Stream.obfuscated``, set by the resolver that fetched them.
+_OBFUSCATED_HOSTS = ("nekostream", "mewstream", "lostproject", "kotocdn")
 
 _TS_PACKET = 188
 _TS_SYNC = 0x47
@@ -95,7 +99,7 @@ class DeobfuscatingProxy:
         """Return a proxied Stream if its host needs de-obfuscation, else the
         stream unchanged."""
         host = urlsplit(stream.url).netloc
-        if not any(h in host for h in _OBFUSCATED_HOSTS):
+        if not (stream.obfuscated or any(h in host for h in _OBFUSCATED_HOSTS)):
             return stream
         self._ensure_started()
         referer = stream.headers.get("Referer") or stream.headers.get("referer") or ""
