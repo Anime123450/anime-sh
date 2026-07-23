@@ -171,11 +171,12 @@ class DetailScreen(Screen):
             await self.app.services.playback.play_and_track(
                 self.anime, number, audio=Audio.SUB, source=self.source
             )
-        except NoStreamsFound:
-            self.notify(
-                f"No provider had {self.anime.title.preferred} Episode {number:g}.",
-                severity="error",
-            )
+        except NoStreamsFound as e:
+            # The service distinguishes "this source doesn't list the episode"
+            # from "it listed it but nothing would play" — surface that instead
+            # of flattening both into a generic miss, which hides the real cause.
+            hint = " Try another source (Esc, then pick a different one)." if self.source else ""
+            self.notify(f"Episode {number:g}: {e}{hint}", severity="error")
         except Exception as e:  # keep the TUI alive on any playback failure
             self.notify(f"Playback error: {e}", severity="error")
 
