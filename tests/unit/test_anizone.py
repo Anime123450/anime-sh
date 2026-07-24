@@ -80,6 +80,15 @@ def _anime():
                              english="Frieren: Beyond Journey's End"))
 
 
+async def test_dub_request_is_declined():
+    # AniZone is sub-only; a dub request must yield nothing so the fan-out can
+    # fall through to a dub-capable provider instead of getting sub content.
+    http = _FakeHttp({"search": SEARCH_HTML})
+    prov = AnizoneProvider(http=http)
+    assert await prov.find_sources(_anime(), Audio.DUB) == []
+    assert await prov.match(_anime(), Audio.DUB) is None
+
+
 async def test_provider_pipeline_end_to_end():
     http = _FakeHttp({
         "search": SEARCH_HTML,
