@@ -31,7 +31,7 @@ app = typer.Typer(
     name="anime",
     help="anime-sh — the terminal-native anime client.",
     no_args_is_help=False,
-    add_completion=False,
+    add_completion=True,  # `anime --install-completion` for tab-completion
 )
 config_app = typer.Typer(help="View and edit configuration.")
 providers_app = typer.Typer(help="Inspect installed provider plugins.")
@@ -405,6 +405,25 @@ def next(
     asyncio.run(_next(query, as_json))
 
 
+@app.command()
+def recommend(
+    query: str = typer.Argument(..., help="A show you liked."),
+    limit: int = typer.Option(15, "-n", "--limit"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Suggest shows for people who liked a title (AniList recommendations)."""
+    asyncio.run(_recommend(query, limit, as_json))
+
+
+@app.command()
+def related(
+    query: str = typer.Argument(..., help="Title to show related works for."),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List prequels, sequels, side stories and movies tied to a show."""
+    asyncio.run(_related(query, as_json))
+
+
 @app.command(name="list")
 def list_cmd(
     status: str = typer.Option(
@@ -539,6 +558,84 @@ async def _next(query: str, as_json: bool) -> None:
         raise typer.Exit(code=2)
     finally:
         await c.aclose()
+
+
+async def _recommend(query: str, limit: int, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        recs = await c.metadata.recommendations(anime.id, limit=limit)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump([_anime_dict(a) for a in recs], sys.stdout)
+        sys.stdout.write("\n")
+        return
+    if not recs:
+        console.print(f"[dim]No recommendations for {anime.title.preferred}.[/]")
+        return
+    _print_anime_table(f"Because you liked {anime.title.preferred}", recs)
+
+
+# Friendly labels for AniList relation types.
+_RELATION_LABELS = {
+    "PREQUEL": "Prequel", "SEQUEL": "Sequel", "SIDE_STORY": "Side story",
+    "PARENT": "Parent", "SPIN_OFF": "Spin-off", "ALTERNATIVE": "Alternative",
+    "SUMMARY": "Summary", "CHARACTER": "Character", "OTHER": "Other",
+}
+# Rough watch/story order so the list reads naturally.
+_RELATION_ORDER = ["PARENT", "PREQUEL", "SEQUEL", "SIDE_STORY", "SPIN_OFF",
+                   "ALTERNATIVE", "SUMMARY", "OTHER"]
+
+
+async def _related(query: str, as_json: bool) -> None:
+    c = build_container()
+    try:
+        anime = await c.search.best_match(query)
+        if anime is None:
+            err.print(f"[red]No anime found for[/] {query!r}")
+            raise typer.Exit(code=1)
+        relations = await c.metadata.relations(anime.id)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
+    finally:
+        await c.aclose()
+    if as_json:
+        json.dump(
+            [{"relation": rel, **_anime_dict(a)} for rel, a in relations],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    if not relations:
+        console.print(f"[dim]{anime.title.preferred} has no related anime.[/]")
+        return
+    relations.sort(key=lambda ra: (
+        _RELATION_ORDER.index(ra[0]) if ra[0] in _RELATION_ORDER else len(_RELATION_ORDER)
+    ))
+    table = Table(title=f"Related to {anime.title.preferred}",
+                  title_justify="left", header_style="bold cyan")
+    table.add_column("Relation", style="magenta")
+    table.add_column("Title", style="bold")
+    table.add_column("Format")
+    table.add_column("Eps", justify="right")
+    table.add_column("Year")
+    for rel, a in relations:
+        table.add_row(
+            _RELATION_LABELS.get(rel, rel.replace("_", " ").title()),
+            a.title.preferred,
+            a.format.value,
+            str(a.episode_count or "—"),
+            str(a.year or "—"),
+        )
+    console.print(table)
 
 
 async def _list(status: str | None, as_json: bool) -> None:

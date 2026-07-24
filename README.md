@@ -23,6 +23,8 @@ anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime search "frieren"       # AniList search (instant; no providers touched)
 anime search --genre action --year 2024 --sort score   # browse with filters
 anime trending
+anime recommend "Frieren"    # shows for people who liked it (AniList)
+anime related "Attack on Titan"  # prequels, sequels, side stories, movies
 anime mark "Frieren" -e 12    # catch up: mark eps 1–12 watched (syncs to AniList)
 anime stats                   # episodes, hours, top genres & providers
 
@@ -50,6 +52,14 @@ anime cache clear            # wipe the disposable metadata cache (or: cache pur
 The TUI home shows Continue Watching, Favorites, Airing This Season, and
 Trending; the detail screen renders cover art, score, studio and a live
 next-episode countdown. Press `?` for keys, `/` to search.
+
+**Forgiving search.** You don't have to spell titles exactly the way AniList
+stores them — `dont toy with me`, `dukes son claims he wont love me`, even
+`atack on titan` all find the right show. When AniList's strict search comes up
+empty, anime-sh retries with apostrophes restored and the query's distinctive
+words, then fuzzy-ranks the results against what you typed.
+
+**Tab-completion.** Run `anime --install-completion` once for your shell.
 
 **AniList sync.** Link your account once with `anime auth login` (create a free
 API client at [anilist.co/settings/developer](https://anilist.co/settings/developer),
