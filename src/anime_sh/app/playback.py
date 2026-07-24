@@ -1,14 +1,24 @@
 """PlaybackService — the money path.
 
 This is the whole thesis of anime-sh in one place: the user asks for an
-episode, and behind the curtain we fan out to providers, walk a chain of
-stream candidates trying resolver after resolver, and hand the first playable
-stream to a player — never surfacing a broken host or dead provider.
+episode, and behind the curtain we fan out to providers, resolve stream
+candidates, and hand the first playable stream to a player — never surfacing a
+broken host or dead provider.
 
 The candidate walk in :meth:`_candidate_streams` + the play loop in
-:meth:`_play_episode` are the heart of the project: resolve streams across every
-provider/host, then play the first one that *actually plays* — skipping dead
-hosts and obfuscated CDNs — instead of freezing. Unit-tested against fakes.
+:meth:`_play_episode` are the heart of the project. Two things keep it fast and
+honest:
+
+* Within a provider the candidate hosts are **resolved concurrently** (bounded),
+  so one slow or dead embed no longer blocks the hosts behind it — but results
+  are still yielded best-first, and later providers stay untouched until the
+  earlier ones are exhausted.
+* Each resolved stream is **pre-flighted** by an optional probe, so a CDN that is
+  already dead (403/404/gone) is dropped here instead of costing the player its
+  full confirm timeout. The probe only ever rejects a definitive dead response.
+
+Then the player plays the first stream that *actually plays* — skipping anything
+that resolves but won't start — instead of freezing. Unit-tested against fakes.
 """
 
 from __future__ import annotations
@@ -45,6 +55,9 @@ _CONFIRM_TIMEOUT_S = 25.0
 # How long to let one resolver work on one candidate before abandoning it — a
 # blocked/dead host (e.g. an ISP-blocked embed) must not stall the whole walk.
 _RESOLVE_TIMEOUT_S = 10.0
+# How many of a provider's candidate hosts to resolve at once. Racing them means
+# one slow/dead embed no longer blocks the hosts behind it in line.
+_RESOLVE_CONCURRENCY = 4
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +87,7 @@ class PlaybackService:
         skip_outro: bool = False,
         auto_next: bool = True,
         stream_proxy=None,
+        probe=None,
         tracker: "Tracker | None" = None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
@@ -84,6 +98,9 @@ class PlaybackService:
         self._quality = quality
         # Optional de-obfuscating proxy for hostile CDNs (PNG-disguised segments).
         self._stream_proxy = stream_proxy
+        # Optional liveness probe: skips a resolved stream whose CDN is already
+        # dead (403/404/gone) before we ever hand it to the player.
+        self._probe = probe
         # Optional list-sync tracker (AniList): progress is pushed on completion.
         self._tracker = tracker
         self._skip_intro = skip_intro
@@ -123,9 +140,15 @@ class PlaybackService:
         self, anime: Anime, episode_number: float, audio: Audio, refs=None
     ):
         """Yield ``(episode, stream, provider, host)`` for every host that
-        resolves to a stream. Uses the given provider refs (a chosen source), or
-        fans out across all matched providers in priority order — the pool the
-        player walks looking for the first one that *plays*."""
+        resolves to a live stream. Uses the given provider refs (a chosen
+        source), or fans out across all matched providers in priority order — the
+        pool the player walks looking for the first one that *plays*.
+
+        Within a provider the candidate hosts are resolved concurrently, but the
+        results are still yielded in the provider's own preference order, so the
+        consumer sees best-first while a slow/dead host no longer blocks the ones
+        behind it. Providers themselves stay lazy: a later provider is only
+        touched if the earlier ones yield nothing playable."""
         if refs is None:
             refs = await self._providers.resolve_sources(anime, audio)
         if not refs:
@@ -135,25 +158,75 @@ class PlaybackService:
             episode = _find_episode(episodes, episode_number)
             if episode is None:
                 continue
-            for candidate in await self._providers.candidates_for(episode):
-                for resolver in self._resolvers:
-                    if not resolver.handles(candidate):
-                        continue
-                    try:
-                        async with asyncio.timeout(_RESOLVE_TIMEOUT_S):
-                            streams = await resolver.resolve(candidate)
-                    except (ResolverError, TimeoutError, asyncio.TimeoutError) as e:
-                        # A blocked/dead host must not stall the walk — bound it
-                        # and move on to the next host/provider.
-                        log.debug("resolver %s failed on %s: %s", resolver.name, candidate.host, e)
-                        continue
-                    except Exception as e:
-                        log.warning("resolver %s crashed on %s: %s", resolver.name, candidate.host, e)
-                        continue
-                    chosen = pick_stream(streams, self._quality)
-                    if chosen is not None:
-                        yield episode, chosen, ref.provider, candidate.host
-                        break  # one stream per host; move to the next host
+            candidates = await self._providers.candidates_for(episode)
+            async for stream, host in self._resolve_candidates(candidates):
+                yield episode, stream, ref.provider, host
+
+    async def _resolve_candidates(self, candidates: list[StreamCandidate]):
+        """Resolve a provider's candidate hosts concurrently (bounded), yielding
+        ``(stream, host)`` for each that produced a live stream — in the
+        candidates' own order. Hosts race, so the first playable one is ready as
+        soon as *any* fast host resolves, not after every slow one ahead of it.
+
+        Tasks for hosts the consumer never reaches (it stopped at a working
+        stream) are cancelled on close, so racing costs no orphaned work."""
+        if not candidates:
+            return
+        sem = asyncio.Semaphore(_RESOLVE_CONCURRENCY)
+
+        async def run(candidate: StreamCandidate) -> Stream | None:
+            async with sem:
+                return await self._resolve_one(candidate)
+
+        tasks = [asyncio.create_task(run(c)) for c in candidates]
+        try:
+            for candidate, task in zip(candidates, tasks):
+                stream = await task
+                if stream is not None:
+                    yield stream, candidate.host
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _resolve_one(self, candidate: StreamCandidate) -> Stream | None:
+        """Resolve one embed candidate to a live, playable stream, or None.
+        Tries each resolver that handles the host (bounded by the per-host
+        resolve timeout) and pre-flights the result so a dead CDN is dropped
+        here rather than bounced off the player."""
+        for resolver in self._resolvers:
+            if not resolver.handles(candidate):
+                continue
+            try:
+                async with asyncio.timeout(_RESOLVE_TIMEOUT_S):
+                    streams = await resolver.resolve(candidate)
+            except (ResolverError, TimeoutError, asyncio.TimeoutError) as e:
+                # A blocked/dead host must not stall the walk — bound it and
+                # move on to the next resolver/host.
+                log.debug("resolver %s failed on %s: %s", resolver.name, candidate.host, e)
+                continue
+            except Exception as e:
+                log.warning("resolver %s crashed on %s: %s", resolver.name, candidate.host, e)
+                continue
+            chosen = pick_stream(streams, self._quality)
+            if chosen is None:
+                continue
+            if await self._is_live(chosen):
+                return chosen
+            log.debug("pre-flight: %s not serving media, skipping", candidate.host)
+        return None
+
+    async def _is_live(self, stream: Stream) -> bool:
+        """Whether the stream's CDN is actually serving media. With no probe
+        wired this is always True (the pre-cache behaviour). The probe only ever
+        rejects on a definitive dead response, so a good stream is never dropped."""
+        if self._probe is None:
+            return True
+        try:
+            return await self._probe.is_live(stream)
+        except Exception as e:  # a probe failure must never block playback
+            log.debug("stream probe errored, assuming live: %s", e)
+            return True
 
     async def play(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB

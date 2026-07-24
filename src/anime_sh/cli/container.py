@@ -25,6 +25,7 @@ from ..infra.db.downloads import SqliteDownloadStore
 from ..infra.db.health import SqliteHealthStore
 from ..infra.db.library import SqliteLibrary
 from ..infra.downloader import FfmpegDownloader
+from ..infra.http import HttpStreamProbe
 from ..infra.metadata import AniListMetadata
 from ..infra.players import MpvPlayer, NullPlayer
 from ..infra.proxy import DeobfuscatingProxy
@@ -48,11 +49,13 @@ class Container:
     playback: PlaybackService
     download: DownloadService
     stream_proxy: DeobfuscatingProxy
+    stream_probe: HttpStreamProbe
     sync: SyncService
     tracker: AniListTracker | None
 
     async def aclose(self) -> None:
         self.stream_proxy.stop()
+        await self.stream_probe.aclose()
         await self.metadata.aclose()
         if self.tracker is not None:
             await self.tracker.aclose()
@@ -106,6 +109,7 @@ def build_container(config: Config | None = None) -> Container:
     )
 
     stream_proxy = DeobfuscatingProxy()
+    stream_probe = HttpStreamProbe()
 
     # AniList list-sync is active whenever a token has been saved (anime auth
     # login) — that token is the opt-in. When active, playback pushes progress
@@ -123,6 +127,7 @@ def build_container(config: Config | None = None) -> Container:
         skip_outro=config.playback.skip_outro,
         auto_next=config.playback.auto_next,
         stream_proxy=stream_proxy,
+        probe=stream_probe,
         tracker=tracker,
     )
     sync = SyncService(library, tracker)
@@ -150,6 +155,7 @@ def build_container(config: Config | None = None) -> Container:
         playback=playback,
         download=download,
         stream_proxy=stream_proxy,
+        stream_probe=stream_probe,
         sync=sync,
         tracker=tracker,
     )

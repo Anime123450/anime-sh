@@ -14,8 +14,9 @@ import anime_sh.app.playback as playback_mod
 from anime_sh.app.playback import PlaybackService
 from anime_sh.app.providers import ProviderManager
 from anime_sh.domain.errors import NoStreamsFound
+from anime_sh.domain.models import Quality, Stream, StreamKind
 
-from .fakes import FakeLibrary, FakeProvider, FakeResolver, make_anime
+from .fakes import FakeLibrary, FakeProbe, FakeProvider, FakeResolver, make_anime
 
 
 @pytest.fixture(autouse=True)
@@ -76,15 +77,16 @@ class _ScriptedPlayer:
         return h
 
 
-def _svc(player, n_hosts):
+def _svc(player, n_hosts, *, probe=None, resolvers=None):
     hosts = [f"h{i}" for i in range(n_hosts)]
     return PlaybackService(
         providers=ProviderManager([FakeProvider("p", candidate_hosts=hosts)]),
         # one resolver handling every host
-        resolvers=[FakeResolver("r", host=h) for h in hosts],
+        resolvers=resolvers or [FakeResolver("r", host=h) for h in hosts],
         player=player,
         library=FakeLibrary(),
         auto_next=False,
+        probe=probe,
     )
 
 
@@ -102,3 +104,62 @@ async def test_all_streams_stuck_raises_not_hangs():
     svc = _svc(player, n_hosts=3)
     with pytest.raises(NoStreamsFound):
         await asyncio.wait_for(svc.play_and_track(make_anime(), 18.0), timeout=5)
+
+
+# -- pre-flight liveness probe ---------------------------------------------- #
+async def test_preflight_skips_dead_stream_before_player():
+    # h0's CDN is dead. The probe drops it during resolution, so the player is
+    # only ever handed the live h1 — no wasted mpv launch, no confirm-timeout.
+    player = _ScriptedPlayer([_WorkingHandle()])
+    probe = FakeProbe(dead_parts=("/h0/",))
+    svc = _svc(player, n_hosts=2, probe=probe)
+    await svc.play_and_track(make_anime(), 18.0)
+    assert len(player.made) == 1                      # dead stream never launched
+    assert any("h0" in u for u in probe.checked)      # but it *was* probed
+    assert any("h1" in u for u in probe.checked)
+
+
+async def test_preflight_all_dead_raises():
+    player = _ScriptedPlayer([_WorkingHandle()])
+    probe = FakeProbe(dead_parts=("/h",))  # every host url has /h<i>/
+    svc = _svc(player, n_hosts=3, probe=probe)
+    with pytest.raises(NoStreamsFound):
+        await svc.play_and_track(make_anime(), 18.0)
+    assert player.made == []  # nothing was ever handed to the player
+
+
+# -- concurrent resolution -------------------------------------------------- #
+class _CountingResolver:
+    """Resolves a single host after a small delay, tracking how many resolves
+    run at once so a test can prove the hosts race instead of running serially."""
+
+    api_version = 1
+
+    def __init__(self, host: str, state: dict) -> None:
+        self.name = f"r-{host}"
+        self._host = host
+        self._state = state
+
+    def handles(self, candidate) -> bool:
+        return candidate.host == self._host
+
+    async def resolve(self, candidate):
+        self._state["active"] += 1
+        self._state["peak"] = max(self._state["peak"], self._state["active"])
+        try:
+            await asyncio.sleep(0.05)
+            return [Stream(url=f"https://cdn/{candidate.host}/v.m3u8",
+                           kind=StreamKind.HLS, quality=Quality.Q1080)]
+        finally:
+            self._state["active"] -= 1
+
+
+async def test_candidate_hosts_resolve_concurrently():
+    state = {"active": 0, "peak": 0}
+    hosts = [f"h{i}" for i in range(4)]
+    player = _ScriptedPlayer([_WorkingHandle()])
+    svc = _svc(player, n_hosts=4,
+               resolvers=[_CountingResolver(h, state) for h in hosts])
+    await svc.play_and_track(make_anime(), 18.0)
+    # Serial resolution would peak at 1; racing the four hosts peaks higher.
+    assert state["peak"] >= 2

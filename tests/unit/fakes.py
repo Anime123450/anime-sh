@@ -124,6 +124,22 @@ class FakeResolver:
         ]
 
 
+class FakeProbe:
+    """Liveness probe fake: any stream whose URL contains one of ``dead_parts``
+    is reported dead; everything else is live. Records what it checked."""
+
+    def __init__(self, dead_parts: tuple[str, ...] = ()) -> None:
+        self._dead = tuple(dead_parts)
+        self.checked: list[str] = []
+
+    async def is_live(self, stream: Stream) -> bool:
+        self.checked.append(stream.url)
+        return not any(part in stream.url for part in self._dead)
+
+    async def aclose(self) -> None:  # pragma: no cover - nothing to close
+        ...
+
+
 class FakeLibrary:
     def __init__(self, progress: WatchProgress | None = None) -> None:
         self._progress = progress
