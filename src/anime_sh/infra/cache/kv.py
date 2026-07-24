@@ -53,3 +53,10 @@ class KvCache:
         )
         await conn.commit()
         return cur.rowcount
+
+    async def clear(self) -> int:
+        """Drop every cached entry (fresh or stale). Returns rows removed."""
+        conn = await self._db.connect()
+        cur = await conn.execute("DELETE FROM kv_cache")
+        await conn.commit()
+        return cur.rowcount

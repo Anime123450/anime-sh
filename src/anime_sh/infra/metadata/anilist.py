@@ -8,8 +8,10 @@ the catalog works even when every streaming provider is down. Every returned
 from __future__ import annotations
 
 import html
+import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ...domain.errors import MetadataError
 from ...domain.models import (
@@ -23,7 +25,21 @@ from ...domain.models import (
 )
 from ..http import HttpClient, HttpError
 
+if TYPE_CHECKING:
+    from ..cache.kv import KvCache
+
 API = "https://graphql.anilist.co"
+
+# How long each kind of catalog response stays fresh. Metadata drifts slowly and
+# cache.db is disposable, so these are generous; airing data is kept shorter.
+# Countdowns render from absolute timestamps, so a slightly stale schedule still
+# counts down correctly.
+_TTL_SEARCH = timedelta(minutes=15)
+_TTL_MEDIA = timedelta(hours=1)
+_TTL_TRENDING = timedelta(hours=1)
+_TTL_SEASONAL = timedelta(hours=6)
+_TTL_SCHEDULE = timedelta(minutes=30)
+_TTL_SEQUEL = timedelta(hours=24)
 
 _MEDIA_FIELDS = """
 id idMal
@@ -170,8 +186,11 @@ def _enum(enum_cls, value):
 class AniListMetadata:
     name = "anilist"
 
-    def __init__(self, http: HttpClient | None = None) -> None:
+    def __init__(
+        self, http: HttpClient | None = None, *, cache: "KvCache | None" = None
+    ) -> None:
         self._http = http or HttpClient(headers={"Accept": "application/json"})
+        self._cache = cache
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -187,9 +206,30 @@ class AniListMetadata:
             raise MetadataError(f"AniList error: {data['errors']}")
         return data["data"]
 
+    async def _cached(
+        self, key: str, ttl: timedelta, produce: Callable[[], Awaitable[Any]]
+    ) -> Any:
+        """Return ``produce()``'s JSON-native result, served from cache.db when a
+        fresh entry exists. A ``None`` result is never cached. No cache wired →
+        ``produce`` runs every time (the pre-cache behaviour)."""
+        if self._cache is not None:
+            hit = await self._cache.get(key)
+            if hit is not None:
+                return hit
+        value = await produce()
+        if self._cache is not None and value is not None:
+            await self._cache.set(key, value, ttl=ttl)
+        return value
+
     async def search(self, query: str, *, limit: int = 20) -> list[Anime]:
-        data = await self._query(_SEARCH_Q, {"search": query, "perPage": limit})
-        return [_to_anime(m) for m in data["Page"]["media"]]
+        key = f"search:{limit}:{query.strip().lower()}"
+
+        async def produce():
+            data = await self._query(_SEARCH_Q, {"search": query, "perPage": limit})
+            return data["Page"]["media"]
+
+        media = await self._cached(key, _TTL_SEARCH, produce)
+        return [_to_anime(m) for m in media]
 
     async def search_filtered(
         self,
@@ -218,8 +258,14 @@ class AniListMetadata:
             "perPage": limit,
         }
         variables = {k: v for k, v in variables.items() if v is not None}
-        data = await self._query(_FILTER_Q, variables)
-        return [_to_anime(m) for m in data["Page"]["media"]]
+        key = "filter:" + json.dumps(variables, sort_keys=True)
+
+        async def produce():
+            data = await self._query(_FILTER_Q, variables)
+            return data["Page"]["media"]
+
+        media = await self._cached(key, _TTL_SEARCH, produce)
+        return [_to_anime(m) for m in media]
 
     async def get(self, id: AnimeId) -> Anime:
         # Omit missing ids entirely: an explicit {"malId": null} makes AniList
@@ -227,8 +273,12 @@ class AniListMetadata:
         variables = {
             k: v for k, v in (("id", id.anilist), ("malId", id.mal)) if v is not None
         }
-        data = await self._query(_GET_Q, variables)
-        media = data.get("Media")
+
+        async def produce():
+            data = await self._query(_GET_Q, variables)
+            return data.get("Media")  # None → not cached, raises below
+
+        media = await self._cached(f"media:{id.key}", _TTL_MEDIA, produce)
         if not media:
             raise MetadataError(f"AniList has no media for {id.key}")
         return _to_anime(media)
@@ -238,32 +288,53 @@ class AniListMetadata:
         with a SEQUEL relation are considered."""
         if id.anilist is None:
             return None
-        data = await self._query(_RELATIONS_Q, {"id": id.anilist})
-        media = data.get("Media") or {}
-        for edge in (media.get("relations") or {}).get("edges") or []:
-            node = edge.get("node") or {}
-            if edge.get("relationType") == "SEQUEL" and node.get("type") == "ANIME":
-                return _to_anime(node)
-        return None
+
+        async def produce():
+            data = await self._query(_RELATIONS_Q, {"id": id.anilist})
+            media = data.get("Media") or {}
+            for edge in (media.get("relations") or {}).get("edges") or []:
+                node = edge.get("node") or {}
+                if edge.get("relationType") == "SEQUEL" and node.get("type") == "ANIME":
+                    return node
+            return None
+
+        node = await self._cached(f"sequel:{id.key}", _TTL_SEQUEL, produce)
+        return _to_anime(node) if node else None
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
-        data = await self._query(_TRENDING_Q, {"perPage": limit})
-        return [_to_anime(m) for m in data["Page"]["media"]]
+        async def produce():
+            data = await self._query(_TRENDING_Q, {"perPage": limit})
+            return data["Page"]["media"]
+
+        media = await self._cached(f"trending:{limit}", _TTL_TRENDING, produce)
+        return [_to_anime(m) for m in media]
 
     async def seasonal(self, season: Season, year: int) -> list[Anime]:
-        data = await self._query(
-            _SEASONAL_Q, {"season": season.value, "year": year, "perPage": 50}
-        )
-        return [_to_anime(m) for m in data["Page"]["media"]]
+        key = f"seasonal:{season.value}:{year}"
+
+        async def produce():
+            data = await self._query(
+                _SEASONAL_Q, {"season": season.value, "year": year, "perPage": 50}
+            )
+            return data["Page"]["media"]
+
+        media = await self._cached(key, _TTL_SEASONAL, produce)
+        return [_to_anime(m) for m in media]
 
     async def airing_schedule(self, start: date, end: date) -> list[AiringEvent]:
         start_ts = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
         end_ts = int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp())
-        data = await self._query(
-            _SCHEDULE_Q, {"start": start_ts, "end": end_ts, "perPage": 50}
-        )
+        key = f"schedule:{start_ts}:{end_ts}"
+
+        async def produce():
+            data = await self._query(
+                _SCHEDULE_Q, {"start": start_ts, "end": end_ts, "perPage": 50}
+            )
+            return data["Page"]["airingSchedules"]
+
+        schedules = await self._cached(key, _TTL_SCHEDULE, produce)
         events = []
-        for s in data["Page"]["airingSchedules"]:
+        for s in schedules:
             if not s.get("media"):
                 continue
             events.append(
