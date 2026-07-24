@@ -207,6 +207,17 @@ class StreamProxy(Protocol):
 
 
 @runtime_checkable
+class StreamProbe(Protocol):
+    """Cheap liveness check for a resolved stream, so a dead CDN is dropped
+    before the player is launched. Conservative by contract: returns False only
+    on a definitive dead response, True on anything ambiguous."""
+
+    async def is_live(self, stream: "Stream") -> bool: ...
+
+    async def aclose(self) -> None: ...
+
+
+@runtime_checkable
 class Downloader(Protocol):
     """Fetches a resolved stream to a local file (ffmpeg for HLS)."""
 
