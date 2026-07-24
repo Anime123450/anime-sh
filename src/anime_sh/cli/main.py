@@ -382,11 +382,16 @@ def sync_pull() -> None:
 @app.command()
 def download(
     query: str = typer.Argument(..., help="Title to download."),
-    episode: float = typer.Option(1.0, "-e", "--episode"),
+    episode: str = typer.Option("1", "-e", "--episode",
+                                help="Episode(s): 5, a range 1-12, or a list 1,3,5."),
     dub: bool = typer.Option(False, "--dub"),
     quality: str = typer.Option(None, "-q", "--quality"),
 ) -> None:
-    """Download an episode to disk (ffmpeg)."""
+    """Download one or more episodes to disk (ffmpeg).
+
+    Batches skip episodes already on disk, so re-running resumes where it left
+    off, and one failed episode never aborts the rest.
+    """
     asyncio.run(_download(query, episode, dub, quality))
 
 
@@ -1275,6 +1280,15 @@ async def _download(query, episode, dub, quality) -> None:
     config = load_config()
     if quality:
         config.playback.quality = quality
+    try:
+        numbers = _parse_episode_spec(episode)
+    except ValueError:
+        err.print(f"[red]Bad episode spec[/] {episode!r} — use 5, 1-12, or 1,3,5.")
+        raise typer.Exit(code=1)
+    if not numbers:
+        err.print("[red]No episodes to download.[/]")
+        raise typer.Exit(code=1)
+
     c = build_container(config)
     audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
     try:
@@ -1285,15 +1299,37 @@ async def _download(query, episode, dub, quality) -> None:
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
-        err.print(f"[cyan]⬇[/] {anime.title.preferred} — Episode {episode:g}")
-        with console.status("Resolving & downloading… (ffmpeg)", spinner="dots"):
-            dest = await c.download.download(anime, episode, audio=audio)
-        console.print(f"[green]✓ Saved[/] {dest}")
-    except AnimeShError as e:
-        err.print(f"[red]{e}[/]")
-        raise typer.Exit(code=2)
+
+        span = _ep_list(numbers) if len(numbers) > 1 else f"{numbers[0]:g}"
+        err.print(f"[cyan]⬇[/] {anime.title.preferred} — Episode(s) {span}")
+        saved = skipped = failed = 0
+        for n in numbers:
+            dest = c.download.destination(anime, n)
+            if dest.exists():
+                console.print(f"[dim]• Episode {n:g} already downloaded, skipping.[/]")
+                skipped += 1
+                continue
+            try:
+                with console.status(f"Episode {n:g}: resolving & downloading… (ffmpeg)",
+                                    spinner="dots"):
+                    dest = await c.download.download(anime, n, audio=audio)
+                console.print(f"[green]✓[/] Episode {n:g} → {dest}")
+                saved += 1
+            except AnimeShError as e:
+                # One bad episode must not abort the batch.
+                console.print(f"[red]✗ Episode {n:g}:[/] {e}")
+                failed += 1
     finally:
         await c.aclose()
+
+    if len(numbers) > 1 or failed:
+        console.print(
+            f"[bold]Done.[/] {saved} saved"
+            + (f", {skipped} skipped" if skipped else "")
+            + (f", [red]{failed} failed[/]" if failed else "")
+        )
+    if failed and not saved:
+        raise typer.Exit(code=2)
 
 
 async def _downloads(as_json: bool) -> None:
@@ -1397,6 +1433,30 @@ async def _favorite_ls(as_json: bool) -> None:
 # --------------------------------------------------------------------------- #
 # Rendering helpers
 # --------------------------------------------------------------------------- #
+def _parse_episode_spec(spec: str) -> list[float]:
+    """Parse an episode selector into an ordered, de-duplicated list.
+
+    "5" -> [5]; "1-12" -> [1..12]; "1,3,5" -> [1,3,5]; "1-3,5" -> [1,2,3,5].
+    Raises ValueError on anything that isn't a number or ``a-b`` range.
+    """
+    out: list[float] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "-" in token[1:]:  # a range (a-b), not a leading minus sign
+            a, _, b = token.partition("-")
+            start, end = int(float(a)), int(float(b))
+            if end < start:
+                start, end = end, start
+            out.extend(float(n) for n in range(start, end + 1))
+        else:
+            out.append(float(token))
+    # De-duplicate while preserving the order first seen.
+    seen: set[float] = set()
+    return [n for n in out if not (n in seen or seen.add(n))]
+
+
 def _ep_list(numbers: list[float]) -> str:
     """Compact episode list: contiguous whole-numbered runs collapse to
     "1–12"; gaps and specials stay explicit ("1–3, 5, 13.5")."""

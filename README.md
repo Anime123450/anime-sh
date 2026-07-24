@@ -32,7 +32,8 @@ anime continue               # episodes you started but didn't finish
 anime resume                 # jump back into the most recent one
 anime history                # what you've watched
 anime favorite add "Frieren" # ★  (also: favorite ls / rm)
-anime download "Frieren" -e 1  # save to disk (ffmpeg); also: anime downloads
+anime download "Frieren" -e 1-12  # save a range to disk (ffmpeg); resumes, skips done
+anime download "Frieren" -e 1,3,5 # or a list; also: anime downloads
 
 anime auth login             # link AniList (one-time); status / logout
 anime sync pull              # import your AniList list; sync push sends yours up
