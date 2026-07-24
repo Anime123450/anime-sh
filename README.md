@@ -83,16 +83,21 @@ English subs, so it plays where Cloudflare-gated sites can't.
 Needs Python 3.11+, plus an external media player (`mpv` recommended) and
 `ffmpeg` for playback/downloads. `anime doctor` reports what's missing.
 
+Install straight from GitHub — this puts the `anime` command on your PATH:
+
 ```bash
-uv tool install "anime-sh[tui]"     # or: pipx install "anime-sh[tui]"
+uv tool install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
+# or: pipx install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
 anime doctor
 anime "Frieren"
 ```
 
+(Not on PyPI yet; once it is, this shortens to `uv tool install "anime-sh[tui]"`.)
+
 ### From source (dev)
 
 ```bash
-git clone <repo> anime-sh && cd anime-sh
+git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
 uv sync --extra dev --extra tui
 uv run anime doctor
 uv run anime            # launch the TUI
