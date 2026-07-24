@@ -9,8 +9,8 @@ anime "Frieren"
 
 > **Status: M5 — polish.** Bare `anime` launches a keyboard-driven Textual app;
 > playback auto-skips intros and rolls into the next episode on its own. Under
-> it: AniList metadata, two live providers (AllAnime + anikoto) fanned out with
-> circuit breakers, resolvers, mpv over JSON IPC, a persistent library
+> it: AniList metadata, three live providers (AllAnime, anikoto, AniZone) fanned
+> out with circuit breakers, resolvers, mpv over JSON IPC, a persistent library
 > (resume/history/favorites), and ffmpeg downloads. See
 > [`docs/architecture.md`](docs/architecture.md).
 
