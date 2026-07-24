@@ -54,8 +54,9 @@ blocked. Invoke the CLI as a module to sidestep the shim entirely:
   download.
 - `infra/` — http, metadata (AniList), db (sqlite: library/health/downloads +
   migrations), players (mpv over IPC, null), downloader (ffmpeg), registry.
-- `providers/` — allanime, anikoto (entry-point plugins).
-- `resolvers/` — allanime-clock, mp4upload, vidtube→megaplay, generic.
+- `providers/` — allanime, anikoto, anizone (entry-point plugins).
+- `resolvers/` — allanime-clock, mp4upload, vidtube→megaplay, filemoon,
+  streamwish, generic.
 - `cli/`, `tui/` — the two adapters. Tests in `tests/{unit,contract,integration,tui}`.
 
 ## Adding a provider/resolver
@@ -91,6 +92,6 @@ load, never fatal.
 
 ## Status
 
-M0–M5 done. Two live providers, circuit breakers, nightly canary, Textual TUI,
+M0–M5 done. Three live providers, circuit breakers, nightly canary, Textual TUI,
 auto-skip/auto-next, ffmpeg downloads. Next: M6 (docs site, plugin cookiecutter,
 PyPI). See `docs/architecture.md`.
