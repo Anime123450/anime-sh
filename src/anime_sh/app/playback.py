@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -88,6 +89,7 @@ class PlaybackService:
         auto_next: bool = True,
         stream_proxy=None,
         probe=None,
+        skip_source=None,
         tracker: "Tracker | None" = None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
@@ -101,6 +103,9 @@ class PlaybackService:
         # Optional liveness probe: skips a resolved stream whose CDN is already
         # dead (403/404/gone) before we ever hand it to the player.
         self._probe = probe
+        # Optional intro/outro timestamp source (AniSkip) — fills skip data in
+        # when the provider's stream didn't ship any.
+        self._skip_source = skip_source
         # Optional list-sync tracker (AniList): progress is pushed on completion.
         self._tracker = tracker
         self._skip_intro = skip_intro
@@ -228,6 +233,29 @@ class PlaybackService:
             log.debug("stream probe errored, assuming live: %s", e)
             return True
 
+    async def _augment_skips(
+        self, stream: Stream, anime: Anime, episode_number: float
+    ) -> Stream:
+        """Fill intro/outro timestamps from the skip source when the resolved
+        stream shipped none, so auto-skip works on every provider. The provider's
+        own skip data always wins; a lookup miss leaves the stream untouched."""
+        if (
+            self._skip_source is None
+            or stream.skip_times is not None
+            or not (self._skip_intro or self._skip_outro)
+            or anime.id.mal is None
+        ):
+            return stream
+        length = (anime.duration_min or 24) * 60
+        try:
+            skips = await self._skip_source.for_episode(
+                anime.id.mal, episode_number, episode_length=length
+            )
+        except Exception as e:  # best-effort — never disturb playback
+            log.debug("skip-times lookup errored: %s", e)
+            return stream
+        return replace(stream, skip_times=skips) if skips else stream
+
     async def play(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ):
@@ -284,6 +312,7 @@ class PlaybackService:
             play_stream = (
                 self._stream_proxy.rewrite(stream) if self._stream_proxy else stream
             )
+            play_stream = await self._augment_skips(play_stream, anime, episode_number)
             try:
                 handle = await self._player.play(play_stream, title=title, start_s=resume_s)
             except PlayerError as e:  # mpv exited before playback started

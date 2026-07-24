@@ -22,6 +22,7 @@ from .models import (
     ProviderRef,
     ResumeItem,
     Season,
+    SkipTimes,
     SourceOption,
     Stream,
     StreamCandidate,
@@ -213,6 +214,18 @@ class StreamProbe(Protocol):
     on a definitive dead response, True on anything ambiguous."""
 
     async def is_live(self, stream: "Stream") -> bool: ...
+
+    async def aclose(self) -> None: ...
+
+
+@runtime_checkable
+class SkipTimesSource(Protocol):
+    """Community intro/outro timestamps for an episode, so auto-skip works even
+    when a provider ships no skip data. Best-effort: returns None on any miss."""
+
+    async def for_episode(
+        self, mal_id: int | None, episode: float, *, episode_length: int
+    ) -> "SkipTimes | None": ...
 
     async def aclose(self) -> None: ...
 
