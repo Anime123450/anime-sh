@@ -39,10 +39,12 @@ anime rate "Frieren" 9       # set a score; anime status "X" completed
 anime next "Mob Psycho 100"  # find + play the next season (sequel)
 
 anime doctor                 # player, ffmpeg, config, database, plugins
+anime --version              # print the version and exit
 anime config get             # dump settings; `config get playback.quality`
 anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
 anime config path | validate
 anime providers ls
+anime cache clear            # wipe the disposable metadata cache (or: cache purge)
 ```
 
 The TUI home shows Continue Watching, Favorites, Airing This Season, and
@@ -60,6 +62,11 @@ Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
 `favorite ls` for machine-readable output (`play --json` resolves the stream
 without launching a player). Your library (progress, history, favorites) lives
 in a separate `anime.db` from the disposable cache and renders offline.
+
+**Cached catalog.** AniList responses (search, trending, seasonal, schedule,
+details) are cached in a throwaway `cache.db` with short TTLs, so repeat browses
+are instant and recently-seen pages still render offline. It is always safe to
+wipe with `anime cache clear`; nothing user-owned lives there.
 
 > Streaming providers break and get Cloudflare-gated constantly — that's the
 > normal operating state, not a bug. When a provider is unreachable, anime-sh

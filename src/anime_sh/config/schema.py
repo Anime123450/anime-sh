@@ -26,22 +26,17 @@ class PlaybackConfig(BaseModel):
 
 class ProvidersConfig(BaseModel):
     parallel: int = 5
+    # Provider order preference (highest first). Names not listed keep their
+    # built-in priority, ordered after the preferred ones. Unknown names are
+    # ignored, so this stays valid as providers come and go.
     preferred: list[str] = Field(
-        default_factory=lambda: ["animekai", "hianime", "animepahe", "allanime"]
+        default_factory=lambda: ["anizone", "anikoto", "allanime"]
     )
     disabled: list[str] = Field(default_factory=list)
     timeout_s: float = 8.0
 
 
 class ResolversConfig(BaseModel):
-    preferred_hosts: list[str] = Field(
-        default_factory=lambda: [
-            "vidstream",
-            "filemoon",
-            "streamwish",
-            "mp4upload",
-        ]
-    )
     disabled: list[str] = Field(default_factory=list)
 
 
@@ -49,15 +44,8 @@ class UiConfig(BaseModel):
     theme: str = "tokyo-night"
 
 
-class TrackingConfig(BaseModel):
-    anilist: bool = False
-    mal: bool = False
-    discord_presence: bool = False
-
-
 class DownloadsConfig(BaseModel):
     dir: str = "~/Videos/anime"
-    concurrency: int = 2
 
 
 class Config(BaseSettings):
@@ -72,5 +60,4 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     resolvers: ResolversConfig = Field(default_factory=ResolversConfig)
     ui: UiConfig = Field(default_factory=UiConfig)
-    tracking: TrackingConfig = Field(default_factory=TrackingConfig)
     downloads: DownloadsConfig = Field(default_factory=DownloadsConfig)

@@ -89,7 +89,7 @@ def build_container(config: Config | None = None) -> Container:
     library_service = LibraryService(library)
     cache = KvCache(cache_db)
 
-    metadata = AniListMetadata()
+    metadata = AniListMetadata(cache=cache)
     search = SearchService(metadata)
 
     providers = registry.load_providers(disabled=config.providers.disabled)
@@ -100,6 +100,7 @@ def build_container(config: Config | None = None) -> Container:
     provider_manager = ProviderManager(
         providers,
         parallel=config.providers.parallel,
+        preferred=config.providers.preferred,
         candidates_timeout_s=config.providers.timeout_s,
         health_store=SqliteHealthStore(user_db),
     )

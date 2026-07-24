@@ -2,7 +2,7 @@
 
 Built in week 2, not month 6, on purpose: it cuts support volume in half by
 letting a user (and a bug report) answer "is mpv installed / is the config
-valid / can I reach the network / which providers loaded" without you asking.
+valid / is the database healthy / which providers loaded" without you asking.
 """
 
 from __future__ import annotations
@@ -58,12 +58,12 @@ def _check_plugins() -> list[Check]:
         Check(
             "providers",
             True,
-            ", ".join(p.name for p in providers) or "none installed (expected in M0)",
+            ", ".join(p.name for p in providers) or "none installed",
         ),
         Check(
             "resolvers",
             True,
-            ", ".join(r.name for r in resolvers) or "none installed (expected in M0)",
+            ", ".join(r.name for r in resolvers) or "none installed",
         ),
     ]
 

@@ -132,3 +132,29 @@ async def test_manager_success_resets_failures():
     mgr = ProviderManager([FakeProvider("p")], health_store=store)
     await mgr.resolve_sources(make_anime())
     assert store.data["p"].consecutive_failures == 0
+
+
+# -- providers.preferred ordering ------------------------------------------- #
+def test_preferred_order_overrides_priority():
+    # 'low' has the worse built-in priority but is listed first in preferred,
+    # so it must sort ahead of the higher-priority 'high'.
+    low = FakeProvider("low", priority=1)
+    high = FakeProvider("high", priority=99)
+    mgr = ProviderManager([high, low], preferred=["low", "high"])
+    assert [p.name for p in mgr.providers] == ["low", "high"]
+
+
+def test_unlisted_providers_fall_back_to_priority_after_listed():
+    a = FakeProvider("a", priority=1)     # listed
+    b = FakeProvider("b", priority=50)    # unlisted, high priority
+    c = FakeProvider("c", priority=10)    # unlisted, lower priority
+    mgr = ProviderManager([b, c, a], preferred=["a"])
+    # 'a' first (preferred), then the unlisted ones by -priority.
+    assert [p.name for p in mgr.providers] == ["a", "b", "c"]
+
+
+def test_no_preferred_keeps_priority_order():
+    lo = FakeProvider("lo", priority=1)
+    hi = FakeProvider("hi", priority=9)
+    mgr = ProviderManager([lo, hi])
+    assert [p.name for p in mgr.providers] == ["hi", "lo"]

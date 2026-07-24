@@ -46,18 +46,28 @@ class ProviderManager:
         providers: list[Provider],
         *,
         parallel: int = 5,
+        preferred: list[str] | None = None,
         match_timeout_s: float = 4.0,
         candidates_timeout_s: float = 8.0,
         health_store: HealthStore | None = None,
         breaker: CircuitBreaker | None = None,
     ) -> None:
-        # Highest priority first.
-        self._providers = sorted(providers, key=lambda p: -p.priority)
+        # Order by the user's `providers.preferred` list first, then by each
+        # provider's built-in priority. Unlisted providers sort after listed
+        # ones; unknown names in the list are simply never matched.
+        self._pref_rank = {name: i for i, name in enumerate(preferred or [])}
+        self._providers = sorted(providers, key=self._order_key)
         self._parallel = parallel
         self._match_timeout = match_timeout_s
         self._candidates_timeout = candidates_timeout_s
         self._health = health_store
         self._breaker = breaker or CircuitBreaker()
+
+    def _order_key(self, provider: Provider) -> tuple[int, int]:
+        """Base ordering: preferred rank first, then -priority. Providers not in
+        the preferred list sort after all listed ones, keeping priority order."""
+        rank = self._pref_rank.get(provider.name, len(self._pref_rank))
+        return (rank, -provider.priority)
 
     @property
     def providers(self) -> list[Provider]:
@@ -86,7 +96,7 @@ class ProviderManager:
             if self._breaker.should_attempt(healths[p.name], now)
         ]
         eligible.sort(
-            key=lambda p: (self._breaker.rank(healths[p.name], now), -p.priority)
+            key=lambda p: (self._breaker.rank(healths[p.name], now), self._order_key(p))
         )
         selected = eligible[: self._parallel]
         results = await asyncio.gather(

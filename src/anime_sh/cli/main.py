@@ -2,7 +2,7 @@
 
 The CLI is one adapter onto the app services and holds no domain logic. Bare
 ``anime <query>`` is sugar for ``anime play <query>`` (rewritten in ``main``).
-Bare ``anime`` with no args will launch the TUI (M4); for now it shows help.
+Bare ``anime`` on a terminal launches the TUI; piped/non-tty, it prints help.
 """
 
 from __future__ import annotations
@@ -38,25 +38,42 @@ providers_app = typer.Typer(help="Inspect installed provider plugins.")
 favorite_app = typer.Typer(help="Manage favorites.")
 auth_app = typer.Typer(help="Link an AniList account for watch-status sync.")
 sync_app = typer.Typer(help="Sync watch progress with AniList.")
+cache_app = typer.Typer(help="Manage the disposable metadata cache (cache.db).")
 app.add_typer(config_app, name="config")
 app.add_typer(providers_app, name="providers")
 app.add_typer(favorite_app, name="favorite")
 app.add_typer(auth_app, name="auth")
 app.add_typer(sync_app, name="sync")
+app.add_typer(cache_app, name="cache")
 
 console = Console()
 err = Console(stderr=True)
 
-KNOWN_COMMANDS = {
-    "version", "doctor", "config", "providers", "search", "play", "trending",
-    "history", "favorite", "continue", "resume", "download", "downloads",
-    "seasonal", "calendar", "random", "sources", "auth", "sync", "mark", "stats",
-    "unmark", "list", "rate", "status", "next",
-}
+def _known_commands() -> set[str]:
+    """Every registered command/group name, read straight from the Typer app so
+    the `anime <query>` sugar can never drift out of sync with the real CLI."""
+    import typer.main
+
+    try:
+        return set(typer.main.get_command(app).commands.keys())  # type: ignore[attr-defined]
+    except Exception:
+        return set()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"anime-sh {__version__}")
+        raise typer.Exit()
 
 
 @app.callback(invoke_without_command=True)
-def _root(ctx: typer.Context) -> None:
+def _root(
+    ctx: typer.Context,
+    _version: bool = typer.Option(
+        False, "--version", "-V", callback=_version_callback, is_eager=True,
+        help="Show the version and exit.",
+    ),
+) -> None:
     if ctx.invoked_subcommand is not None:
         return
     # Bare `anime` on a real terminal launches the TUI; otherwise show help.
@@ -172,6 +189,28 @@ def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
 def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
     """Show each provider's circuit-breaker status (persisted across runs)."""
     asyncio.run(_providers_health(as_json))
+
+
+@cache_app.command("clear")
+def cache_clear() -> None:
+    """Wipe all cached metadata. Safe — only ever touches cache.db."""
+    asyncio.run(_cache_op(clear=True))
+
+
+@cache_app.command("purge")
+def cache_purge() -> None:
+    """Drop only the expired cache entries."""
+    asyncio.run(_cache_op(clear=False))
+
+
+async def _cache_op(*, clear: bool) -> None:
+    c = build_container()
+    try:
+        n = await c.cache.clear() if clear else await c.cache.purge_expired()
+    finally:
+        await c.aclose()
+    verb = "Cleared" if clear else "Purged"
+    console.print(f"[green]{verb}[/] {n} cache entr{'y' if n == 1 else 'ies'}.")
 
 
 # --------------------------------------------------------------------------- #
@@ -1319,9 +1358,11 @@ def _force_utf8() -> None:
 
 def main() -> None:
     _force_utf8()
-    # git-style sugar: `anime <query>` -> `anime play <query>`.
+    # git-style sugar: `anime <query>` -> `anime play <query>`. Only a bare
+    # first arg that isn't a known command (and isn't an option) is rewritten.
     argv = sys.argv[1:]
-    if argv and argv[0] not in KNOWN_COMMANDS and not argv[0].startswith("-"):
+    known = _known_commands()
+    if known and argv and argv[0] not in known and not argv[0].startswith("-"):
         sys.argv.insert(1, "play")
     app()
 
