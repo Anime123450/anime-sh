@@ -15,22 +15,15 @@ skip_outro = false
 
 [providers]
 parallel = 5
-preferred = ["animekai", "hianime", "animepahe", "allanime"]
+preferred = ["anizone", "anikoto", "allanime"]   # order to try (highest first)
 disabled = []
 timeout_s = 8.0
 
 [resolvers]
-preferred_hosts = ["vidstream", "filemoon", "streamwish", "mp4upload"]
 disabled = []
 
 [ui]
 theme = "tokyo-night"
 
-[tracking]
-anilist = false        # AniList tokens live in the OS keyring, never here
-mal = false
-discord_presence = false
-
 [downloads]
 dir = "~/Videos/anime"
-concurrency = 2
