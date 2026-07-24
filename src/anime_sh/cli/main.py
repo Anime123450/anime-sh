@@ -731,6 +731,9 @@ async def _trending(limit: int, as_json: bool) -> None:
     c = build_container()
     try:
         animes = await c.metadata.trending(limit=limit)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
     finally:
         await c.aclose()
     if as_json:
@@ -761,6 +764,9 @@ async def _seasonal(season: str | None, year: int | None, as_json: bool) -> None
     c = build_container()
     try:
         animes = await c.metadata.seasonal(s, y)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
     finally:
         await c.aclose()
     if as_json:
@@ -776,6 +782,9 @@ async def _calendar(days: int, as_json: bool) -> None:
     c = build_container()
     try:
         events = await c.metadata.airing_schedule(start, end)
+    except AnimeShError as e:
+        err.print(f"[red]{e}[/]")
+        raise typer.Exit(code=2)
     finally:
         await c.aclose()
     if as_json:
