@@ -85,3 +85,33 @@ async def test_search_filtered_defaults_sort_by_context():
     assert http.sent["variables"]["sort"] == ["POPULARITY_DESC"]
     await meta.search_filtered("frieren")
     assert http.sent["variables"]["sort"] == ["SEARCH_MATCH"]
+
+
+async def test_recommendations_maps_media_recommendation_nodes():
+    resp = {"data": {"Media": {"recommendations": {"nodes": [
+        {"mediaRecommendation": {"id": 5, "title": {"romaji": "Rec A"}}},
+        {"mediaRecommendation": None},  # AniList can return a null rec; skip it
+        {"mediaRecommendation": {"id": 6, "title": {"romaji": "Rec B"}}},
+    ]}}}}
+    meta = AniListMetadata(http=_FakeHttp(response=resp))
+    recs = await meta.recommendations(AnimeId(anilist=1))
+    assert [a.id.anilist for a in recs] == [5, 6]
+
+
+async def test_recommendations_empty_without_anilist_id():
+    meta = AniListMetadata(http=_FakeHttp())
+    assert await meta.recommendations(AnimeId(anilist=None, mal=999)) == []
+
+
+async def test_relations_keeps_anime_with_types_skips_non_anime():
+    resp = {"data": {"Media": {"relations": {"edges": [
+        {"relationType": "SEQUEL",
+         "node": {"type": "ANIME", "id": 7, "title": {"romaji": "S2"}}},
+        {"relationType": "ADAPTATION",
+         "node": {"type": "MANGA", "id": 8, "title": {"romaji": "Manga"}}},  # skip
+        {"relationType": "PREQUEL",
+         "node": {"type": "ANIME", "id": 6, "title": {"romaji": "S0"}}},
+    ]}}}}
+    meta = AniListMetadata(http=_FakeHttp(response=resp))
+    rels = await meta.relations(AnimeId(anilist=1))
+    assert [(rel, a.id.anilist) for rel, a in rels] == [("SEQUEL", 7), ("PREQUEL", 6)]

@@ -104,6 +104,16 @@ query ($perPage: Int) {{
 }}
 """
 
+_RECOMMENDATIONS_Q = f"""
+query ($id: Int, $perPage: Int) {{
+  Media(id: $id, type: ANIME) {{
+    recommendations(sort: RATING_DESC, perPage: $perPage) {{
+      nodes {{ mediaRecommendation {{ {_MEDIA_FIELDS} }} }}
+    }}
+  }}
+}}
+"""
+
 _SEASONAL_Q = f"""
 query ($season: MediaSeason, $year: Int, $perPage: Int) {{
   Page(perPage: $perPage) {{
@@ -300,6 +310,44 @@ class AniListMetadata:
 
         node = await self._cached(f"sequel:{id.key}", _TTL_SEQUEL, produce)
         return _to_anime(node) if node else None
+
+    async def relations(self, id: AnimeId) -> list[tuple[str, Anime]]:
+        """All related ANIME (prequels, sequels, side stories, movies…), each
+        with its relation type. Non-anime relations (manga, novels) are skipped."""
+        if id.anilist is None:
+            return []
+
+        async def produce():
+            data = await self._query(_RELATIONS_Q, {"id": id.anilist})
+            media = data.get("Media") or {}
+            out = []
+            for edge in (media.get("relations") or {}).get("edges") or []:
+                node = edge.get("node") or {}
+                if node.get("type") == "ANIME":
+                    out.append({"relation": edge.get("relationType") or "RELATED",
+                                "media": node})
+            return out
+
+        raw = await self._cached(f"relations:{id.key}", _TTL_SEQUEL, produce)
+        return [(r["relation"], _to_anime(r["media"])) for r in raw]
+
+    async def recommendations(self, id: AnimeId, *, limit: int = 15) -> list[Anime]:
+        """Shows AniList users recommend for people who liked this one, best
+        first. Empty when the show has no recommendations (or no AniList id)."""
+        if id.anilist is None:
+            return []
+
+        async def produce():
+            data = await self._query(
+                _RECOMMENDATIONS_Q, {"id": id.anilist, "perPage": limit}
+            )
+            media = data.get("Media") or {}
+            nodes = (media.get("recommendations") or {}).get("nodes") or []
+            return [n["mediaRecommendation"] for n in nodes
+                    if n.get("mediaRecommendation")]
+
+        raw = await self._cached(f"recs:{id.key}:{limit}", _TTL_SEASONAL, produce)
+        return [_to_anime(m) for m in raw]
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
         async def produce():
