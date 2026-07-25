@@ -1,5 +1,9 @@
 # anime-sh
 
+[![PyPI](https://img.shields.io/pypi/v/anime-sh)](https://pypi.org/project/anime-sh/)
+[![Python](https://img.shields.io/pypi/pyversions/anime-sh)](https://pypi.org/project/anime-sh/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 The terminal-native anime client. You type a title; it plays. Providers,
 mirrors, and resolvers are internal details you never have to think about.
 
@@ -94,16 +98,17 @@ English subs, so it plays where Cloudflare-gated sites can't.
 Needs Python 3.11+, plus an external media player (`mpv` recommended) and
 `ffmpeg` for playback/downloads. `anime doctor` reports what's missing.
 
-Install straight from GitHub — this puts the `anime` command on your PATH:
-
 ```bash
-uv tool install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
-# or: pipx install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
+uv tool install "anime-sh[tui]"     # or: pipx install "anime-sh[tui]"
 anime doctor
 anime "Frieren"
 ```
 
-(Not on PyPI yet; once it is, this shortens to `uv tool install "anime-sh[tui]"`.)
+Prefer the bleeding edge? Install straight from `main`:
+
+```bash
+uv tool install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
+```
 
 ### From source (dev)
 

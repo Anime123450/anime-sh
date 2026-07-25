@@ -2,10 +2,10 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
-## [0.2.0]
+## [0.2.0] — 2026-07-24
 
 Discovery, reliability, and a search that understands what you meant — the first
-release intended for PyPI.
+release on PyPI (`uv tool install "anime-sh[tui]"`).
 
 ### Added
 
