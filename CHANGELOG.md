@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.1] — 2026-07-24
+
+Docs/metadata patch — republishes so the PyPI project page carries the corrected
+README (0.2.0's page was built before the fix, and PyPI versions are immutable).
+
+### Changed
+
+- README leads with `uv tool install "anime-sh[tui]"`; added PyPI / Python /
+  license badges. No code changes.
+
 ## [0.2.0] — 2026-07-24
 
 Discovery, reliability, and a search that understands what you meant — the first
