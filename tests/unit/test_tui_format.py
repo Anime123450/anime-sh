@@ -10,6 +10,7 @@ from anime_sh.domain.models import WatchProgress
 from anime_sh.tui.format import (
     continue_row,
     countdown,
+    episode_air_label,
     home_subtitle,
     meta_line,
     next_episode_line,
@@ -128,6 +129,15 @@ def test_continue_row_dropped_when_finished_and_fully_watched():
     assert continue_row(a, _prog(12.0, 1400, completed=True), _NOW) is None
 
 
+def test_episode_air_label_projects_weekly_from_next_airing():
+    a = _anime(status=Status.RELEASING, next_airing_episode=5,
+               next_airing_at=_NOW + timedelta(days=2))
+    assert episode_air_label(a, 5, _NOW) == "airs in 2d 0h"      # the next one
+    assert episode_air_label(a, 7, _NOW) == "airs in 16d 0h"     # +2 weeks
+    assert episode_air_label(a, 4, _NOW) is None                 # already aired
+    assert episode_air_label(_anime(), 3, _NOW) is None          # no schedule
+
+
 # -- cover art (Pillow-backed, graceful) ------------------------------------- #
 def _png(w, h, color=(200, 40, 40)) -> bytes:
     from PIL import Image
@@ -138,31 +148,21 @@ def _png(w, h, color=(200, 40, 40)) -> bytes:
     return buf.getvalue()
 
 
-def test_render_cover_produces_quadrant_grid():
-    from anime_sh.tui.coverart import _QUADRANTS
-
+def test_render_cover_produces_halfblock_grid():
     art = render_cover(_png(60, 90), cols=10)
     assert art is not None
     rows = art.plain.split("\n")
-    assert all(len(r) == 10 for r in rows)  # every row is `cols` wide
-    assert all(ch in _QUADRANTS for ch in art.plain if ch != "\n")
+    assert all(len(r) == 10 for r in rows)          # every row is `cols` wide
+    assert set(art.plain) <= {"▀", "\n"}            # truecolor half-blocks only
     assert art.spans, "expected per-cell color styles"
 
 
-def test_render_cover_resolves_horizontal_detail():
-    # Vertical stripes must yield left/right quadrant blocks — proof the render
-    # has real horizontal sub-cell resolution (not just vertical half-blocks).
-    from PIL import Image
-    import io
-
-    img = Image.new("RGB", (40, 40))
-    for y in range(40):
-        for x in range(40):
-            img.putpixel((x, y), (255, 255, 255) if x % 2 == 0 else (0, 0, 0))
-    buf = io.BytesIO()
-    img.save(buf, "PNG")
-    art = render_cover(buf.getvalue(), cols=10)
-    assert "▌" in art.plain  # left-half block appears
+def test_render_cover_preserves_color():
+    # A solid red poster renders red cells — colour is carried through per pixel,
+    # not crushed to grayscale or muddied by averaging.
+    art = render_cover(_png(30, 45, color=(200, 40, 40)), cols=8)
+    assert art is not None
+    assert "200,40,40" in str(art.spans[0].style)
 
 
 def test_render_cover_returns_none_on_garbage():
