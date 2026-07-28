@@ -182,16 +182,29 @@ class SqliteLibrary:
             f"SELECT p.anilist_id, p.episode, p.position_s, p.duration_s, "
             f"p.completed, p.updated_at, {_ANIME_COLS} "
             "FROM progress p "
-            # One card per show: the most recently-updated in-progress episode.
-            "JOIN (SELECT anilist_id, MAX(updated_at) AS mu FROM progress "
-            "      WHERE completed=0 AND position_s > 0 GROUP BY anilist_id) g "
-            "  ON g.anilist_id = p.anilist_id AND g.mu = p.updated_at "
+            # One card per show, keyed to the FURTHEST episode you've reached
+            # (started or finished). Keeping finished episodes here is what lets
+            # a show stay in Continue Watching after you finish its latest
+            # episode and are waiting on the next — not only while an episode is
+            # half-watched. The caller decides "resume", "up next", or "caught up".
+            "JOIN (SELECT anilist_id, MAX(episode) AS furthest FROM progress "
+            "      WHERE position_s > 0 OR completed = 1 GROUP BY anilist_id) f "
+            "  ON f.anilist_id = p.anilist_id AND f.furthest = p.episode "
+            # Order by the show's most recent activity, not the furthest episode.
+            "JOIN (SELECT anilist_id, MAX(updated_at) AS recent FROM progress "
+            "      WHERE position_s > 0 OR completed = 1 GROUP BY anilist_id) r "
+            "  ON r.anilist_id = p.anilist_id "
             "LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
-            # position_s>0 keeps this to episodes actually started here — an
-            # AniList import (progress but no local position) belongs on the My
-            # List screen, not cluttering Continue Watching at 0%.
-            "WHERE p.completed=0 AND p.position_s > 0 "
-            "GROUP BY p.anilist_id ORDER BY p.updated_at DESC LIMIT ?",
+            # position_s>0 OR completed keeps this to episodes actually watched or
+            # marked here — an AniList import (progress but no local position)
+            # belongs on the My List screen, not cluttering Continue Watching.
+            "WHERE (p.position_s > 0 OR p.completed = 1) "
+            # Drop shows you've finished outright: the last episode of a series
+            # that has itself finished airing. Anything still airing, or not yet
+            # watched to the end, stays.
+            "  AND NOT (p.completed = 1 AND a.status = 'FINISHED' "
+            "           AND a.episodes IS NOT NULL AND p.episode >= a.episodes) "
+            "ORDER BY r.recent DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()
