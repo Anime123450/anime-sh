@@ -46,6 +46,11 @@ class MetadataSource(Protocol):
 
     async def trending(self, *, limit: int = 30) -> list[Anime]: ...
 
+    async def popular(self, *, limit: int = 500) -> list[Anime]:
+        """A broad popularity-ranked catalog snapshot, for building a local
+        search index. Optional in practice: SearchService degrades to AniList's
+        strict word search if a source doesn't provide it."""
+
     async def seasonal(self, season: Season, year: int) -> list[Anime]: ...
 
     async def airing_schedule(

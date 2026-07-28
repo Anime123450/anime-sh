@@ -11,17 +11,34 @@ from .fakes import make_anime
 
 
 class FakeMeta:
-    """Returns canned results per exact query string; records every call."""
+    """Returns canned results per exact query string; records every call.
+
+    ``catalog`` seeds the local popularity index exposed via ``popular`` (pass
+    the string ``"boom"`` to make the index build raise, for the degrade test).
+    """
 
     name = "fake"
 
-    def __init__(self, table: dict[str, list[Anime]]) -> None:
+    def __init__(
+        self,
+        table: dict[str, list[Anime]],
+        *,
+        catalog: list[Anime] | str | None = None,
+    ) -> None:
         self._table = table
+        self._catalog = catalog
         self.calls: list[str] = []
+        self.popular_calls = 0
 
     async def search(self, query: str, *, limit: int = 20) -> list[Anime]:
         self.calls.append(query)
         return list(self._table.get(query, []))
+
+    async def popular(self, *, limit: int = 500) -> list[Anime]:
+        self.popular_calls += 1
+        if self._catalog == "boom":
+            raise RuntimeError("index build failed")
+        return list(self._catalog or [])
 
     async def get(self, id: AnimeId) -> Anime:
         return make_anime(id.anilist or 0)
@@ -96,3 +113,76 @@ async def test_single_word_query_does_not_word_fallback_on_itself():
     out = await svc.search("friern")
     assert out == []
     assert meta.calls == ["friern"]  # no distinctive-word escalation
+
+
+# -- local popularity index (rescues what AniList's strict search drops) ----- #
+
+def _catalog() -> list[Anime]:
+    return [
+        make_anime(1, "The Eminence in Shadow"),
+        make_anime(21, "One Piece"),
+        make_anime(154587, "Sousou no Frieren"),
+        make_anime(20, "Naruto"),
+    ]
+
+
+async def test_stopword_query_rescued_by_index():
+    # AniList drops "the" as a full-text stopword → empty. The index still finds
+    # the popular shows whose title contains it.
+    meta = FakeMeta({}, catalog=_catalog())
+    svc = SearchService(meta)
+    out = await svc.search("the")
+    ids = [r.anime.id.anilist for r in out]
+    assert 1 in ids  # "The Eminence in Shadow"
+    assert 20 not in ids  # "Naruto" has nothing to do with "the"
+
+
+async def test_word_fragment_rescued_by_index():
+    # "fri" is a mid-title fragment AniList won't match; the index prefixes it.
+    meta = FakeMeta({}, catalog=_catalog())
+    svc = SearchService(meta)
+    out = await svc.search("fri")
+    assert [r.anime.id.anilist for r in out] == [154587]  # Sousou no Frieren
+
+
+async def test_despaced_query_rescued_by_index():
+    # "onepiece" is one dead token to AniList; squashed matching finds One Piece.
+    meta = FakeMeta({}, catalog=_catalog())
+    svc = SearchService(meta)
+    out = await svc.search("onepiece")
+    assert [r.anime.id.anilist for r in out] == [21]
+
+
+async def test_working_query_never_builds_the_index():
+    # The fast path must stay untouched: a hit means no index build, ever.
+    frieren = make_anime(154587, "Frieren")
+    meta = FakeMeta({"frieren": [frieren]}, catalog=_catalog())
+    svc = SearchService(meta)
+    await svc.search("frieren")
+    assert meta.popular_calls == 0
+
+
+async def test_index_is_built_at_most_once():
+    meta = FakeMeta({}, catalog=_catalog())
+    svc = SearchService(meta)
+    await svc.search("the")
+    await svc.search("fri")
+    assert meta.popular_calls == 1  # memoised for the service's lifetime
+
+
+async def test_index_build_failure_degrades_cleanly():
+    # If the catalog can't be fetched, search falls back to empty, never crashes.
+    meta = FakeMeta({}, catalog="boom")
+    svc = SearchService(meta)
+    assert await svc.search("the") == []
+
+
+async def test_despaced_variant_also_hits_anilist():
+    # De-glued camelCase is retried against AniList too (helps long-tail shows
+    # that aren't in the popularity index).
+    rezero = make_anime(21355, "Re:Zero kara Hajimeru Isekai Seikatsu")
+    meta = FakeMeta({"ReZero": [], "Re Zero": [rezero]})
+    svc = SearchService(meta)
+    out = await svc.search("ReZero")
+    assert out and out[0].anime.id.anilist == 21355
+    assert "Re Zero" in meta.calls
