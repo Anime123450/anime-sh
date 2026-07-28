@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.4] — 2026-07-28
+
+### Fixed
+
+- **Continue Watching now keeps shows you're between episodes on.** It used to
+  list a show only while an episode was *half-watched* — so the moment you
+  finished the latest released episode, the show vanished until you started the
+  next one. Shows you've caught up on (waiting for the next episode) disappeared
+  entirely. Now a show stays in Continue Watching from when you start it until
+  you've actually finished the whole series.
+
+### Changed
+
+- Continue Watching rows now describe where you are: **resume** a half-watched
+  episode (`Ep 4 · 50%`), **up next** when the next episode is already out
+  (`up next · Ep 6`), or **caught up** — greyed, with a countdown — when you're
+  waiting on a still-airing show (`caught up · Ep 6 in 2d 3h`). Watchable shows
+  sort above the ones you're waiting on; fully-finished series drop off.
+
 ## [0.2.3] — 2026-07-28
 
 ### Fixed

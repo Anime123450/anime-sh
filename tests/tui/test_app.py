@@ -151,8 +151,9 @@ async def test_caught_up_show_is_dimmed_with_countdown():
 
     class CaughtUpLibrary(FakeLibrary):
         async def continue_watching(self, *, limit=20):
-            prog = WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400,
-                                 datetime.now(timezone.utc))
+            # Finished ep 5 (the latest aired); ep 6 not out yet → caught up.
+            prog = WatchProgress(AnimeId(anilist=1), 5.0, 1400, 1400,
+                                 datetime.now(timezone.utc), completed=True)
             return [ResumeItem(anime=_anime(1, "Frieren"), progress=prog)]
 
     playback = FakePlayback()
