@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.6] — 2026-07-28
+
+### Changed
+
+- **Much sharper cover art.** 0.2.5's half-block render was only one pixel wide
+  per character — coarse and blurry. Covers now use 2×2-pixel quadrant cells
+  (double the horizontal detail) coloured by the *least-error* two-colour split
+  of each cell, so edges stay crisp and smooth areas stay smooth instead of
+  muddy. Rendered larger, too. Posters are now clearly legible.
+
 ## [0.2.5] — 2026-07-28
 
 ### Fixed
