@@ -4,16 +4,28 @@ Search touches only the metadata source (AniList), never a scraper: it is
 instant and reliable, and provider availability is resolved lazily later, at
 play time. That is what keeps search-as-you-type fast in the TUI.
 
-AniList's own search is strict: it wants the title spelled the way it stores it.
-``dont toy with me`` finds nothing (it wants ``don't``); ``atack on titan`` finds
-nothing (one typo). So this service makes the *common* mistakes forgiving without
-changing the fast path:
+AniList's own search is strict, whole-word matching: it wants each word spelled
+the way it stores it. Substrings and fragments find nothing (``fri`` misses
+*Frieren*), de-spaced titles miss (``onepiece`` misses *One Piece*), a stray
+typo kills the whole query (``atack on titan`` -> nothing), and English
+stopwords are dropped from its index entirely (``the`` -> nothing). None of that
+is how search in a modern anime client should feel.
+
+So this service layers a **local index** over AniList without slowing the fast
+path:
 
 * A working query is passed straight through, in AniList's own relevance order —
-  no reordering, no extra requests.
-* Only when AniList returns **nothing** do we escalate: retry with apostrophes
-  restored (``dont`` -> ``don't``) and with the query's distinctive words, then
-  fuzzy-rank the merged pool against what the user actually typed.
+  no reordering, no extra requests, no index build. Nothing regresses.
+* Only when AniList returns **nothing** do we escalate: retry a few normalised
+  variants (apostrophes restored, punctuation/camelCase de-glued, the query's
+  distinctive words) *and* substring/prefix/fuzzy-match the query against a
+  cached snapshot of the most popular anime. The merged pool is ranked against
+  what the user actually typed.
+
+The index is a disposable, day-cached popularity snapshot from the metadata
+source, built lazily on the first query that needs it. If it can't be built
+(offline, or the source doesn't expose ``popular``) search degrades cleanly to
+AniList's strict behaviour.
 """
 
 from __future__ import annotations
@@ -50,11 +62,28 @@ _STOPWORDS = {
 
 _MAX_FALLBACK_QUERIES = 3
 
+# How many of the most popular anime to hold in the local index. Wide enough to
+# cover essentially every streamable show, small enough to fetch in one burst
+# and match against per-keystroke without noticeable cost.
+_INDEX_SIZE = 500
+
+# Minimum match strength for an index entry to count as a hit for the query.
+# Prefix / substring / squashed-equality matches all score well above this; the
+# floor mainly admits close typo matches and rejects incidental fuzz.
+_INDEX_MATCH_THRESHOLD = 0.5
+
 
 def _norm(s: str) -> str:
     """Fold to lowercase alphanumerics + single spaces, so ``Don't`` and
     ``dont`` compare equal when ranking."""
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
+
+def _squash(s: str) -> str:
+    """Fold to lowercase alphanumerics with *no* separators, so spacing and
+    punctuation stop mattering (``One Piece`` / ``one-piece`` / ``onepiece`` all
+    become ``onepiece``)."""
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
 
 
 def _restore_contractions(query: str) -> str | None:
@@ -72,6 +101,16 @@ def _restore_contractions(query: str) -> str | None:
     return restored if changed and _norm(restored) != _norm(query) else None
 
 
+def _despace(query: str) -> str | None:
+    """Split camelCase and turn punctuation into spaces (``ReZero`` -> ``Re
+    Zero``, ``Dr.Stone`` -> ``Dr Stone``), or None if that changes nothing —
+    rescues glued spellings AniList would otherwise treat as one dead token."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", query)
+    spaced = re.sub(r"[^0-9A-Za-z]+", " ", spaced)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    return spaced if spaced and _norm(spaced) != _norm(query) else None
+
+
 def _distinctive_words(query: str, *, limit: int = 2) -> list[str]:
     """The longest non-stopword tokens — searching one of these rescues a
     multi-word query with a typo elsewhere (``atack on titan`` -> ``titan``)."""
@@ -83,14 +122,57 @@ def _distinctive_words(query: str, *, limit: int = 2) -> list[str]:
     return sorted(set(tokens), key=len, reverse=True)[:limit]
 
 
-def _score(anime: Anime, norm_query: str) -> float:
-    """Best fuzzy ratio of the query against any of the show's titles."""
+def _fallback_queries(query: str) -> list[str]:
+    """The normalised retry variants to try against AniList when the raw query
+    comes back empty — de-duplicated and capped."""
+    candidates: list[str] = []
+    restored = _restore_contractions(query)
+    if restored:
+        candidates.append(restored)
+    despaced = _despace(query)
+    if despaced:
+        candidates.append(despaced)
+    candidates.extend(_distinctive_words(query))
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for q in candidates:
+        key = q.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(q)
+    return unique[:_MAX_FALLBACK_QUERIES]
+
+
+def _rank_score(anime: Anime, norm_query: str, squash_query: str) -> float:
+    """How well the query matches any of the show's titles, on a 0–1 scale that
+    rewards (in order) an exact squashed match, a title that *starts with* the
+    query, a word that starts with the query's first word, the query appearing
+    as a substring, and otherwise raw fuzzy similarity."""
+    if not norm_query:
+        return 0.0
+    first = norm_query.split()[0]
     t = anime.title
-    candidates = [t.romaji, t.english, t.native, *t.synonyms]
-    return max(
-        (SequenceMatcher(None, norm_query, _norm(c)).ratio() for c in candidates if c),
-        default=0.0,
-    )
+    best = 0.0
+    for c in (t.romaji, t.english, t.native, *t.synonyms):
+        if not c:
+            continue
+        nt = _norm(c)
+        if not nt:
+            continue
+        st = _squash(c)
+        s = SequenceMatcher(None, norm_query, nt).ratio()
+        if squash_query and st == squash_query:
+            s = max(s, 1.0)
+        elif squash_query and st.startswith(squash_query):
+            s = max(s, 0.95)
+        elif squash_query and squash_query in st:
+            s = max(s, 0.75)
+        if any(w.startswith(first) for w in nt.split()):
+            s = max(s, 0.85)
+        if s > best:
+            best = s
+    return best
 
 
 def _merge(*groups: list[Anime]) -> list[Anime]:
@@ -109,6 +191,8 @@ def _merge(*groups: list[Anime]) -> list[Anime]:
 class SearchService:
     def __init__(self, metadata: MetadataSource) -> None:
         self._metadata = metadata
+        self._index: list[Anime] | None = None
+        self._index_lock = asyncio.Lock()
 
     async def search(self, query: str, *, limit: int = 20) -> list[SearchResult]:
         animes = await self._smart_search(query, limit=limit)
@@ -125,27 +209,50 @@ class SearchService:
     async def _smart_search(self, query: str, *, limit: int) -> list[Anime]:
         primary = await self._metadata.search(query, limit=limit)
         # Fast path: AniList found something → trust its relevance order, no
-        # extra requests, no reordering. Nothing regresses for a good query.
+        # extra requests, no index build. Nothing regresses for a good query.
         if primary or not query.strip():
             return primary
 
-        # AniList came back empty — the query needs help. Build a few targeted
-        # retries and fuzzy-rank whatever they turn up against the raw query.
-        extra_queries: list[str] = []
-        restored = _restore_contractions(query)
-        if restored:
-            extra_queries.append(restored)
-        extra_queries.extend(_distinctive_words(query))
-        extra_queries = extra_queries[:_MAX_FALLBACK_QUERIES]
-        if not extra_queries:
-            return primary
+        # AniList came back empty — the query needs help. Fire a few targeted
+        # AniList retries and match against the local popularity index, then
+        # fuzzy-rank the whole pool against what the user actually typed.
+        norm_query, squash_query = _norm(query), _squash(query)
 
-        groups = await asyncio.gather(
-            *(self._metadata.search(q, limit=limit) for q in extra_queries)
-        )
-        pool = _merge(*groups)
+        variants = _fallback_queries(query)
+        groups: list[list[Anime]] = []
+        if variants:
+            groups = list(await asyncio.gather(
+                *(self._metadata.search(v, limit=limit) for v in variants)
+            ))
+
+        index = await self._catalog()
+        index_hits = [
+            a for a in index
+            if _rank_score(a, norm_query, squash_query) >= _INDEX_MATCH_THRESHOLD
+        ]
+
+        pool = _merge(*groups, index_hits)
         if not pool:
-            return primary
-        norm_query = _norm(query)
-        pool.sort(key=lambda a: _score(a, norm_query), reverse=True)
+            return []
+        pool.sort(
+            key=lambda a: (_rank_score(a, norm_query, squash_query), a.popularity or 0),
+            reverse=True,
+        )
         return pool[:limit]
+
+    async def _catalog(self) -> list[Anime]:
+        """The local popularity index, built once (per process) on first need.
+        Best-effort: any failure yields an empty index so search still works."""
+        if self._index is not None:
+            return self._index
+        popular = getattr(self._metadata, "popular", None)
+        if popular is None:
+            self._index = []
+            return self._index
+        async with self._index_lock:
+            if self._index is None:
+                try:
+                    self._index = await popular(limit=_INDEX_SIZE)
+                except Exception:
+                    self._index = []
+        return self._index

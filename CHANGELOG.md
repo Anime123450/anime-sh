@@ -2,6 +2,30 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Fixed
+
+- **Search no longer misses obvious titles.** AniList's search is strict
+  whole-word matching, so common words (`the`, `a`), mid-word fragments (`fri`),
+  and de-spaced spellings (`onepiece`) returned *nothing* — `the` came back
+  empty even though dozens of titles contain it. Search now layers a local,
+  day-cached snapshot of the most popular anime over AniList and matches it by
+  prefix / substring / squashed-equality / fuzzy across every title field
+  (romaji, english, native, synonyms). `the` → the popular shows that contain
+  it, `fri` → *Frieren*, `onepiece` → *One Piece*, `one p` → *One Punch Man* /
+  *One Piece*.
+
+### Changed
+
+- The forgiving fallback now also de-glues punctuation and camelCase
+  (`ReZero` → `Re Zero`, `Dr.Stone` → `Dr Stone`) when retrying against AniList.
+- The fast path is untouched: a query AniList answers is still returned in its
+  own relevance order, with no extra requests and no index build — so nothing
+  regresses for a query that already worked. The index is built lazily only when
+  AniList returns nothing, memoised per run, and degrades to the old behaviour if
+  it can't be fetched.
+
 ## [0.2.1] — 2026-07-24
 
 Docs/metadata patch — republishes so the PyPI project page carries the corrected
