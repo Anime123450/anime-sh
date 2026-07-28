@@ -106,8 +106,67 @@ async def test_home_populates_trending_and_continue():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert len(app.query_one("#trending", ListView)) == 2
-        assert len(app.query_one("#continue", ListView)) == 1
+        cont = app.query_one("#continue", ListView)
+        assert len(cont) == 1
+        # Regression: a populated Continue Watching section must be visible (it
+        # used to stay hidden because the worker never re-showed it).
+        assert cont.display is True
+        assert app.query_one("#sec-continue").display is True
         assert len(app.query_one("#seasonal", ListView)) == 1
+
+
+async def test_clearing_search_restores_home_sections():
+    # Regression: emptying the search box must hide results and bring the home
+    # sections back — not leave stale matches on screen.
+    app, _ = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        search = app.query_one("#search")
+        search.focus()
+        await pilot.press(*"frieren")
+        await pilot.pause(0.5)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.query_one("#results", ListView).display is True
+        # Clear the box.
+        search.value = ""
+        await pilot.pause()
+        assert app.query_one("#results", ListView).display is False
+        assert app.query_one("#trending").display is True
+
+
+async def test_caught_up_show_is_dimmed_with_countdown():
+    from datetime import timedelta
+    from anime_sh.domain.models import Status
+
+    class AiringMeta(FakeMetadata):
+        async def get(self, anime_id):
+            # Ep 6 airs in 2 days; 5 aired.
+            return Anime(
+                id=anime_id, title=Title(romaji="Frieren"), format=Format.TV,
+                status=Status.RELEASING, next_airing_episode=6,
+                next_airing_at=datetime.now(timezone.utc) + timedelta(days=2),
+            )
+
+    class CaughtUpLibrary(FakeLibrary):
+        async def continue_watching(self, *, limit=20):
+            prog = WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400,
+                                 datetime.now(timezone.utc))
+            return [ResumeItem(anime=_anime(1, "Frieren"), progress=prog)]
+
+    playback = FakePlayback()
+    services = TuiServices(search=FakeSearch(), metadata=AiringMeta(),
+                           library=CaughtUpLibrary(), playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        cont = app.query_one("#continue", ListView)
+        assert len(cont) == 1
+        item = cont.children[0]
+        assert item._dim is True  # greyed: caught up, waiting for next episode
 
 
 async def test_favorites_section_shows_when_present_else_hidden():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timezone
 
 from textual import work
@@ -11,7 +12,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
 from ...domain.models import Season
-from ..format import home_subtitle
+from ..format import home_subtitle, waiting_subtitle
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -83,12 +84,50 @@ class HomeScreen(Screen):
             self.query_one("#sec-continue").display = False
             lv.display = False
             return
+
+        # The cached row carries no airing schedule, so enrich each show with
+        # fresh AniList metadata (already cached, best-effort) to know whether a
+        # currently-airing show has a next episode still to drop.
+        fresh = await self._fresh_airing(items)
+        rows = []
         for it in items:
-            pct = round(it.progress.fraction * 100)
-            lv.append(
-                AnimeItem(it.anime, subtitle=f"Ep {it.progress.episode:g} · {pct}%",
-                          resume_episode=it.progress.episode)
-            )
+            anime = fresh.get(it.anime.id.anilist) or it.anime
+            waiting = waiting_subtitle(anime, it.progress.episode)
+            rows.append((it, anime, waiting))
+        # Shows you can actually watch float to the top; the ones you're caught
+        # up on (waiting for the next episode) sink to the bottom, greyed.
+        rows.sort(key=lambda r: r[2] is not None)
+
+        # This worker owns the section's visibility — set it *on* here (mirrors
+        # favorites). Without this it stays hidden, because on_mount hid it
+        # before any rows existed.
+        self.query_one("#sec-continue").display = True
+        lv.display = True
+        for it, anime, waiting in rows:
+            if waiting is not None:
+                lv.append(AnimeItem(anime, subtitle=waiting,
+                                    resume_episode=it.progress.episode, dim=True))
+            else:
+                pct = round(it.progress.fraction * 100)
+                lv.append(AnimeItem(anime, subtitle=f"Ep {it.progress.episode:g} · {pct}%",
+                                    resume_episode=it.progress.episode))
+
+    async def _fresh_airing(self, items) -> dict:
+        """Map anilist id → freshly-fetched Anime (with airing schedule) for the
+        continue-watching shows. Best-effort: a source without ``get`` or any
+        fetch failure just leaves that show on its cached row."""
+        get = getattr(self.app.services.metadata, "get", None)
+        if get is None:
+            return {}
+
+        async def one(anime):
+            try:
+                return await get(anime.id)
+            except Exception:
+                return None
+
+        results = await asyncio.gather(*(one(it.anime) for it in items))
+        return {a.id.anilist: a for a in results if a is not None}
 
     @work(exclusive=True, group="favorites")
     async def _load_favorites(self) -> None:
@@ -143,6 +182,10 @@ class HomeScreen(Screen):
             self._debounce.stop()
         query = event.value.strip()
         if not query:
+            # Cancel any search already in flight too — otherwise a request for
+            # a half-typed query lands *after* the box is cleared and slams stale
+            # results back over the home screen.
+            self.workers.cancel_group(self, "search")
             self._toggle_results(False)
             return
         self._debounce = self.set_timer(0.3, lambda: self._run_search(query))
@@ -153,6 +196,11 @@ class HomeScreen(Screen):
             results = await self.app.services.search.search(query, limit=25)
         except Exception as e:
             self.notify(f"Search failed: {e}", severity="error")
+            return
+        # The box may have been cleared or edited while this request was in
+        # flight; if it no longer matches, drop the result rather than flashing
+        # stale matches over whatever the user is looking at now.
+        if self.query_one("#search", Input).value.strip() != query:
             return
         lv = self.query_one("#results", ListView)
         await lv.clear()

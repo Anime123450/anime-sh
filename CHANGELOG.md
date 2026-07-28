@@ -2,6 +2,27 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.3] — 2026-07-28
+
+### Fixed
+
+- **Clearing the search box no longer flashes stale results.** Emptying the
+  field (backspace / select-all-delete) now cancels any search still in flight
+  and drops late-arriving results for a query you've already cleared, instead of
+  slamming random matches back onto the home screen.
+- **Continue Watching now shows reliably.** The section was populated by a
+  background worker that never re-showed it after the home screen hid it on
+  load, so it often stayed invisible even when you had shows in progress. It now
+  appears whenever you have something to continue.
+
+### Added
+
+- **"Caught up" state in Continue Watching.** For a show that's still airing,
+  once you've watched the latest aired episode the row greys out and shows a live
+  countdown to the next one (`caught up · Ep 6 in 2d 3h`). Shows you can actually
+  watch stay bright and sort to the top; the ones you're waiting on sink to the
+  bottom.
+
 ## [0.2.2] — 2026-07-28
 
 ### Fixed

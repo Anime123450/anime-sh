@@ -12,6 +12,7 @@ from anime_sh.tui.format import (
     meta_line,
     next_episode_line,
     score_badge,
+    waiting_subtitle,
 )
 
 _NOW = datetime(2026, 7, 18, tzinfo=timezone.utc)
@@ -74,6 +75,25 @@ def test_home_subtitle_airing_without_schedule_falls_back():
     # RELEASING but AniList has no nextAiringEpisode (between cours) → no bogus count.
     a = _anime(format=Format.TV, status=Status.RELEASING, episode_count=24, year=2026)
     assert home_subtitle(a, _NOW) == "TV · 24 eps · 2026"
+
+
+def test_waiting_subtitle_caught_up_shows_countdown():
+    # Airing show, next is ep 6 (5 aired), you've watched ep 5 → caught up.
+    a = _anime(status=Status.RELEASING, next_airing_episode=6,
+               next_airing_at=_NOW + timedelta(days=2, hours=3))
+    assert waiting_subtitle(a, 5.0, _NOW) == "caught up · Ep 6 in 2d 3h"
+
+
+def test_waiting_subtitle_none_when_episodes_left_to_watch():
+    # Same show, but you've only watched ep 3 of the 5 aired → still actionable.
+    a = _anime(status=Status.RELEASING, next_airing_episode=6,
+               next_airing_at=_NOW + timedelta(days=2))
+    assert waiting_subtitle(a, 3.0, _NOW) is None
+
+
+def test_waiting_subtitle_none_for_finished_show():
+    a = _anime(status=Status.FINISHED, episode_count=12)
+    assert waiting_subtitle(a, 12.0, _NOW) is None
 
 
 # -- cover art (Pillow-backed, graceful) ------------------------------------- #

@@ -21,9 +21,17 @@ def _lit(text: str) -> str:
 class AnimeItem(ListItem):
     """A ListItem that remembers which Anime (and optional resume episode) it is."""
 
-    def __init__(self, anime: Anime, *, subtitle: str = "", resume_episode: float | None = None) -> None:
+    def __init__(
+        self,
+        anime: Anime,
+        *,
+        subtitle: str = "",
+        resume_episode: float | None = None,
+        dim: bool = False,
+    ) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
+        self._dim = dim
         self._label = Label(self._compose_label(subtitle))
         super().__init__(self._label)
 
@@ -31,6 +39,10 @@ class AnimeItem(ListItem):
         label = _lit(self.anime.title.preferred)
         if subtitle:
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
+        # A whole-row dim marks a show you're caught up on (waiting for the next
+        # episode) — greyed out so the titles you *can* watch stand out.
+        if self._dim:
+            label = f"[dim]{label}[/dim]"
         return label
 
     def set_subtitle(self, subtitle: str) -> None:
