@@ -58,13 +58,18 @@ class EpisodeItem(ListItem):
     percentage watched."""
 
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
-                 available: bool = True, progress_pct: int | None = None) -> None:
+                 available: bool = True, progress_pct: int | None = None,
+                 air_label: str | None = None) -> None:
         self.number = number
         self.available = available
         self.watched = watched
         self.progress_pct = progress_pct
         if not available:
-            super().__init__(Label(f"[dim]Episode {number:g}  · not available yet[/dim]"))
+            # Show a countdown when we know when it airs ("airs in 4d 3h"), so an
+            # unreleased episode tells you how long to wait instead of a flat
+            # "not available yet".
+            tail = air_label or "not available yet"
+            super().__init__(Label(f"[dim]Episode {number:g}  · {tail}[/dim]"))
             return
         if watched:
             label = f"[green]✓[/green] [dim]Episode {number:g}[/dim]"
