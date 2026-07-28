@@ -28,26 +28,13 @@ async def fetch_cover(url: str) -> bytes | None:
     return None
 
 
-# Quadrant blocks indexed by a 4-bit mask (bit0 top-left, bit1 top-right,
-# bit2 bottom-left, bit3 bottom-right) — each cell packs a 2×2 pixel grid, so a
-# cover renders at double the resolution of plain ▀ half-blocks.
-_QUADRANTS = " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█"
-
-
-def _avg(pixels: list[tuple[int, int, int]]) -> tuple[int, int, int]:
-    n = len(pixels)
-    return (
-        sum(p[0] for p in pixels) // n,
-        sum(p[1] for p in pixels) // n,
-        sum(p[2] for p in pixels) // n,
-    )
-
-
-def render_cover(data: bytes, cols: int = 24) -> Text | None:
-    """Render image bytes to a quadrant-block :class:`rich.text.Text`, ``cols``
-    wide, aspect-preserved. Each cell is a 2×2 pixel block split into a
-    foreground/background pair by luminance — roughly double the sharpness of a
-    half-block render. None if unrenderable (missing Pillow / bad image)."""
+def render_cover(data: bytes, cols: int = 40) -> Text | None:
+    """Render image bytes as truecolor half-blocks, ``cols`` wide,
+    aspect-preserved. Each character cell is ``▀`` covering two vertically
+    stacked pixels — the top pixel's colour as foreground, the bottom's as
+    background — so **every pixel keeps its own full 24-bit colour** (no
+    per-cell averaging, which is what muddied the old quadrant render). None if
+    unrenderable (missing Pillow / bad image)."""
     try:
         import io
 
@@ -62,32 +49,20 @@ def render_cover(data: bytes, cols: int = 24) -> Text | None:
     w, h = img.size
     if w == 0 or h == 0:
         return None
-    # Terminal cells are ~twice as tall as wide; each cell is 2×2 px. Choosing
-    # rows = aspect * cols / 2 keeps the poster's proportions on screen.
+    # Each cell is 1px wide and 2px tall; terminal cells are ~twice as tall as
+    # wide, so rows = aspect * cols / 2 keeps the poster's proportions on screen.
     rows = max(1, round((h / w) * cols / 2))
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", None)
-    img = img.resize((cols * 2, rows * 2), resample) if resample else img.resize((cols * 2, rows * 2))
+    size = (cols, rows * 2)
+    img = img.resize(size, resample) if resample else img.resize(size)
     px = img.load()
 
     text = Text()
     for cy in range(rows):
         for cx in range(cols):
-            quad = [
-                px[cx * 2, cy * 2], px[cx * 2 + 1, cy * 2],
-                px[cx * 2, cy * 2 + 1], px[cx * 2 + 1, cy * 2 + 1],
-            ]
-            lums = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b in quad]
-            thresh = sum(lums) / 4
-            mask, fg, bg = 0, [], []
-            for i, (p, l) in enumerate(zip(quad, lums)):
-                if l >= thresh:
-                    mask |= 1 << i
-                    fg.append(p)
-                else:
-                    bg.append(p)
-            fr, fgc, fb = _avg(fg or quad)
-            br, bgc, bb = _avg(bg or fg or quad)
-            text.append(_QUADRANTS[mask], style=f"rgb({fr},{fgc},{fb}) on rgb({br},{bgc},{bb})")
+            tr, tg, tb = px[cx, cy * 2]
+            br, bg, bb = px[cx, cy * 2 + 1]
+            text.append("▀", style=f"rgb({tr},{tg},{tb}) on rgb({br},{bg},{bb})")
         if cy + 1 < rows:
             text.append("\n")
     return text

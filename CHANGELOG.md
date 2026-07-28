@@ -2,6 +2,30 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.5] — 2026-07-28
+
+### Fixed
+
+- **The detail screen refreshes after you watch.** Finishing an episode now
+  updates its ✓ in place — no more leaving and re-opening the show to see what
+  you've watched.
+- **Every show renders full detail.** A show opened from Continue Watching or
+  favorites used to show a sparse card (often no description, no airing info, no
+  studio/score) because it rendered a cached row. The detail screen now
+  re-fetches the show fresh on open, so the synopsis, schedule, studio and score
+  are always there.
+
+### Changed
+
+- **Sharper cover art.** Covers now render as truecolor half-blocks — every
+  pixel keeps its own colour instead of being averaged into muddy 2-colour
+  blocks — at higher resolution. Much more legible posters.
+- **Unreleased episodes show a countdown.** Instead of a flat "not available
+  yet", an episode that hasn't aired shows when it will (`airs in 4d 3h`),
+  projected weekly from the known schedule.
+- Detail header polish: the alternate (romaji) title, cleaner genre line, and a
+  longer synopsis.
+
 ## [0.2.4] — 2026-07-28
 
 ### Fixed

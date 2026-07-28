@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..domain.models import Anime, WatchProgress
 
@@ -28,6 +28,21 @@ def next_episode_line(anime: Anime, now: datetime | None = None) -> str | None:
     if anime.next_airing_episode and anime.next_airing_at:
         return f"Ep {anime.next_airing_episode} {countdown(anime.next_airing_at, now)}"
     return None
+
+
+def episode_air_label(
+    anime: Anime, episode: float, now: datetime | None = None
+) -> str | None:
+    """"airs in 4d 3h" for an episode that hasn't come out yet, projected from
+    the known next-airing episode at a weekly cadence. None when we can't tell —
+    no schedule, or the episode has already aired."""
+    if not (anime.next_airing_episode and anime.next_airing_at):
+        return None
+    if episode < anime.next_airing_episode:
+        return None  # already aired
+    weeks = int(episode) - anime.next_airing_episode
+    airs_at = anime.next_airing_at + timedelta(days=7 * weeks)
+    return f"airs {countdown(airs_at, now)}"
 
 
 def waiting_subtitle(
