@@ -308,6 +308,42 @@ async def test_episode_marks_and_next_up_cursor():
         assert episodes.index == 1  # next up = the in-progress episode
 
 
+async def test_detail_refreshes_marks_after_playing():
+    # The reported bug: watched ✓ marks didn't update until the screen was
+    # re-opened. Playing an episode now refreshes the list in place.
+    library = FakeLibrary()
+
+    class MarkingPlayback(FakePlayback):
+        async def play_and_track(self, anime, number, *, audio=None, source=None):
+            self.played.append((anime.id.anilist, number))
+            library.progress.append(
+                WatchProgress(anime.id, number, 1400, 1400,
+                              datetime.now(timezone.utc), completed=True))
+
+    playback = MarkingPlayback()
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=3))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        episodes = detail.query_one("#episodes", ListView)
+        assert [it.watched for it in episodes.children] == [False, False, False]
+        episodes.focus()
+        episodes.index = 0
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert playback.played == [(1, 1.0)]
+        # Episode 1's ✓ appears without re-opening the screen.
+        assert detail.query_one("#episodes", ListView).children[0].watched is True
+
+
 async def test_unavailable_episodes_stay_listed_but_inert():
     # Planned 3 eps, only 1-2 available: the full season stays visible, the
     # missing one is marked unavailable and selecting it does NOT play.
