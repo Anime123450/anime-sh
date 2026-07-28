@@ -7,6 +7,7 @@ the catalog works even when every streaming provider is down. Every returned
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import re
@@ -40,6 +41,7 @@ _TTL_TRENDING = timedelta(hours=1)
 _TTL_SEASONAL = timedelta(hours=6)
 _TTL_SCHEDULE = timedelta(minutes=30)
 _TTL_SEQUEL = timedelta(hours=24)
+_TTL_POPULAR = timedelta(hours=24)
 
 _MEDIA_FIELDS = """
 id idMal
@@ -100,6 +102,15 @@ _TRENDING_Q = f"""
 query ($perPage: Int) {{
   Page(perPage: $perPage) {{
     media(type: ANIME, sort: TRENDING_DESC) {{ {_MEDIA_FIELDS} }}
+  }}
+}}
+"""
+
+_POPULAR_Q = f"""
+query ($page: Int, $perPage: Int) {{
+  Page(page: $page, perPage: $perPage) {{
+    pageInfo {{ hasNextPage }}
+    media(type: ANIME, sort: POPULARITY_DESC) {{ {_MEDIA_FIELDS} }}
   }}
 }}
 """
@@ -355,6 +366,33 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(f"trending:{limit}", _TTL_TRENDING, produce)
+        return [_to_anime(m) for m in media]
+
+    async def popular(self, *, limit: int = 500) -> list[Anime]:
+        """A broad, popularity-ranked catalog snapshot, most-popular first.
+
+        SearchService turns this into a local index so search-as-you-type can do
+        the substring / prefix / fuzzy matching AniList's strict word search
+        can't (``fri`` -> *Frieren*, ``onepiece`` -> *One Piece*, ``the`` -> the
+        popular shows whose title contains it). Disposable and day-cached; the
+        pages are fetched in parallel so the one-time cold build is a single
+        round-trip's worth of latency."""
+        per = 50
+        pages = max(1, -(-limit // per))  # ceil(limit / per)
+
+        async def produce():
+            results = await asyncio.gather(
+                *(
+                    self._query(_POPULAR_Q, {"page": p, "perPage": per})
+                    for p in range(1, pages + 1)
+                )
+            )
+            media: list[dict] = []
+            for data in results:
+                media.extend(data["Page"]["media"])
+            return media[:limit]
+
+        media = await self._cached(f"popular:{limit}", _TTL_POPULAR, produce)
         return [_to_anime(m) for m in media]
 
     async def seasonal(self, season: Season, year: int) -> list[Anime]:
