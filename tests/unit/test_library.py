@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from anime_sh.app.library import LibraryService
-from anime_sh.domain.models import Anime, AnimeId, Format, Title, WatchProgress
+from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title, WatchProgress
 from anime_sh.infra.db.database import Database
 from anime_sh.infra.db.library import SqliteLibrary
 
@@ -60,8 +60,10 @@ async def test_mark_watched_catches_up_to_episode(library):
     assert [(p.episode, p.completed) for p in rows] == [(1.0, True), (2.0, True), (3.0, True)]
     # Metadata cached so it renders offline.
     assert (await library.get_anime(AnimeId(anilist=1))) is not None
-    # Completed episodes don't show up in continue-watching.
-    assert await library.continue_watching() == []
+    # Catching up on an unfinished show keeps it in Continue Watching (you're
+    # between episodes / waiting for the next), at the furthest episode marked.
+    cont = await library.continue_watching()
+    assert len(cont) == 1 and cont[0].progress.episode == 3.0
 
 
 async def test_stats_aggregates_history_and_progress(library):
@@ -119,10 +121,45 @@ async def test_continue_watching_joins_cached_title(library):
     assert 0 < items[0].progress.fraction < 1
 
 
-async def test_continue_watching_excludes_completed(library):
-    await library.save_anime(_anime())
+async def test_continue_watching_keeps_completed_when_more_remain(library):
+    # Finishing the latest episode of a show that isn't over must NOT drop it —
+    # you're between episodes (caught up / next up), still "continuing" it.
+    await library.save_anime(_anime())  # 28 eps, not marked finished
     await library.save_progress(_progress(154587, 1.0, 1390, completed=True))
+    items = await library.continue_watching()
+    assert len(items) == 1
+    assert items[0].progress.episode == 1.0 and items[0].progress.completed is True
+
+
+async def test_continue_watching_excludes_finished_and_fully_watched(library):
+    # A series that has finished airing and you've watched to its last episode
+    # is done — it drops off Continue Watching.
+    done = Anime(id=AnimeId(anilist=7), title=Title(romaji="Done"),
+                 format=Format.TV, status=Status.FINISHED, episode_count=3)
+    await library.save_anime(done)
+    await library.save_progress(_progress(7, 3.0, 1400, completed=True))
     assert await library.continue_watching() == []
+
+
+async def test_continue_watching_keeps_partially_watched_finished_show(library):
+    # Finished airing but you stopped at ep 5 of 12 — still continuable.
+    half = Anime(id=AnimeId(anilist=8), title=Title(romaji="Half"),
+                 format=Format.TV, status=Status.FINISHED, episode_count=12)
+    await library.save_anime(half)
+    await library.save_progress(_progress(8, 5.0, 1400, completed=True))
+    items = await library.continue_watching()
+    assert len(items) == 1 and items[0].progress.episode == 5.0
+
+
+async def test_continue_watching_uses_furthest_episode(library):
+    # Watched ep 1-2 fully then started ep 3: the card reflects the furthest
+    # episode reached (3), not an earlier one.
+    await library.save_anime(_anime())
+    await library.save_progress(_progress(154587, 1.0, 1400, completed=True))
+    await library.save_progress(_progress(154587, 2.0, 1400, completed=True))
+    await library.save_progress(_progress(154587, 3.0, 300))
+    items = await library.continue_watching()
+    assert len(items) == 1 and items[0].progress.episode == 3.0
 
 
 async def test_continue_watching_excludes_zero_position_imports(library):

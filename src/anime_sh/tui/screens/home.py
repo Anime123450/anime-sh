@@ -12,7 +12,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
 from ...domain.models import Season
-from ..format import home_subtitle, waiting_subtitle
+from ..format import continue_row, home_subtitle
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -77,40 +77,39 @@ class HomeScreen(Screen):
     # -- home data ---------------------------------------------------------- #
     @work(exclusive=True, group="continue")
     async def _load_continue(self) -> None:
-        items = await self.app.services.library.continue_watching(limit=10)
+        items = await self.app.services.library.continue_watching(limit=20)
         lv = self.query_one("#continue", ListView)
         await lv.clear()
-        if not items:
+
+        # The cached row carries no airing schedule, so enrich each show with
+        # fresh AniList metadata (already cached, best-effort) — that's how a
+        # caught-up airing show gets its countdown and a finished-and-watched
+        # show gets dropped.
+        fresh = await self._fresh_airing(items) if items else {}
+        rows = []
+        for it in items:
+            anime = fresh.get(it.anime.id.anilist) or it.anime
+            built = continue_row(anime, it.progress)
+            if built is None:
+                continue  # finished and fully watched — nothing to continue
+            subtitle, dim, resume = built
+            rows.append((anime, subtitle, dim, resume))
+
+        if not rows:
             self.query_one("#sec-continue").display = False
             lv.display = False
             return
 
-        # The cached row carries no airing schedule, so enrich each show with
-        # fresh AniList metadata (already cached, best-effort) to know whether a
-        # currently-airing show has a next episode still to drop.
-        fresh = await self._fresh_airing(items)
-        rows = []
-        for it in items:
-            anime = fresh.get(it.anime.id.anilist) or it.anime
-            waiting = waiting_subtitle(anime, it.progress.episode)
-            rows.append((it, anime, waiting))
         # Shows you can actually watch float to the top; the ones you're caught
         # up on (waiting for the next episode) sink to the bottom, greyed.
-        rows.sort(key=lambda r: r[2] is not None)
-
+        rows.sort(key=lambda r: r[2])
         # This worker owns the section's visibility — set it *on* here (mirrors
         # favorites). Without this it stays hidden, because on_mount hid it
         # before any rows existed.
         self.query_one("#sec-continue").display = True
         lv.display = True
-        for it, anime, waiting in rows:
-            if waiting is not None:
-                lv.append(AnimeItem(anime, subtitle=waiting,
-                                    resume_episode=it.progress.episode, dim=True))
-            else:
-                pct = round(it.progress.fraction * 100)
-                lv.append(AnimeItem(anime, subtitle=f"Ep {it.progress.episode:g} · {pct}%",
-                                    resume_episode=it.progress.episode))
+        for anime, subtitle, dim, resume in rows:
+            lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume, dim=dim))
 
     async def _fresh_airing(self, items) -> dict:
         """Map anilist id → freshly-fetched Anime (with airing schedule) for the

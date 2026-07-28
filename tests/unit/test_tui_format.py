@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title
 from anime_sh.tui.coverart import render_cover
+from anime_sh.domain.models import WatchProgress
 from anime_sh.tui.format import (
+    continue_row,
     countdown,
     home_subtitle,
     meta_line,
@@ -94,6 +96,36 @@ def test_waiting_subtitle_none_when_episodes_left_to_watch():
 def test_waiting_subtitle_none_for_finished_show():
     a = _anime(status=Status.FINISHED, episode_count=12)
     assert waiting_subtitle(a, 12.0, _NOW) is None
+
+
+def _prog(episode, pos, dur=1400, completed=False):
+    return WatchProgress(anime_id=AnimeId(anilist=1), episode=episode,
+                         position_s=pos, duration_s=dur,
+                         updated_at=_NOW, completed=completed)
+
+
+def test_continue_row_resume_in_progress_episode():
+    a = _anime(status=Status.RELEASING, episode_count=12)
+    assert continue_row(a, _prog(4.0, 700), _NOW) == ("Ep 4 · 50%", False, 4.0)
+
+
+def test_continue_row_up_next_when_more_available():
+    # Finished ep 3 of a 12-ep finished show → next one's already out.
+    a = _anime(status=Status.FINISHED, episode_count=12)
+    assert continue_row(a, _prog(3.0, 1400, completed=True), _NOW) == (
+        "up next · Ep 4", False, 4.0)
+
+
+def test_continue_row_caught_up_airing_is_dimmed_with_countdown():
+    a = _anime(status=Status.RELEASING, next_airing_episode=6,
+               next_airing_at=_NOW + timedelta(days=2, hours=3))
+    sub, dim, resume = continue_row(a, _prog(5.0, 1400, completed=True), _NOW)
+    assert sub == "caught up · Ep 6 in 2d 3h" and dim is True and resume == 6.0
+
+
+def test_continue_row_dropped_when_finished_and_fully_watched():
+    a = _anime(status=Status.FINISHED, episode_count=12)
+    assert continue_row(a, _prog(12.0, 1400, completed=True), _NOW) is None
 
 
 # -- cover art (Pillow-backed, graceful) ------------------------------------- #

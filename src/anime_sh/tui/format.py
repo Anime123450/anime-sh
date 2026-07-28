@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from ..domain.models import Anime
+from ..domain.models import Anime, WatchProgress
 
 
 def countdown(target: datetime, now: datetime | None = None) -> str:
@@ -49,6 +49,35 @@ def waiting_subtitle(
         f"caught up · Ep {anime.next_airing_episode} "
         f"{countdown(anime.next_airing_at, now)}"
     )
+
+
+def continue_row(
+    anime: Anime, progress: WatchProgress, now: datetime | None = None
+) -> tuple[str, bool, float] | None:
+    """Render one Continue-Watching entry as ``(subtitle, dim, resume_episode)``,
+    or None to drop it because the show is finished and fully watched.
+
+    The four states, in order of check:
+
+    * **Resume** — you're partway through the furthest episode: show the percent
+      and resume that episode.
+    * **Done** — the series has finished airing and you've watched the last
+      episode: drop it (nothing left to continue).
+    * **Caught up** — a still-airing show whose latest aired episode you've
+      finished: greyed, with a live countdown to the next episode.
+    * **Up next** — you finished an episode and another is already available:
+      point at the next one."""
+    ep = progress.episode
+    if not progress.completed and progress.position_s > 0 and progress.duration_s > 0:
+        pct = round(progress.fraction * 100)
+        return (f"Ep {ep:g} · {pct}%", False, ep)
+    nxt = ep + 1
+    if not anime.is_airing and anime.episode_count and ep >= anime.episode_count:
+        return None
+    waiting = waiting_subtitle(anime, ep, now)
+    if waiting is not None:
+        return (waiting, True, nxt)
+    return (f"up next · Ep {nxt:g}", False, nxt)
 
 
 def score_badge(score: int | None) -> str | None:
