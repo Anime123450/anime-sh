@@ -23,7 +23,7 @@ from ..coverart import fetch_cover, render_cover
 from ..format import episode_air_label, meta_line, next_episode_line
 from ..widgets import EpisodeItem
 
-_COVER_COLS = 40
+_COVER_COLS = 48
 
 
 class DetailScreen(Screen):
@@ -34,7 +34,7 @@ class DetailScreen(Screen):
 
     DEFAULT_CSS = """
     DetailScreen #detail-top { height: auto; }
-    DetailScreen #detail-cover { width: 42; height: auto; padding: 0 2 0 0; }
+    DetailScreen #detail-cover { width: 50; height: auto; padding: 0 2 0 0; }
     DetailScreen #detail-meta { width: 1fr; height: auto; }
     """
 
