@@ -148,21 +148,41 @@ def _png(w, h, color=(200, 40, 40)) -> bytes:
     return buf.getvalue()
 
 
-def test_render_cover_produces_halfblock_grid():
+def test_render_cover_produces_block_grid():
+    from anime_sh.tui.coverart import _QUADRANTS
+
     art = render_cover(_png(60, 90), cols=10)
     assert art is not None
     rows = art.plain.split("\n")
     assert all(len(r) == 10 for r in rows)          # every row is `cols` wide
-    assert set(art.plain) <= {"▀", "\n"}            # truecolor half-blocks only
+    assert all(ch in _QUADRANTS for ch in art.plain if ch != "\n")
     assert art.spans, "expected per-cell color styles"
 
 
 def test_render_cover_preserves_color():
-    # A solid red poster renders red cells — colour is carried through per pixel,
-    # not crushed to grayscale or muddied by averaging.
+    # A solid poster renders that colour (a smooth block picks a single-colour
+    # split, not a muddied two-colour one).
     art = render_cover(_png(30, 45, color=(200, 40, 40)), cols=8)
     assert art is not None
     assert "200,40,40" in str(art.spans[0].style)
+
+
+def test_render_cover_snaps_edges_to_two_colors():
+    # A red-over-blue split: a cell on the boundary is coloured with two
+    # distinct colours (proof the split follows the edge, not a fixed threshold).
+    from PIL import Image
+    import io
+
+    img = Image.new("RGB", (20, 40))
+    for y in range(40):
+        for x in range(20):
+            img.putpixel((x, y), (220, 20, 20) if y < 20 else (20, 20, 220))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    art = render_cover(buf.getvalue(), cols=8)
+    styles = [str(s.style) for s in art.spans]
+    assert any(" on " in st and st.split(" on ")[0] != st.split(" on ")[1]
+               for st in styles)
 
 
 def test_render_cover_returns_none_on_garbage():
