@@ -30,6 +30,27 @@ def next_episode_line(anime: Anime, now: datetime | None = None) -> str | None:
     return None
 
 
+def waiting_subtitle(
+    anime: Anime, watched_episode: float, now: datetime | None = None
+) -> str | None:
+    """Continue-watching row subtitle for a show you're *caught up on*.
+
+    When the show is still airing and you've watched up to the latest aired
+    episode (nothing new to watch yet), return the countdown to the next one —
+    ``"caught up · Ep 6 in 2d 3h"``. Returns None when there's still an aired
+    episode left to watch, so the caller keeps the normal "Ep x · y%" row and
+    leaves it bright/actionable."""
+    if not (anime.is_airing and anime.next_airing_episode and anime.next_airing_at):
+        return None
+    aired = anime.next_airing_episode - 1  # episodes already released
+    if watched_episode < aired:
+        return None  # you still have released episodes to catch up on
+    return (
+        f"caught up · Ep {anime.next_airing_episode} "
+        f"{countdown(anime.next_airing_at, now)}"
+    )
+
+
 def score_badge(score: int | None) -> str | None:
     """A colored ★ badge from a 0-100 AniList score (green ≥75, yellow ≥60)."""
     if not score:
