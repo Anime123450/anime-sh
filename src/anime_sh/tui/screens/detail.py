@@ -203,6 +203,23 @@ class DetailScreen(Screen):
         }
         self._refresh_progress()
 
+    def refresh_marks(self) -> None:
+        """Re-read watch progress and repaint. Driven by playback events so an
+        episode finishing mid auto-next updates its ✓ live, not only when the
+        whole auto-next run ends. (These repaints only happen during playback,
+        when you're watching mpv — normal browsing stays flicker-free.)"""
+        self._refresh_marks_worker()
+
+    @work(exclusive=True, group="marks")
+    async def _refresh_marks_worker(self) -> None:
+        await self._load_marks()
+        if self._numbers:
+            await self._render_episodes(self._numbers, available=self._available)
+        try:
+            self.app.refresh(repaint=True)
+        except Exception:
+            pass
+
     def _refresh_progress(self) -> None:
         """Update the overall watch-progress bar under the header."""
         try:

@@ -2,6 +2,15 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.17] — 2026-07-29
+
+### Fixed
+
+- **Watched ✓ marks now update live during auto-next.** Finishing an episode
+  while the next one auto-plays kept the list frozen until the whole run ended
+  (you had to leave and re-open the screen). The detail screen now refreshes its
+  marks on each playback event, so a completed episode ticks over immediately.
+
 ## [0.2.16] — 2026-07-29
 
 ### Fixed

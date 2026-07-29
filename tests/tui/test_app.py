@@ -374,6 +374,38 @@ async def test_detail_refreshes_marks_after_playing():
         assert detail.query_one("#episodes", ListView).children[0].watched is True
 
 
+async def test_marks_refresh_live_on_playback_event():
+    # An episode finishing mid auto-next fires a playback status event. The
+    # detail screen must update its ✓ marks live off that event, not only when
+    # the whole auto-next run ends (the reported "have to esc and re-enter" bug).
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    library.progress = [
+        WatchProgress(AnimeId(anilist=1), 1.0, 1400, 1400, now, completed=True),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=3))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        items = detail.query_one("#episodes", ListView).children
+        assert [it.watched for it in items] == [True, False, False]
+        # Episode 2 completes during auto-next → a playback event fires.
+        library.progress.append(
+            WatchProgress(AnimeId(anilist=1), 2.0, 1400, 1400, now, completed=True))
+        app._on_playback_event("Next episode: 3/3")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        items = detail.query_one("#episodes", ListView).children
+        assert [it.watched for it in items] == [True, True, False]  # ep 2 now ✓, live
+
+
 async def test_unavailable_episodes_stay_listed_but_inert():
     # Planned 3 eps, only 1-2 available: the full season stays visible, the
     # missing one is marked unavailable and selecting it does NOT play.
