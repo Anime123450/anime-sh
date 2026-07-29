@@ -2,6 +2,15 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.12] — 2026-07-29
+
+### Fixed
+
+- **Cover art no longer smears when you resize/maximize the window.** A Sixel
+  bitmap doesn't reflow on its own, so resizing left stale pixels and a broken
+  layout; the detail screen now re-mounts the cover and repaints on resize.
+- **Narrower overall-progress bar** on the detail screen — it was too wide.
+
 ## [0.2.11] — 2026-07-29
 
 ### Added

@@ -88,6 +88,13 @@ class DetailScreen(Screen):
         data = await fetch_cover(url)
         if not data:
             return
+        self._cover_data = data
+        await self._mount_cover()
+
+    async def _mount_cover(self) -> None:
+        data = getattr(self, "_cover_data", None)
+        if not data:
+            return
         try:
             container = self.query_one("#detail-cover", Container)
         except Exception:
@@ -110,6 +117,22 @@ class DetailScreen(Screen):
                 await container.mount(Static(art))
             except Exception:
                 pass
+
+    def on_resize(self, event) -> None:
+        # A Sixel image doesn't reflow when the terminal is resized (e.g.
+        # maximised) — the old pixels linger and the layout smears. Re-mount the
+        # cover so it redraws cleanly at the new size, and force a full repaint
+        # to clear any stale graphics.
+        if getattr(self, "_cover_data", None):
+            self._remount_cover()
+
+    @work(exclusive=True, group="cover")
+    async def _remount_cover(self) -> None:
+        await self._mount_cover()
+        try:
+            self.app.refresh(repaint=True)
+        except Exception:
+            pass
 
     @work(exclusive=True, group="episodes")
     async def _populate_episodes(self) -> None:
