@@ -2,7 +2,7 @@
 
 ani-cli scrapes the ``player.src({... src: "…"})`` line from the embed HTML.
 mp4upload serves the file directly, so the resolved stream is a plain MP4 that
-mpv opens with the AllAnime referer.
+mpv opens with the mp4upload referer.
 """
 
 from __future__ import annotations

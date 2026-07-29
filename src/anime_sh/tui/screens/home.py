@@ -55,6 +55,9 @@ class HomeScreen(Screen):
         self._load_favorites()
         self._load_seasonal()
         self._load_trending()
+        # If AniList is linked, pull remote progress so Continue Watching
+        # reflects what you watched on another device (phone, web).
+        self._auto_sync()
         # Tick the airing countdowns in place every minute (no network).
         self.set_interval(60, self._tick_countdowns)
         # Focus a browse list, not the search box (the placeholder says "press /
@@ -73,6 +76,27 @@ class HomeScreen(Screen):
             for item in lv.children:
                 if isinstance(item, AnimeItem) and item.anime.is_airing:
                     item.set_subtitle(home_subtitle(item.anime))
+
+    # -- AniList sync ------------------------------------------------------- #
+    @work(exclusive=True, group="autosync")
+    async def _auto_sync(self) -> None:
+        """Pull the linked AniList list on launch so Continue Watching reflects
+        progress made on other devices. Best-effort: no linked account, or any
+        failure, leaves the local rows exactly as they were — never an error."""
+        services = self.app.services
+        sync = getattr(services, "sync", None)
+        if sync is None or getattr(services, "tracker", None) is None:
+            return
+        try:
+            result = await sync.pull()
+        except Exception:
+            return
+        if result.pulled:
+            self.notify(f"Synced {result.pulled} from AniList", timeout=3)
+            # Remote progress may have advanced a show or added a new one — rebuild
+            # the rows that read from the library.
+            self._load_continue()
+            self._load_favorites()
 
     # -- home data ---------------------------------------------------------- #
     @work(exclusive=True, group="continue")
