@@ -149,13 +149,13 @@ def _png(w, h, color=(200, 40, 40)) -> bytes:
 
 
 def test_render_cover_produces_block_grid():
-    from anime_sh.tui.coverart import _QUADRANTS
+    from anime_sh.tui.coverart import _SEXTANTS
 
     art = render_cover(_png(60, 90), cols=10)
     assert art is not None
     rows = art.plain.split("\n")
     assert all(len(r) == 10 for r in rows)          # every row is `cols` wide
-    assert all(ch in _QUADRANTS for ch in art.plain if ch != "\n")
+    assert all(ch in _SEXTANTS for ch in art.plain if ch != "\n")
     assert art.spans, "expected per-cell color styles"
 
 
@@ -183,6 +183,18 @@ def test_render_cover_snaps_edges_to_two_colors():
     styles = [str(s.style) for s in art.spans]
     assert any(" on " in st and st.split(" on ")[0] != st.split(" on ")[1]
                for st in styles)
+
+
+def test_sextant_table_maps_known_patterns():
+    from anime_sh.tui.coverart import _SEXTANTS
+
+    assert len(_SEXTANTS) == 64
+    assert _SEXTANTS[0] == " "          # empty
+    assert _SEXTANTS[63] == "█"         # full block
+    assert _SEXTANTS[21] == "▌"         # left column → left half block
+    assert _SEXTANTS[42] == "▐"         # right column → right half block
+    assert _SEXTANTS[1] == "\U0001fb00"  # top-left only → first BLOCK SEXTANT
+    assert len(set(_SEXTANTS)) == 64     # every pattern is a distinct glyph
 
 
 def test_render_cover_returns_none_on_garbage():
