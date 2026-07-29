@@ -121,20 +121,19 @@ class DetailScreen(Screen):
                 pass
 
     def on_resize(self, event) -> None:
-        # A Sixel image doesn't reflow when the terminal is resized (e.g.
-        # maximised) — the old pixels linger and the layout smears. Re-mount the
-        # cover so it redraws cleanly at the new size, and force a full repaint
-        # to clear any stale graphics.
+        # A Sixel image doesn't reflow when the terminal is resized, so re-mount
+        # it — but ONLY on an actual size change. Re-mounting on every stray
+        # resize event (and forcing a full repaint) is what made the cover blink.
+        size = (event.size.width, event.size.height)
+        if size == getattr(self, "_cover_size", None):
+            return
+        self._cover_size = size
         if getattr(self, "_cover_data", None):
             self._remount_cover()
 
     @work(exclusive=True, group="cover")
     async def _remount_cover(self) -> None:
         await self._mount_cover()
-        try:
-            self.app.refresh(repaint=True)
-        except Exception:
-            pass
 
     @work(exclusive=True, group="episodes")
     async def _populate_episodes(self) -> None:
@@ -334,11 +333,17 @@ class DetailScreen(Screen):
         except Exception as e:  # keep the TUI alive on any playback failure
             self.notify(f"Playback error: {e}", severity="error")
         # Playback (and any auto-next) is done and progress is saved — refresh
-        # the ✓ / ▸ marks in place so the list reflects what you just watched
-        # without needing to leave and re-open the screen.
+        # the ✓ / ▸ marks in place so the list reflects what you just watched.
         await self._load_marks()
         if self._numbers:
             await self._render_episodes(self._numbers, available=self._available)
+        # mpv plays in its own window while Textual sits idle in the background,
+        # so it doesn't repaint on its own when mpv closes — the updated marks
+        # would otherwise only show after leaving and re-opening the screen.
+        try:
+            self.app.refresh(repaint=True)
+        except Exception:
+            pass
 
     def action_next_season(self) -> None:
         self._open_next_season()

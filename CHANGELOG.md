@@ -2,6 +2,18 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.16] — 2026-07-29
+
+### Fixed
+
+- **Watched ticks now update the moment you finish an episode.** mpv plays in
+  its own window while the app idles in the background, so the refreshed marks
+  never got painted until you left and re-opened the screen; the detail screen
+  now forces a repaint when playback returns.
+- **Cover art no longer blinks.** The resize handler was re-mounting the image
+  and forcing a full repaint on every stray event; it now re-mounts only on a
+  real size change, which also fixes covers that intermittently failed to show.
+
 ## [0.2.15] — 2026-07-29
 
 ### Added
