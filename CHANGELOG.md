@@ -2,6 +2,14 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.15] — 2026-07-29
+
+### Added
+
+- **A clear message when mpv isn't installed.** Playing an episode without the
+  player used to fail with a cryptic error; it now says exactly what to install
+  (scoop/brew/apt) and to run `anime doctor` — the most common first-run wall.
+
 ## [0.2.14] — 2026-07-29
 
 ### Added
