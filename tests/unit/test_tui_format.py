@@ -203,9 +203,12 @@ def test_watch_summary_reads_watched_over_total():
     from anime_sh.tui.format import watch_summary
 
     assert "6/12" in watch_summary(6, 12) and "50%" in watch_summary(6, 12)
+    assert "6 left" in watch_summary(6, 12)
     assert "complete" in watch_summary(12, 12)
     # Unknown total → a count, never a misleading bar.
     assert "░" not in watch_summary(3, None)
+    # With a per-episode runtime, a rough time-left estimate is appended.
+    assert "~2h" in watch_summary(6, 12, ep_minutes=20)  # 6 left × 20m = 120m
 
 
 def test_sextant_table_maps_known_patterns():

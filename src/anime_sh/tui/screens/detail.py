@@ -28,7 +28,10 @@ from ..format import (
 )
 from ..widgets import EpisodeItem
 
-_COVER_COLS = 48
+# Cover width in character cells. Kept modest so the poster is a tasteful accent
+# beside the metadata, not a wall of pixels — and smaller means denser, so it
+# also reads a touch sharper.
+_COVER_COLS = 32
 
 
 class DetailScreen(Screen):
@@ -39,7 +42,7 @@ class DetailScreen(Screen):
 
     DEFAULT_CSS = """
     DetailScreen #detail-top { height: auto; }
-    DetailScreen #detail-cover { width: 50; height: auto; padding: 0 2 0 0; }
+    DetailScreen #detail-cover { width: 34; height: auto; padding: 0 2 0 0; }
     DetailScreen #detail-meta { width: 1fr; height: auto; }
     DetailScreen #detail-progress { height: auto; padding: 1 0 0 0; }
     """
@@ -160,7 +163,8 @@ class DetailScreen(Screen):
         try:
             self.query_one("#detail-progress", Static).update(
                 watch_summary(int(getattr(self, "_watched_through", 0)),
-                              self.anime.episode_count)
+                              self.anime.episode_count,
+                              ep_minutes=self.anime.duration_min)
             )
         except Exception:
             pass

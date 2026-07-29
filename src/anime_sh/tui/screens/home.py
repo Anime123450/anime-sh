@@ -102,14 +102,18 @@ class HomeScreen(Screen):
     @work(exclusive=True, group="continue")
     async def _load_continue(self) -> None:
         items = await self.app.services.library.continue_watching(limit=20)
-        lv = self.query_one("#continue", ListView)
-        await lv.clear()
+        # First paint from the cached rows — a local DB read, so it's instant.
+        # This is what stops Continue Watching sitting blank on launch while a
+        # dozen metadata fetches run.
+        await self._render_continue(items, {})
+        # Then enrich with fresh airing schedules in the background and repaint —
+        # that's how a caught-up airing show gets its countdown and a
+        # finished-and-fully-watched show drops off.
+        if items:
+            fresh = await self._fresh_airing(items)
+            await self._render_continue(items, fresh)
 
-        # The cached row carries no airing schedule, so enrich each show with
-        # fresh AniList metadata (already cached, best-effort) — that's how a
-        # caught-up airing show gets its countdown and a finished-and-watched
-        # show gets dropped.
-        fresh = await self._fresh_airing(items) if items else {}
+    async def _render_continue(self, items, fresh: dict) -> None:
         rows = []
         for it in items:
             anime = fresh.get(it.anime.id.anilist) or it.anime
@@ -119,18 +123,17 @@ class HomeScreen(Screen):
             subtitle, dim, resume = built
             rows.append((anime, subtitle, dim, resume))
 
+        lv = self.query_one("#continue", ListView)
+        sec = self.query_one("#sec-continue")
+        await lv.clear()
         if not rows:
-            self.query_one("#sec-continue").display = False
+            sec.display = False
             lv.display = False
             return
-
         # Shows you can actually watch float to the top; the ones you're caught
         # up on (waiting for the next episode) sink to the bottom, greyed.
         rows.sort(key=lambda r: r[2])
-        # This worker owns the section's visibility — set it *on* here (mirrors
-        # favorites). Without this it stays hidden, because on_mount hid it
-        # before any rows existed.
-        self.query_one("#sec-continue").display = True
+        sec.display = True
         lv.display = True
         for anime, subtitle, dim, resume in rows:
             lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume, dim=dim))
