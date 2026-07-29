@@ -15,7 +15,7 @@ skip_outro = false
 
 [providers]
 parallel = 5
-preferred = ["anizone", "anikoto", "allanime"]   # order to try (highest first)
+preferred = ["anizone", "anikoto"]   # order to try (highest first)
 disabled = []
 timeout_s = 8.0
 

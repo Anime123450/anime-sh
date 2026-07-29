@@ -75,7 +75,7 @@ class AnizoneProvider:
     async def find_sources(self, anime: Anime, audio: Audio) -> list[SourceOption]:
         # AniZone is sub-only (soft English subs). Decline dub requests instead
         # of serving sub content mislabelled as dub — this lets the fan-out fall
-        # through to providers that actually have a dub (allanime, anikoto).
+        # through to providers that actually have a dub (anikoto).
         if audio is Audio.DUB:
             return []
         seen: dict[str, dict] = {}
