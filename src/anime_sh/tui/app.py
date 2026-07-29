@@ -111,5 +111,10 @@ class AnimeShApp(App):
 
 async def run_tui(services: TuiServices, *, theme: str = "tokyo-night") -> None:
     """Entry point used by the CLI's bare ``anime`` command."""
+    # Probe the terminal for a graphics protocol (Sixel/kitty) before Textual
+    # takes over IO — that's the only window it works in. Enables sharp covers.
+    from .coverart import prime_graphics
+
+    prime_graphics()
     app = AnimeShApp(services, theme=theme)
     await app.run_async()

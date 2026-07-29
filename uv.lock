@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.11"
+resolution-markers = [
+    "python_full_version >= '3.12'",
+    "python_full_version < '3.12'",
+]
 
 [[package]]
 name = "aiosqlite"
@@ -13,7 +17,7 @@ wheels = [
 
 [[package]]
 name = "anime-sh"
-version = "0.2.9"
+version = "0.2.10"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -32,6 +36,8 @@ all = [
     { name = "pillow" },
     { name = "pypresence" },
     { name = "textual" },
+    { name = "textual-image", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "textual-image", version = "0.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 dev = [
     { name = "anyio" },
@@ -47,6 +53,8 @@ discord = [
 tui = [
     { name = "pillow" },
     { name = "textual" },
+    { name = "textual-image", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "textual-image", version = "0.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.metadata]
@@ -71,6 +79,8 @@ requires-dist = [
     { name = "textual", marker = "extra == 'all'", specifier = ">=8.0" },
     { name = "textual", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=8.0" },
+    { name = "textual-image", marker = "extra == 'all'", specifier = ">=0.7" },
+    { name = "textual-image", marker = "extra == 'tui'", specifier = ">=0.7" },
     { name = "typer", specifier = ">=0.12" },
 ]
 provides-extras = ["tui", "discord", "all", "dev"]
@@ -876,6 +886,38 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/00/21/39a76b01bd5eea82a04baaca7580e105d8c59450df03998345bb2cfb307b/textual-8.2.8.tar.gz", hash = "sha256:3f106a9fbc73e39dd266c9712432087de78a6d644084c7c241d6a25c3169115b", size = 1860502, upload-time = "2026-06-30T06:51:24.495Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/be/35261223d9416a0751cdff1c7b4a6f881387218a12d439fe22fefebc8c04/textual-8.2.8-py3-none-any.whl", hash = "sha256:267375fd402dc8d981457212efa71f0e3365fd17bba144ba9bb3ed7563cb374a", size = 731418, upload-time = "2026-06-30T06:51:26.364Z" },
+]
+
+[[package]]
+name = "textual-image"
+version = "0.12.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12'",
+]
+dependencies = [
+    { name = "pillow" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/e7/c82ea0604874b6d51d5717a0911061ae5810e36dad2e4d2b11fa7d54cdaa/textual_image-0.12.0.tar.gz", hash = "sha256:fdd0b5ff9c8a99740bc360a99ce014d563fa97d07a5b49b472470809f57c0a74", size = 116403, upload-time = "2026-04-12T17:37:44.696Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/2c/38ac586a3834a3bd8cbcf0c8ea1ae23bf68b9cc13b96a67f47a825479dd3/textual_image-0.12.0-py3-none-any.whl", hash = "sha256:0b13f62fe6a29f4ed6dfd641f2779ffe92dde41f16163fa1de69158477aa50aa", size = 115626, upload-time = "2026-04-12T17:37:41.238Z" },
+]
+
+[[package]]
+name = "textual-image"
+version = "0.13.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12'",
+]
+dependencies = [
+    { name = "pillow" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/10/77/b2128ced69556bfbb8e1c19d8f013e621cf12531eaba4e9b09e1cfa81e37/textual_image-0.13.2.tar.gz", hash = "sha256:8ca0cee2bfcd7734de5b16a1936da226b77b745e28830d9cf2bc202cb70e43ee", size = 2185178, upload-time = "2026-05-30T21:42:33.563Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/be/60aafd7263a6daa8cc4017e8bd4452c85b63ccd82a64f02636ca46e073b7/textual_image-0.13.2-py3-none-any.whl", hash = "sha256:41635f545ce2d0b3544763a2d10f25ada7f64c51acef77483b80fbfcf7ab22ee", size = 118469, upload-time = "2026-05-30T21:42:31.964Z" },
 ]
 
 [[package]]

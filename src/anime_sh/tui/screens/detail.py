@@ -13,13 +13,18 @@ from __future__ import annotations
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView, Static
 
 from ...domain.errors import NoStreamsFound
 from ...domain.models import Anime, Audio
-from ..coverart import fetch_cover, render_cover
+from ..coverart import (
+    fetch_cover,
+    graphics_cover_widget,
+    graphics_protocol_active,
+    render_cover,
+)
 from ..format import (
     episode_air_label,
     meta_line,
@@ -60,7 +65,7 @@ class DetailScreen(Screen):
         yield Header()
         with VerticalScroll():
             with Horizontal(id="detail-top"):
-                yield Static("", id="detail-cover")
+                yield Container(id="detail-cover")
                 yield Static(self._header_text(), id="detail-meta")
             yield Static("", id="detail-progress")
             yield ListView(id="episodes")
@@ -83,10 +88,26 @@ class DetailScreen(Screen):
         data = await fetch_cover(url)
         if not data:
             return
+        try:
+            container = self.query_one("#detail-cover", Container)
+        except Exception:
+            return
+        await container.remove_children()
+        # Prefer a true-bitmap render (Sixel/kitty) when the terminal supports
+        # it — crisp, unlike the unicode-block fallback. Any failure drops back
+        # to the block render so the cover still shows.
+        if graphics_protocol_active():
+            widget = graphics_cover_widget(data, _COVER_COLS)
+            if widget is not None:
+                try:
+                    await container.mount(widget)
+                    return
+                except Exception:
+                    pass
         art = render_cover(data, cols=_COVER_COLS)
         if art is not None:
             try:
-                self.query_one("#detail-cover", Static).update(art)
+                await container.mount(Static(art))
             except Exception:
                 pass
 
