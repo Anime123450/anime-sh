@@ -2,6 +2,15 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.10] — 2026-07-29
+
+### Added
+
+- **Mini progress bars in Continue Watching.** A show you're partway through now
+  shows a little bar next to its "Ep 7 · 26%", matching the detail screen.
+- **Loading spinners** on the This-Season and Trending sections, so the home
+  screen shows it's working instead of looking empty while they fetch.
+
 ## [0.2.9] — 2026-07-29
 
 ### Changed

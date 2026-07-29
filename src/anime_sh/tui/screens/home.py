@@ -121,7 +121,11 @@ class HomeScreen(Screen):
             if built is None:
                 continue  # finished and fully watched — nothing to continue
             subtitle, dim, resume = built
-            rows.append((anime, subtitle, dim, resume))
+            # A mid-episode row carries its watch fraction for the little bar.
+            p = it.progress
+            frac = (p.fraction if not p.completed and p.position_s > 0
+                    and p.duration_s > 0 else None)
+            rows.append((anime, subtitle, dim, resume, frac))
 
         lv = self.query_one("#continue", ListView)
         sec = self.query_one("#sec-continue")
@@ -135,8 +139,9 @@ class HomeScreen(Screen):
         rows.sort(key=lambda r: r[2])
         sec.display = True
         lv.display = True
-        for anime, subtitle, dim, resume in rows:
-            lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume, dim=dim))
+        for anime, subtitle, dim, resume, frac in rows:
+            lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume,
+                                dim=dim, progress=frac))
 
     async def _fresh_airing(self, items) -> dict:
         """Map anilist id → freshly-fetched Anime (with airing schedule) for the
@@ -177,27 +182,33 @@ class HomeScreen(Screen):
     @work(exclusive=True, group="seasonal")
     async def _load_seasonal(self) -> None:
         season, year = _current_season()
+        lv = self.query_one("#seasonal", ListView)
+        lv.loading = True  # spinner while the network call runs
         try:
             animes = await self.app.services.metadata.seasonal(season, year)
         except Exception as e:
             self.notify(f"Couldn't load this season: {e}", severity="warning")
             return
+        finally:
+            lv.loading = False
         # Soonest-airing first, so the next release to drop sits at the top.
         far = datetime.max.replace(tzinfo=timezone.utc)
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
-        lv = self.query_one("#seasonal", ListView)
         await lv.clear()
         for a in animes[:20]:
             lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
+        lv = self.query_one("#trending", ListView)
+        lv.loading = True
         try:
             animes = await self.app.services.metadata.trending(limit=20)
         except Exception as e:
             self.notify(f"Couldn't load trending: {e}", severity="warning")
             return
-        lv = self.query_one("#trending", ListView)
+        finally:
+            lv.loading = False
         await lv.clear()
         for a in animes:
             lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
