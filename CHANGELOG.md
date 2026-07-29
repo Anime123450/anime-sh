@@ -2,6 +2,17 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.20] — 2026-07-30
+
+### Fixed
+
+- **A corrupt database now self-heals instead of silently freezing the app.** If
+  the SQLite file is damaged (a bad index from a crash/AV/disk hiccup), writes
+  quietly fail on the bad pages and nothing updates — progress, Continue
+  Watching, everything looks stuck. On launch the app now integrity-checks the
+  DB and, if corrupt, salvages the rows into a rebuilt file (keeping the original
+  as a `.corrupt-*` backup), so it recovers on its own.
+
 ## [0.2.19] — 2026-07-30
 
 ### Fixed

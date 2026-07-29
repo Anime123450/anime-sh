@@ -22,6 +22,37 @@ async def library(tmp_path: Path):
     await db.close()
 
 
+async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
+    import sqlite3
+
+    from anime_sh.infra.db.database import _heal_if_corrupt, _is_healthy, _salvage_rebuild
+
+    # A populated, healthy DB.
+    db = Database(tmp_path / "anime.db", migrations_dir="migrations")
+    await db.connect()
+    lib = SqliteLibrary(db)
+    await lib.save_progress(_progress(1, 3.0, 700, completed=True))
+    await lib.save_progress(_progress(2, 1.0, 100))
+    await db.close()
+    path = tmp_path / "anime.db"
+    assert _is_healthy(path)
+
+    # A garbage file reads as corrupt, and healing it sets it aside (fresh start).
+    junk = tmp_path / "junk.db"
+    junk.write_bytes(b"SQLite format 3\x00" + b"\xde\xad\xbe\xef" * 500)
+    assert not _is_healthy(junk)
+
+    # Rebuild preserves every row and yields a healthy database.
+    assert _salvage_rebuild(path) is True
+    assert _is_healthy(path)
+    conn = sqlite3.connect(str(path))
+    assert conn.execute("SELECT COUNT(*) FROM progress").fetchone()[0] == 2
+    conn.close()
+    # A healthy DB is left untouched by the heal pass.
+    _heal_if_corrupt(path)
+    assert _is_healthy(path)
+
+
 def _anime(anilist=154587, title="Frieren"):
     return Anime(
         id=AnimeId(anilist=anilist),
