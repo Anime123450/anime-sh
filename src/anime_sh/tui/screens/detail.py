@@ -244,11 +244,16 @@ class DetailScreen(Screen):
         def is_avail(n: float) -> bool:
             return available is None or n in available
 
-        # Next to watch: an explicit resume target, else the in-progress
-        # episode, else the first available one past the watched-through mark.
+        # Next to watch: an explicit resume target — but only until you've
+        # actually finished it (after that the pin is stale and the cursor should
+        # roll on), then the in-progress episode, then the first available one
+        # past the watched-through mark.
+        resume = self.resume_episode
+        if resume is not None and resume <= watched_through:
+            resume = None
         next_number = (
-            self.resume_episode
-            if self.resume_episode is not None
+            resume
+            if resume is not None
             else min(partial) if partial
             else next((n for n in numbers if n > watched_through and is_avail(n)), None)
         )
@@ -263,7 +268,7 @@ class DetailScreen(Screen):
                 EpisodeItem(
                     number,
                     watched=is_watched,
-                    resume_s=1 if number == self.resume_episode else 0,
+                    resume_s=1 if number == resume else 0,
                     progress_pct=pct,
                     available=avail,
                     air_label=None if avail else episode_air_label(self.anime, number),
