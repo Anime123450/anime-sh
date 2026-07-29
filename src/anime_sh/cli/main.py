@@ -101,6 +101,7 @@ def _launch_tui() -> None:
         playback=c.playback,
         aclose=c.aclose,
         tracker=c.tracker,
+        sync=c.sync,
     )
     asyncio.run(run_tui(services, theme=config.ui.theme))
 
