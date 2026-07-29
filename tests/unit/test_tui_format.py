@@ -191,9 +191,9 @@ def test_progress_bar_fills_proportionally():
     empty = progress_bar(0.0, 10)
     full = progress_bar(1.0, 10)
     half = progress_bar(0.5, 10)
-    assert "█" not in empty and "░" in empty          # nothing filled
-    assert "█" in full and "░" not in full            # fully filled
-    assert "█" in half and "░" in half                # partly filled
+    assert "━" not in empty and "─" in empty          # nothing filled
+    assert "━" in full and "─" not in full            # fully filled
+    assert "━" in half and "─" in half                # partly filled
     # Clamps out-of-range fractions instead of overflowing.
     assert progress_bar(2.0, 10) == full
     assert progress_bar(-1.0, 10) == empty
