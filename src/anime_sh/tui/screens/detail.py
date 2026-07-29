@@ -17,7 +17,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView, Static
 
-from ...domain.errors import NoStreamsFound
+from ...domain.errors import NoStreamsFound, PlayerUnavailable
 from ...domain.models import Anime, Audio
 from ..coverart import (
     fetch_cover,
@@ -322,6 +322,15 @@ class DetailScreen(Screen):
             # of flattening both into a generic miss, which hides the real cause.
             hint = " Try another source (Esc, then pick a different one)." if self.source else ""
             self.notify(f"Episode {number:g}: {e}{hint}", severity="error")
+        except PlayerUnavailable:
+            # The single most common first-run wall: no mpv. Say exactly how to fix it.
+            self.notify(
+                "mpv isn't installed — that's the video player anime-sh uses.\n"
+                "Windows: scoop install mpv   ·   macOS: brew install mpv\n"
+                "Linux: sudo apt install mpv (or your package manager).\n"
+                "Then run `anime doctor` to confirm.",
+                title="Player not found", severity="error", timeout=15,
+            )
         except Exception as e:  # keep the TUI alive on any playback failure
             self.notify(f"Playback error: {e}", severity="error")
         # Playback (and any auto-next) is done and progress is saved — refresh
