@@ -95,20 +95,16 @@ def continue_row(
     return (f"up next · Ep {nxt:g}", False, nxt)
 
 
-_BAR_EIGHTHS = "▏▎▍▌▋▊▉█"  # 1/8 … 8/8 of a cell, for sub-character bar resolution
-
-
 def progress_bar(
-    fraction: float, width: int = 14, *, color: str = "green", track: str = "grey30"
+    fraction: float, width: int = 12, *, color: str = "green", track: str = "grey37"
 ) -> str:
-    """A markup progress bar ``width`` cells wide at 1/8-cell resolution, filled
-    to ``fraction`` (0–1). Filled part is ``color``, the remaining track dim."""
+    """A slim markup progress bar ``width`` cells wide, filled to ``fraction``
+    (0–1). Uses thin horizontal rules — heavy for the filled part, light for the
+    remaining track — so it reads as a sleek line, not a chunky block."""
     fraction = 0.0 if fraction < 0 else 1.0 if fraction > 1 else fraction
-    eighths = round(fraction * width * 8)
-    full, rem = divmod(eighths, 8)
-    filled = "█" * full + (_BAR_EIGHTHS[rem - 1] if rem else "")
-    empty = "░" * (width - len(filled))
-    return f"[{color}]{filled}[/{color}][{track}]{empty}[/{track}]"
+    filled = round(fraction * width)
+    filled = 0 if filled < 0 else width if filled > width else filled
+    return f"[{color}]{'━' * filled}[/{color}][{track}]{'─' * (width - filled)}[/{track}]"
 
 
 def _human_duration(minutes: int) -> str:

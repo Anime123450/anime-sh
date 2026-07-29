@@ -2,6 +2,14 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.13] — 2026-07-29
+
+### Changed
+
+- **Slimmer progress bars.** The bars used solid block glyphs that read chunky;
+  they now use thin horizontal rules (heavy = filled, light = track) for a sleek
+  line instead of a thick block.
+
 ## [0.2.12] — 2026-07-29
 
 ### Fixed
