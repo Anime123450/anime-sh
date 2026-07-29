@@ -29,10 +29,12 @@ class AnimeItem(ListItem):
         subtitle: str = "",
         resume_episode: float | None = None,
         dim: bool = False,
+        progress: float | None = None,
     ) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
         self._dim = dim
+        self._progress = progress
         self._label = Label(self._compose_label(subtitle))
         super().__init__(self._label)
 
@@ -40,6 +42,9 @@ class AnimeItem(ListItem):
         label = _lit(self.anime.title.preferred)
         if subtitle:
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
+        # A small bar mirrors the detail screen for a show you're partway through.
+        if self._progress is not None and not self._dim:
+            label = f"{label}  {progress_bar(self._progress, 8, color='cyan')}"
         # A whole-row dim marks a show you're caught up on (waiting for the next
         # episode) — greyed out so the titles you *can* watch stand out.
         if self._dim:
