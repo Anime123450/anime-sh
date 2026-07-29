@@ -72,7 +72,18 @@ class AnimeShApp(App):
             self.theme = _THEMES[self._wanted_theme]
         # Playback status lines ("Episode 5/12 — trying HD-1…", "Next episode:
         # 6/12", "Skipped intro") surface as toasts.
-        self.services.playback.set_on_event(lambda msg: self.notify(msg, timeout=3))
+        self.services.playback.set_on_event(self._on_playback_event)
+
+    def _on_playback_event(self, msg: str) -> None:
+        self.notify(msg, timeout=3)
+        # These events also mark episode boundaries — an episode completing, the
+        # auto-next advancing — so refresh the detail screen's ✓/progress marks
+        # live. Without this a completion mid auto-next only shows after the
+        # whole run ends (you'd have to leave and re-open the screen).
+        from .screens.detail import DetailScreen
+
+        if isinstance(self.screen, DetailScreen):
+            self.screen.refresh_marks()
 
     async def on_unmount(self) -> None:
         self.services.playback.set_on_event(None)
