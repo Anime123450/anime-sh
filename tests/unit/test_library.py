@@ -52,6 +52,27 @@ async def test_all_progress_lists_every_episode_for_one_show(library):
     assert await library.all_progress(AnimeId(anilist=99)) == []
 
 
+async def test_save_progress_never_downgrades_recency(library):
+    # A show watched here just now, then re-written by an AniList pull carrying
+    # an older updatedAt: the newer completed flag applies, but the recency must
+    # NOT drop back — otherwise the pull sinks a just-watched show down Continue
+    # Watching.
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=3)
+    aid = AnimeId(anilist=1)
+    await library.save_progress(WatchProgress(
+        anime_id=aid, episode=5.0, position_s=700, duration_s=1400,
+        updated_at=now, completed=False))
+    await library.save_progress(WatchProgress(
+        anime_id=aid, episode=5.0, position_s=0, duration_s=0,
+        updated_at=old, completed=True))
+    row = next(p for p in await library.all_progress(aid) if p.episode == 5.0)
+    assert row.updated_at == now      # recency kept, not downgraded to `old`
+    assert row.completed is True      # but the newer completed flag applied
+
+
 async def test_mark_watched_catches_up_to_episode(library):
     svc = LibraryService(library)
     marked = await svc.mark_watched(_anime(1, "Frieren"), 3.0)

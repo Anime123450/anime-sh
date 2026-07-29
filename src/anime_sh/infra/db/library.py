@@ -113,7 +113,12 @@ class SqliteLibrary:
             "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(anilist_id, episode) DO UPDATE SET "
             "position_s=excluded.position_s, duration_s=excluded.duration_s, "
-            "completed=excluded.completed, updated_at=excluded.updated_at",
+            "completed=excluded.completed, "
+            # Never move recency backward: an AniList pull carries the entry's
+            # (often older) updatedAt, which must not sink a show you just watched
+            # here to the bottom of Continue Watching. ISO-8601 UTC strings sort
+            # chronologically, so MAX picks the more recent touch.
+            "updated_at=MAX(progress.updated_at, excluded.updated_at)",
             (
                 progress.anime_id.anilist,
                 progress.episode,

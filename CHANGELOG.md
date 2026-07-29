@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.19] — 2026-07-30
+
+### Fixed
+
+- **Continue Watching stays ordered by what you most recently watched.** The
+  AniList pull stamped each show with the entry's (often older) updatedAt,
+  overwriting the fresh timestamp from a show you just watched here and sinking
+  it down the list. Progress recency now never moves backward, so the last thing
+  you watched stays at the top.
+
 ## [0.2.18] — 2026-07-30
 
 ### Fixed
