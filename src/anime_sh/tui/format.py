@@ -120,7 +120,7 @@ def _human_duration(minutes: int) -> str:
 
 
 def watch_summary(
-    watched: int, total: int | None, *, width: int = 16, ep_minutes: int | None = None
+    watched: int, total: int | None, *, width: int = 10, ep_minutes: int | None = None
 ) -> str:
     """The detail screen's overall-progress line: a bar + ``6/12 · 50% · 6 left``,
     and a rough time-left estimate when the per-episode runtime is known.
