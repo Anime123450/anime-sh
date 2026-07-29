@@ -111,19 +111,34 @@ def progress_bar(
     return f"[{color}]{filled}[/{color}][{track}]{empty}[/{track}]"
 
 
-def watch_summary(watched: int, total: int | None, *, width: int = 16) -> str:
-    """The detail screen's overall-progress line: a bar + ``6/12 · 50%``.
+def _human_duration(minutes: int) -> str:
+    """"3h 20m" / "45m" from a whole number of minutes."""
+    h, m = divmod(int(minutes), 60)
+    if h and m:
+        return f"{h}h {m}m"
+    return f"{h}h" if h else f"{m}m"
+
+
+def watch_summary(
+    watched: int, total: int | None, *, width: int = 16, ep_minutes: int | None = None
+) -> str:
+    """The detail screen's overall-progress line: a bar + ``6/12 · 50% · 6 left``,
+    and a rough time-left estimate when the per-episode runtime is known.
 
     With no known total (still-airing, count unknown) it shows just the watched
     count and no bar, rather than a misleading full/empty ratio."""
     if not total:
         n = f"{watched} watched" if watched else "not started"
         return f"[dim]{n}[/dim]"
-    frac = watched / total if total else 0.0
+    if watched >= total:
+        return f"{progress_bar(1.0, width, color='green')}  [b green]✓ complete[/b green]"
+    frac = watched / total
     pct = round(frac * 100)
-    color = "green" if watched >= total else "cyan"
-    label = "complete" if watched >= total else f"{watched}/{total} · {pct}%"
-    return f"{progress_bar(frac, width, color=color)}  [b]{label}[/b]"
+    left = total - watched
+    tail = f"{pct}% · {left} left"
+    if ep_minutes:
+        tail += f" · ~{_human_duration(left * ep_minutes)}"
+    return f"{progress_bar(frac, width, color='cyan')}  [b]{watched}/{total}[/b] [dim]· {tail}[/dim]"
 
 
 def score_badge(score: int | None) -> str | None:

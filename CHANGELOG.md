@@ -2,6 +2,18 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.9] — 2026-07-29
+
+### Changed
+
+- **Continue Watching appears instantly.** It used to sit blank on launch while
+  a dozen metadata lookups ran; now it paints from the local cache immediately
+  and fills in airing countdowns in the background.
+- **Smaller cover art.** The poster on the detail screen no longer dominates the
+  view — it's a tidy accent beside the metadata (and reads a touch sharper).
+- **Richer progress line.** The detail bar now shows episodes left and a rough
+  time-to-finish, e.g. `6/12 · 50% · 6 left · ~2h`.
+
 ## [0.2.8] — 2026-07-29
 
 ### Fixed
