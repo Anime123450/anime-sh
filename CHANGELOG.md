@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.18] — 2026-07-30
+
+### Fixed
+
+- **The cursor and "play next" line now advance after you finish an episode.**
+  Opening a show from Continue Watching pinned the cursor to the episode you
+  came to resume — and it stayed pinned there even after you finished it. The
+  pin now drops once that episode is watched, so the highlight rolls on to the
+  next one live.
+
 ## [0.2.17] — 2026-07-29
 
 ### Fixed

@@ -406,6 +406,38 @@ async def test_marks_refresh_live_on_playback_event():
         assert [it.watched for it in items] == [True, True, False]  # ep 2 now ✓, live
 
 
+async def test_resume_pin_advances_after_you_finish_it():
+    # Opened from Continue Watching with a pinned "resume episode 2". Once you
+    # finish ep 2, the cursor + call-to-action must roll on to ep 3 — not stay
+    # stuck on the episode you just completed.
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    library.progress = [
+        WatchProgress(AnimeId(anilist=1), 1.0, 1400, 1400, now, completed=True),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=5), resume_episode=2.0)
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        episodes = detail.query_one("#episodes", ListView)
+        assert episodes.index == 1  # cursor on the pinned resume episode (ep 2)
+        # Finish episode 2 → a playback event fires; cursor rolls on to ep 3.
+        library.progress.append(
+            WatchProgress(AnimeId(anilist=1), 2.0, 1400, 1400, now, completed=True))
+        app._on_playback_event("Next episode: 3/5")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert episodes.index == 2  # advanced to ep 3
+        assert "Play Episode 3" in str(detail.query_one("#detail-action").render())
+
+
 async def test_unavailable_episodes_stay_listed_but_inert():
     # Planned 3 eps, only 1-2 available: the full season stays visible, the
     # missing one is marked unavailable and selecting it does NOT play.
