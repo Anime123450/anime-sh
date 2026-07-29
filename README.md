@@ -4,130 +4,266 @@
 [![Python](https://img.shields.io/pypi/pyversions/anime-sh)](https://pypi.org/project/anime-sh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The terminal-native anime client. You type a title; it plays. Providers,
+**The terminal-native anime client.** You type a title; it plays. Providers,
 mirrors, and resolvers are internal details you never have to think about.
 
 ```bash
 anime "Frieren"
 ```
 
-> **Status: M5 — polish.** Bare `anime` launches a keyboard-driven Textual app;
-> playback auto-skips intros and rolls into the next episode on its own. Under
-> it: AniList metadata, three live providers (AllAnime, anikoto, AniZone) fanned
-> out with circuit breakers, resolvers, mpv over JSON IPC, a persistent library
-> (resume/history/favorites), and ffmpeg downloads. See
-> [`docs/architecture.md`](docs/architecture.md).
+Under the hood: AniList metadata, live streaming providers fanned out with
+circuit breakers, stream resolvers, `mpv` driven over JSON IPC, auto-skip of
+intros/outros, auto-advance to the next episode, a persistent offline library
+(resume / history / favorites), AniList two-way sync, and `ffmpeg` downloads —
+all behind a keyboard-driven [Textual](https://textual.textualize.io) app.
 
-## What works today
+---
+
+## Contents
+
+- [Requirements](#requirements)
+- [Install](#install) — [PyPI (recommended)](#method-a--from-pypi-recommended) · [from source](#method-b--from-github-source)
+- [First run](#first-run)
+- [Sync across devices (AniList)](#sync-across-devices-anilist)
+- [Command reference](#command-reference)
+- [How it behaves](#how-it-behaves)
+- [Updating & uninstalling](#updating--uninstalling)
+- [Troubleshooting](#troubleshooting)
+- [Develop](#develop) · [Design](#design) · [Legal](#legal)
+
+---
+
+## Requirements
+
+| What | Why | Needed |
+|------|-----|--------|
+| **Python 3.11+** | runs the app | always |
+| **[mpv](https://mpv.io)** | plays the video | for playback |
+| **[ffmpeg](https://ffmpeg.org)** | saves downloads, fallback player | for `download` |
+
+Install the two media tools with your OS package manager:
 
 ```bash
-anime                        # launch the keyboard-driven TUI (needs [tui] extra)
-anime "Frieren"              # search + best match + play episode 1
-anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
-anime search "frieren"       # AniList search (instant; no providers touched)
-anime search --genre action --year 2024 --sort score   # browse with filters
-anime trending
-anime recommend "Frieren"    # shows for people who liked it (AniList)
-anime related "Attack on Titan"  # prequels, sequels, side stories, movies
-anime mark "Frieren" -e 12    # catch up: mark eps 1–12 watched (syncs to AniList)
-anime stats                   # episodes, hours, top genres & providers
+# Windows (scoop)          # Windows (winget)
+scoop install mpv ffmpeg   winget install mpv.mpv ; winget install Gyan.FFmpeg
 
-anime continue               # episodes you started but didn't finish
-anime resume                 # jump back into the most recent one
-anime history                # what you've watched
-anime favorite add "Frieren" # ★  (also: favorite ls / rm)
-anime download "Frieren" -e 1-12  # save a range to disk (ffmpeg); resumes, skips done
-anime download "Frieren" -e 1,3,5 # or a list; also: anime downloads
-
-anime auth login             # link AniList (one-time); status / logout
-anime sync pull              # import your AniList list; sync push sends yours up
-anime list --status watching # your AniList list by status (also planning/completed…)
-anime rate "Frieren" 9       # set a score; anime status "X" completed
-anime next "Mob Psycho 100"  # find + play the next season (sequel)
-
-anime doctor                 # player, ffmpeg, config, database, plugins
-anime --version              # print the version and exit
-anime config get             # dump settings; `config get playback.quality`
-anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
-anime config path | validate
-anime providers ls
-anime cache clear            # wipe the disposable metadata cache (or: cache purge)
+# macOS (Homebrew)         # Debian/Ubuntu
+brew install mpv ffmpeg    sudo apt install mpv ffmpeg
 ```
 
-The TUI home shows Continue Watching, Favorites, Airing This Season, and
-Trending; the detail screen renders cover art, score, studio and a live
-next-episode countdown. Press `?` for keys, `/` to search.
+After installing anime-sh, run **`anime doctor`** — it checks Python, `mpv`,
+`ffmpeg`, the database, and the provider plugins, and tells you exactly what (if
+anything) is missing.
 
-**Forgiving search.** You don't have to spell titles exactly the way AniList
-stores them — `dont toy with me`, `dukes son claims he wont love me`, even
-`atack on titan` all find the right show. When AniList's strict search comes up
-empty, anime-sh retries with apostrophes restored and the query's distinctive
-words, then fuzzy-ranks the results against what you typed.
-
-**Tab-completion.** Run `anime --install-completion` once for your shell.
-
-**AniList sync.** Link your account once with `anime auth login` (create a free
-API client at [anilist.co/settings/developer](https://anilist.co/settings/developer),
-redirect URL `https://anilist.co/api/v2/oauth/pin`, then paste the token — your
-password is never involved). After that, finishing an episode automatically bumps
-your AniList progress. `anime sync pull` imports your existing list into the local
-library; `anime sync push` sends your local history up in one pass.
-
-Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
-`favorite ls` for machine-readable output (`play --json` resolves the stream
-without launching a player). Your library (progress, history, favorites) lives
-in a separate `anime.db` from the disposable cache and renders offline.
-
-**Cached catalog.** AniList responses (search, trending, seasonal, schedule,
-details) are cached in a throwaway `cache.db` with short TTLs, so repeat browses
-are instant and recently-seen pages still render offline. It is always safe to
-wipe with `anime cache clear`; nothing user-owned lives there.
-
-> Streaming providers break and get Cloudflare-gated constantly — that's the
-> normal operating state, not a bug. When a provider is unreachable, anime-sh
-> degrades cleanly instead of crashing; metadata and your library keep working.
-
-**Multiple providers, merged.** anime-sh fans out across providers (currently
-AllAnime + anikoto + AniZone) and falls through to whichever one actually has
-your show — so a title missing from one source still plays from another, with no
-action from you. AniZone serves a clean, un-obfuscated HLS stream with soft
-English subs, so it plays where Cloudflare-gated sites can't.
+---
 
 ## Install
 
-Needs Python 3.11+, plus an external media player (`mpv` recommended) and
-`ffmpeg` for playback/downloads. `anime doctor` reports what's missing.
+You need a way to install a Python CLI tool. The cleanest is
+**[uv](https://docs.astral.sh/uv/)** (`pip install uv`, or see its docs) or
+**[pipx](https://pipx.pypa.io)** — both put `anime` on your PATH in an isolated
+environment so it never clashes with other Python packages.
+
+### Method A — from PyPI (recommended)
+
+This is the normal way to install and use it. Pick one:
 
 ```bash
-uv tool install "anime-sh[tui]"     # or: pipx install "anime-sh[tui]"
-anime doctor
-anime "Frieren"
+uv tool install "anime-sh[tui]"      # with uv  (recommended)
+pipx install "anime-sh[tui]"         # or with pipx
+pip install --user "anime-sh[tui]"   # or plain pip
 ```
 
-Prefer the bleeding edge? Install straight from `main`:
+The `[tui]` extra pulls in the interactive terminal UI and cover-art rendering.
+Then:
+
+```bash
+anime doctor      # verify mpv/ffmpeg are found
+anime             # launch the app
+```
+
+### Method B — from GitHub (source)
+
+Use this to run the very latest code, hack on it, or if you don't want PyPI.
+
+**Just want the latest build, installed as a tool:**
 
 ```bash
 uv tool install "anime-sh[tui] @ git+https://github.com/Anime123450/anime-sh.git"
 ```
 
-### From source (dev)
+**Want the source to edit / develop:**
 
 ```bash
-git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
-uv sync --extra dev --extra tui
+git clone https://github.com/Anime123450/anime-sh.git
+cd anime-sh
+uv sync --extra dev --extra tui   # create the venv + install everything
 uv run anime doctor
-uv run anime            # launch the TUI
-uv run pytest -q        # tests (no network); add ANIME_SH_LIVE=1 for live ones
+uv run anime                      # launch the TUI (prefix commands with `uv run`)
 ```
 
-See [`docs/plugins.md`](docs/plugins.md) to add a provider or resolver.
+> On this checkout, run the app as `uv run anime …`. The `uv tool install`
+> methods above put a plain `anime` command on your PATH instead.
+
+---
+
+## First run
+
+```bash
+anime            # opens the TUI: Continue Watching, Airing This Season, Trending
+```
+
+- Type to **search** as you go (or press `/` to focus the search box).
+- **Arrow keys** move, **Enter** opens a show, **Enter** on an episode plays it.
+- Press **`?`** any time for the full key list, **`q`** to quit.
+
+Prefer one-shot commands? `anime "Frieren"` searches, picks the best match, and
+plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` is fully explicit.
+
+Turn on shell tab-completion once: `anime --install-completion`.
+
+---
+
+## Sync across devices (AniList)
+
+anime-sh keeps your progress in a local database **and** can sync it with
+[AniList](https://anilist.co), so what you watch here lines up with what you
+watch anywhere else that tracks to AniList (phone apps, the website, etc.).
+
+**Link your account once** — no password involved:
+
+1. Create a free API client at
+   [anilist.co/settings/developer](https://anilist.co/settings/developer) with
+   redirect URL `https://anilist.co/api/v2/oauth/pin`.
+2. Run `anime auth login` and paste the token it points you to.
+
+Then:
+
+```bash
+anime sync pull      # import your AniList list (watching/planning/…) into anime-sh
+anime sync push      # send your local watch history up to AniList
+anime list --status watching   # view your AniList list by status
+```
+
+After linking, **finishing an episode automatically bumps your AniList
+progress**. Run `anime sync pull` whenever you want to pull in progress you made
+on another device.
+
+---
+
+## Command reference
+
+```bash
+# Watch
+anime                        # launch the keyboard-driven TUI (needs [tui] extra)
+anime "Frieren"              # search + best match + play episode 1
+anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
+anime continue               # episodes you started but didn't finish
+anime resume                 # jump back into the most recent one
+anime next "Mob Psycho 100"  # find + play the next season (sequel)
+
+# Discover
+anime search "frieren"       # AniList search (instant; no providers touched)
+anime search --genre action --year 2024 --sort score   # browse with filters
+anime trending
+anime recommend "Frieren"    # shows for people who liked it (AniList)
+anime related "Attack on Titan"  # prequels, sequels, side stories, movies
+
+# Library & tracking
+anime mark "Frieren" -e 12    # mark eps 1–12 watched (syncs to AniList)
+anime history                 # what you've watched
+anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
+anime stats                   # episodes, hours, top genres & providers
+anime rate "Frieren" 9        # set a score;  anime status "X" completed
+
+# AniList
+anime auth login              # link AniList (one-time); status / logout
+anime sync pull | push        # import your list / send yours up
+anime list --status watching  # your AniList list (also planning/completed…)
+
+# Downloads
+anime download "Frieren" -e 1-12  # save a range to disk (ffmpeg); resumes, skips done
+anime download "Frieren" -e 1,3,5 # or a list;  also: anime downloads
+
+# Housekeeping
+anime doctor                  # player, ffmpeg, config, database, plugins
+anime --version
+anime config get              # dump settings;  config get playback.quality
+anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
+anime config path | validate
+anime providers ls
+anime cache clear             # wipe the disposable metadata cache (or: cache purge)
+```
+
+Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
+`favorite ls` for machine-readable output (`play --json` resolves the stream
+without launching a player).
+
+---
+
+## How it behaves
+
+**Forgiving search.** You don't have to spell titles the way AniList stores
+them — `dont toy with me`, `dukes son claims he wont love me`, even
+`atack on titan` all find the right show. When AniList's strict search comes up
+empty, anime-sh retries with apostrophes restored and the query's distinctive
+words, then fuzzy-ranks the results against what you typed.
+
+**Multiple providers, merged.** anime-sh fans out across streaming providers
+(currently **anikoto + AniZone**) and falls through to whichever one actually
+has your show — so a title missing from one source still plays from another,
+with no action from you. AniZone serves a clean, un-obfuscated HLS stream with
+soft English subs, so it plays where Cloudflare-gated sites can't.
+
+> Streaming providers break and get Cloudflare-gated constantly — that's the
+> normal operating state, not a bug. When a provider is unreachable, anime-sh
+> degrades cleanly instead of crashing; metadata and your library keep working.
+
+**Offline-friendly.** Your library (progress, history, favorites) lives in its
+own `anime.db`, separate from a disposable `cache.db` of AniList responses.
+Recently-seen pages still render with no network, and `anime cache clear` is
+always safe — nothing user-owned lives in the cache.
+
+---
+
+## Updating & uninstalling
+
+```bash
+uv tool upgrade anime-sh      # or: pipx upgrade anime-sh
+uv tool uninstall anime-sh    # or: pipx uninstall anime-sh
+```
+
+Your library and settings live outside the install (see `anime config path`), so
+upgrading never touches them.
+
+---
+
+## Troubleshooting
+
+- **`anime doctor` says mpv/ffmpeg not found** — install them (see
+  [Requirements](#requirements)) and make sure they're on your PATH.
+- **A show won't play / "trying next…" on every source** — providers get
+  Cloudflare-gated or geo-blocked; try again later or a different title. Your
+  library and search keep working regardless.
+- **Windows: `anime` blocked by Smart App Control** — invoke it as a module:
+  `python -m anime_sh <command>`.
+- **Nothing in Continue Watching from your phone** — link AniList
+  (`anime auth login`) and run `anime sync pull`; see
+  [Sync across devices](#sync-across-devices-anilist).
+
+---
 
 ## Develop
 
 ```bash
-uv run pytest          # fast unit suite — no network
-uv run lint-imports    # architecture contracts (must stay green)
+git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
+uv sync --extra dev --extra tui
+uv run python -m pytest -q   # fast unit + contract suite (no network)
+uv run lint-imports          # architecture contracts (must stay green)
 ```
+
+Add `ANIME_SH_LIVE=1` to run the gated live-provider tests. See
+[`docs/plugins.md`](docs/plugins.md) to add a provider or resolver.
 
 ## Design
 
@@ -146,4 +282,4 @@ plugins are separable from the core so the project survives any single one.
 
 ## License
 
-MIT
+[MIT](LICENSE)
