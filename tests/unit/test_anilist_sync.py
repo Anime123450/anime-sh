@@ -143,8 +143,12 @@ async def test_pull_maps_media_list_to_progress():
     ])
     tracker = AniListTracker("tok", http=http)
     rows = await tracker.pull_with_media()
+    # AniList progress = N means N episodes are finished, so the N-th is
+    # completed regardless of the list status (the detail screen then treats
+    # every earlier episode as watched too). A progress-0 planning entry stays
+    # not-completed.
     assert [(wp.anime_id.anilist, wp.episode, wp.completed) for wp, _ in rows] == [
-        (196187, 5.0, False),
+        (196187, 5.0, True),
         (21, 12.0, True),
     ]
     assert rows[0][1].title.preferred == "Show"

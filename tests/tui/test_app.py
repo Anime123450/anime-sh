@@ -308,6 +308,33 @@ async def test_episode_marks_and_next_up_cursor():
         assert episodes.index == 1  # next up = the in-progress episode
 
 
+async def test_synced_progress_marks_all_earlier_episodes():
+    # The AniList-sync bug: pulling a list writes one "watched up to episode 6"
+    # row per show. That must light up episodes 1-6 as ✓ (linear watching), not
+    # leave 1-5 blank — and the overall bar must read 6/12.
+    playback = FakePlayback()
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    library.progress = [
+        WatchProgress(AnimeId(anilist=1), 6.0, 0, 0, now, completed=True),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=12))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        items = list(detail.query_one("#episodes", ListView).children)
+        assert [it.watched for it in items[:6]] == [True] * 6
+        assert [it.watched for it in items[6:]] == [False] * 6
+        assert items[6].is_next  # cursor target: first unwatched
+        assert "6/12" in str(detail.query_one("#detail-progress").render())
+
+
 async def test_detail_refreshes_marks_after_playing():
     # The reported bug: watched ✓ marks didn't update until the screen was
     # re-opened. Playing an episode now refreshes the list in place.

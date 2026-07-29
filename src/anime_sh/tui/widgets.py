@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.widgets import Label, ListItem
 
 from ..domain.models import Anime
+from .format import progress_bar
 
 
 def _lit(text: str) -> str:
@@ -52,33 +53,38 @@ class AnimeItem(ListItem):
 
 
 class EpisodeItem(ListItem):
-    """A ListItem for a single episode number. Unavailable episodes (not yet
-    aired / provider lacks them) stay listed but dimmed, so the full season is
-    always visible; watched ones get a ✓ and in-progress ones a ▸ with the
-    percentage watched."""
+    """A ListItem for a single episode, styled by state: watched (✓, dim),
+    in-progress (▸ + a mini progress bar), up-next (▶, highlighted), plain
+    unwatched (○), or not-yet-available (dim, with an air countdown)."""
 
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
                  available: bool = True, progress_pct: int | None = None,
-                 air_label: str | None = None) -> None:
+                 air_label: str | None = None, is_next: bool = False) -> None:
         self.number = number
         self.available = available
         self.watched = watched
         self.progress_pct = progress_pct
+        self.is_next = is_next
+        super().__init__(Label(self._label(
+            number, watched, resume_s, available, progress_pct, air_label, is_next
+        )))
+
+    @staticmethod
+    def _label(number, watched, resume_s, available, progress_pct, air_label, is_next):
+        n = f"{number:g}"
         if not available:
-            # Show a countdown when we know when it airs ("airs in 4d 3h"), so an
-            # unreleased episode tells you how long to wait instead of a flat
-            # "not available yet".
-            tail = air_label or "not available yet"
-            super().__init__(Label(f"[dim]Episode {number:g}  · {tail}[/dim]"))
-            return
+            # An unreleased episode: show how long to wait, not a flat "n/a".
+            tail = air_label or "not aired yet"
+            return f"[grey42]○  Episode {n}[/grey42]  [dim]· {tail}[/dim]"
         if watched:
-            label = f"[green]✓[/green] [dim]Episode {number:g}[/dim]"
-        elif progress_pct or resume_s:
-            pct = f"  [dim]· {progress_pct}%[/dim]" if progress_pct else ""
-            label = f"[green]▸[/green] Episode {number:g}{pct}"
-        else:
-            label = f"Episode {number:g}"
-        super().__init__(Label(label))
+            return f"[green]✓[/green]  [dim]Episode {n}[/dim]"
+        if progress_pct or resume_s:
+            pct = progress_pct or 0
+            bar = progress_bar(pct / 100, 10, color="green")
+            return f"[green]▸[/green]  [b]Episode {n}[/b]   {bar}  [green]{pct}%[/green]"
+        if is_next:
+            return f"[cyan]▶  Episode {n}[/cyan]  [dim]· up next[/dim]"
+        return f"[grey54]○[/grey54]  Episode {n}"
 
 
 class SourceItem(ListItem):

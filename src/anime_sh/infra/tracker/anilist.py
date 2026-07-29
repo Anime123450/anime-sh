@@ -219,7 +219,11 @@ class AniListTracker:
                         position_s=0,
                         duration_s=0,
                         updated_at=e.updated_at or datetime.now(timezone.utc),
-                        completed=e.status == "COMPLETED",
+                        # AniList ``progress = N`` means N episodes are finished,
+                        # so the N-th is completed (the detail screen then treats
+                        # every earlier episode as watched too). ``> 0`` guards
+                        # planning entries with no progress.
+                        completed=e.progress > 0,
                     ),
                     e.anime,
                 )

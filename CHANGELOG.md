@@ -2,6 +2,22 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.8] — 2026-07-29
+
+### Fixed
+
+- **AniList sync now marks every episode you've watched.** Pulling your list
+  recorded only a single "up to episode N" row, so a show you'd watched 6
+  episodes of elsewhere showed no ✓ marks at all. Watching is linear, so the
+  furthest finished episode now implies every earlier one is watched — episodes
+  1–N light up ✓, while a half-watched later episode keeps its own progress.
+
+### Added
+
+- **Progress bars on the detail screen.** An overall "watched X/Y · %" bar under
+  the header, and per-episode mini-bars for anything in progress. Episodes now
+  read at a glance: ✓ watched, ▸ in-progress (with bar), ▶ up-next, ○ unwatched.
+
 ## [0.2.7] — 2026-07-29
 
 ### Added

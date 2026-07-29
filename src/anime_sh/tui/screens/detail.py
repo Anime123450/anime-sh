@@ -20,7 +20,12 @@ from textual.widgets import Footer, Header, ListView, Static
 from ...domain.errors import NoStreamsFound
 from ...domain.models import Anime, Audio
 from ..coverart import fetch_cover, render_cover
-from ..format import episode_air_label, meta_line, next_episode_line
+from ..format import (
+    episode_air_label,
+    meta_line,
+    next_episode_line,
+    watch_summary,
+)
 from ..widgets import EpisodeItem
 
 _COVER_COLS = 48
@@ -36,6 +41,7 @@ class DetailScreen(Screen):
     DetailScreen #detail-top { height: auto; }
     DetailScreen #detail-cover { width: 50; height: auto; padding: 0 2 0 0; }
     DetailScreen #detail-meta { width: 1fr; height: auto; }
+    DetailScreen #detail-progress { height: auto; padding: 1 0 0 0; }
     """
 
     def __init__(self, anime: Anime, *, resume_episode: float | None = None,
@@ -53,6 +59,7 @@ class DetailScreen(Screen):
             with Horizontal(id="detail-top"):
                 yield Static("", id="detail-cover")
                 yield Static(self._header_text(), id="detail-meta")
+            yield Static("", id="detail-progress")
             yield ListView(id="episodes")
         yield Footer()
 
@@ -94,6 +101,7 @@ class DetailScreen(Screen):
         if fresh is not None:
             self.anime = fresh
             self._refresh_header()
+            self._refresh_progress()  # fresh metadata may fill in the total
 
         available = await self._available_episodes()
         planned = self.anime.episode_count or 0
@@ -125,17 +133,37 @@ class DetailScreen(Screen):
             return None
 
     async def _load_marks(self) -> None:
-        """Watched (✓) and in-progress (▸ N%) marks from the library."""
-        self._watched: set[float] = set()
+        """Compute the watch state from the library.
+
+        Watching is linear, so the *furthest completed episode* implies every
+        earlier one is watched too — that's what makes a show whose progress was
+        synced from AniList (one "watched up to N" row) light up episodes 1..N,
+        not just N. In-progress percents past that mark are kept; ones at or
+        below it are stale (superseded by a later completion) and dropped."""
+        self._watched_through: float = 0
         self._partial: dict[float, int] = {}
         try:
             for p in await self.app.services.library.progress_for(self.anime.id):
                 if p.completed:
-                    self._watched.add(p.episode)
-                elif p.position_s > 0:
+                    self._watched_through = max(self._watched_through, p.episode)
+                elif p.position_s > 0 and p.duration_s > 0:
                     self._partial[p.episode] = round(p.fraction * 100)
         except Exception:
             pass  # marks are decoration; never block the episode list
+        self._partial = {
+            e: pct for e, pct in self._partial.items() if e > self._watched_through
+        }
+        self._refresh_progress()
+
+    def _refresh_progress(self) -> None:
+        """Update the overall watch-progress bar under the header."""
+        try:
+            self.query_one("#detail-progress", Static).update(
+                watch_summary(int(getattr(self, "_watched_through", 0)),
+                              self.anime.episode_count)
+            )
+        except Exception:
+            pass
 
     async def _render_episodes(
         self, numbers: list[float], available: set[float] | None = None
@@ -144,34 +172,38 @@ class DetailScreen(Screen):
         self._available = available
         lv = self.query_one("#episodes", ListView)
         await lv.clear()
-        watched = getattr(self, "_watched", set())
+        watched_through = getattr(self, "_watched_through", 0)
         partial = getattr(self, "_partial", {})
+
+        def is_avail(n: float) -> bool:
+            return available is None or n in available
+
+        # Next to watch: an explicit resume target, else the in-progress
+        # episode, else the first available one past the watched-through mark.
+        next_number = (
+            self.resume_episode
+            if self.resume_episode is not None
+            else min(partial) if partial
+            else next((n for n in numbers if n > watched_through and is_avail(n)), None)
+        )
         select_index = 0
         for i, number in enumerate(numbers):
-            is_resume = self.resume_episode is not None and number == self.resume_episode
-            if is_resume:
+            avail = is_avail(number)
+            is_watched = number <= watched_through
+            pct = partial.get(number)
+            if number == next_number:
                 select_index = i
-            is_available = available is None or number in available
             lv.append(
                 EpisodeItem(
                     number,
-                    watched=number in watched,
-                    resume_s=1 if is_resume else 0,
-                    progress_pct=partial.get(number),
-                    available=is_available,
-                    air_label=None if is_available else episode_air_label(self.anime, number),
+                    watched=is_watched,
+                    resume_s=1 if number == self.resume_episode else 0,
+                    progress_pct=pct,
+                    available=avail,
+                    air_label=None if avail else episode_air_label(self.anime, number),
+                    is_next=(not is_watched and pct is None
+                             and number == next_number and avail),
                 )
-            )
-        if self.resume_episode is None and (watched or partial):
-            # Land the cursor on the next thing to watch: an in-progress
-            # episode first, else the first unwatched available one.
-            select_index = next(
-                (i for i, n in enumerate(numbers) if n in partial),
-                next(
-                    (i for i, n in enumerate(numbers)
-                     if n not in watched and (available is None or n in available)),
-                    select_index,
-                ),
             )
         lv.index = select_index
         lv.focus()
