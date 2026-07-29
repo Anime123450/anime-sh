@@ -2,6 +2,20 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.11] — 2026-07-29
+
+### Added
+
+- **Crisp cover art via graphics protocols.** On a terminal that supports Sixel
+  (Windows Terminal ≥ 1.22), kitty, or iTerm2, the detail-screen poster now
+  renders as a true bitmap instead of unicode blocks. Falls back to the block
+  render everywhere else; set `ANIME_SH_NO_GRAPHICS=1` to force the fallback.
+
+### Changed
+
+- **Slimmer Continue Watching bars.** The little progress bars were too wide;
+  trimmed so they sit neatly after the "Ep N · %".
+
 ## [0.2.10] — 2026-07-29
 
 ### Added

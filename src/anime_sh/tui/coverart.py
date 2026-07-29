@@ -20,6 +20,61 @@ from __future__ import annotations
 from rich.text import Text
 
 
+def _graphics_disabled() -> bool:
+    """Escape hatch: set ``ANIME_SH_NO_GRAPHICS=1`` to force the unicode-block
+    render (e.g. if a terminal mishandles Sixel)."""
+    import os
+
+    return bool(os.environ.get("ANIME_SH_NO_GRAPHICS"))
+
+
+def prime_graphics() -> None:
+    """Trigger textual-image's terminal-capability probe.
+
+    It queries the terminal (sends an escape, reads the reply), which only works
+    *before* Textual starts its own IO threads — so the CLI calls this once at
+    launch. A no-op if disabled, textual-image isn't installed, or the probe
+    fails."""
+    if _graphics_disabled():
+        return
+    try:
+        import textual_image.renderable  # noqa: F401  (import runs the probe)
+    except Exception:
+        pass
+
+
+def graphics_protocol_active() -> bool:
+    """True when a *pixel* graphics protocol (Sixel / kitty / iTerm) was detected,
+    so a true-bitmap cover will render — sharp, unlike the unicode-block fallback.
+    Relies on :func:`prime_graphics` having run first."""
+    if _graphics_disabled():
+        return False
+    try:
+        from textual_image.renderable import Image
+        return any(p in (Image.__module__ or "") for p in ("sixel", "tgp", "iterm"))
+    except Exception:
+        return False
+
+
+def graphics_cover_widget(data: bytes, width_cells: int):
+    """A textual-image widget that renders the cover as a real bitmap at
+    ``width_cells`` wide, or None if that isn't possible (caller falls back to
+    the unicode-block render)."""
+    try:
+        import io
+
+        from PIL import Image as PILImage
+        from textual_image.widget import Image
+
+        img = PILImage.open(io.BytesIO(data)).convert("RGB")
+        widget = Image(img)
+        widget.styles.width = width_cells
+        widget.styles.height = "auto"
+        return widget
+    except Exception:
+        return None
+
+
 async def fetch_cover(url: str) -> bytes | None:
     """Fetch cover bytes. Returns None on any failure (offline, 404, …)."""
     try:

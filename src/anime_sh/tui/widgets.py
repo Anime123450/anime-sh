@@ -44,7 +44,7 @@ class AnimeItem(ListItem):
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
         # A small bar mirrors the detail screen for a show you're partway through.
         if self._progress is not None and not self._dim:
-            label = f"{label}  {progress_bar(self._progress, 8, color='cyan')}"
+            label = f"{label}  {progress_bar(self._progress, 5, color='cyan')}"
         # A whole-row dim marks a show you're caught up on (waiting for the next
         # episode) — greyed out so the titles you *can* watch stand out.
         if self._dim:
