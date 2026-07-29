@@ -32,6 +32,9 @@ class TuiServices:
     aclose: Callable[[], Awaitable[None]]
     # Optional AniList tracker — enables the My List screen when linked.
     tracker: object | None = None
+    # Optional AniList sync service — lets the home screen pull remote progress
+    # on launch so Continue Watching reflects other devices. None when unlinked.
+    sync: object | None = None
 
 
 # Map our config theme names onto Textual's built-in themes.

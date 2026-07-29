@@ -1,7 +1,7 @@
 """AniSkip — community intro/outro timestamps.
 
 Providers only sometimes ship op/ed skip data with a stream (megaplay does,
-AniZone and the AllAnime clock don't). AniSkip fills the gap: given a show's
+AniZone doesn't). AniSkip fills the gap: given a show's
 MAL id + episode number, it returns crowd-sourced intro/outro intervals so
 auto-skip works on every provider, not just the lucky ones.
 

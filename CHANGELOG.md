@@ -2,6 +2,28 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.7] — 2026-07-29
+
+### Added
+
+- **Cross-device progress.** When an AniList account is linked, the home screen
+  pulls your list in the background on launch, so episodes watched on your phone
+  or the web now show up in Continue Watching automatically.
+
+### Changed
+
+- **Sharper cover art again.** Covers now render with 2×3-pixel *sextant* cells
+  (50% more vertical detail than 0.2.6's 2×2 quadrants), so posters read cleaner.
+  A truecolor terminal is all that's needed; see the README for the even-sharper
+  Sixel option.
+
+### Removed
+
+- **The AllAnime provider.** Its streams came from third-party embed hosts that
+  were frequently geo/ISP-blocked, and its source crypto rotated every few days —
+  an unsustainable upkeep for a source that rarely played. anikoto + anizone
+  cover the same catalog.
+
 ## [0.2.6] — 2026-07-28
 
 ### Changed
