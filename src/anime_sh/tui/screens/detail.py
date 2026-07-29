@@ -50,6 +50,7 @@ class DetailScreen(Screen):
     DetailScreen #detail-cover { width: 34; height: auto; padding: 0 2 0 0; }
     DetailScreen #detail-meta { width: 1fr; height: auto; }
     DetailScreen #detail-progress { height: auto; padding: 1 0 0 0; }
+    DetailScreen #detail-action { height: auto; padding: 0 0 1 0; }
     """
 
     def __init__(self, anime: Anime, *, resume_episode: float | None = None,
@@ -68,6 +69,7 @@ class DetailScreen(Screen):
                 yield Container(id="detail-cover")
                 yield Static(self._header_text(), id="detail-meta")
             yield Static("", id="detail-progress")
+            yield Static("", id="detail-action")
             yield ListView(id="episodes")
         yield Footer()
 
@@ -255,6 +257,30 @@ class DetailScreen(Screen):
             )
         lv.index = select_index
         lv.focus()
+        self._refresh_action(next_number, partial, watched_through)
+
+    def _refresh_action(self, next_number, partial: dict, watched_through) -> None:
+        """The one-line call-to-action above the episode list: what pressing
+        Enter will do — resume, start, play next, or a done note."""
+        total = self.anime.episode_count
+        if next_number is None:
+            text = ("[green]✓ You've finished this series.[/green]"
+                    if total and watched_through >= total else "")
+        else:
+            n = f"{next_number:g}"
+            pct = partial.get(next_number)
+            if pct:
+                text = (f"[b cyan]▶ Resume Episode {n}[/b cyan] "
+                        f"[dim]· {pct}% watched — press Enter[/dim]")
+            elif watched_through <= 0:
+                text = f"[b cyan]▶ Start Episode {n}[/b cyan] [dim]— press Enter[/dim]"
+            else:
+                text = (f"[b cyan]▶ Play Episode {n}[/b cyan] "
+                        f"[dim]· up next — press Enter[/dim]")
+        try:
+            self.query_one("#detail-action", Static).update(text)
+        except Exception:
+            pass
 
     def _refresh_subtitle(self, available: list[float] | None) -> None:
         if available:

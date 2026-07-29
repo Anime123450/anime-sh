@@ -83,7 +83,15 @@ def _root(
     try:
         _launch_tui()
     except ImportError:
-        err.print("[yellow]The TUI needs extra deps:[/] pip install 'anime-sh[tui]'")
+        # Note the escaped brackets: unescaped "[tui]" is eaten by Rich markup,
+        # which is exactly how users end up copying "anime-sh" without the extra.
+        err.print(
+            "[yellow]The full-screen app needs its extra dependencies "
+            "(Textual + Pillow).[/]\n"
+            "Reinstall with the [b]tui[/] extra:\n"
+            "  [cyan]uv tool install --force 'anime-sh\\[tui]'[/]   (recommended)\n"
+            "  [cyan]pip install --user 'anime-sh\\[tui]'[/]"
+        )
         typer.echo(ctx.get_help())
 
 

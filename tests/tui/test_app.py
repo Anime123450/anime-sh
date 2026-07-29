@@ -306,6 +306,9 @@ async def test_episode_marks_and_next_up_cursor():
         assert [it.watched for it in items] == [True, False, False]
         assert [it.progress_pct for it in items] == [None, 50, None]
         assert episodes.index == 1  # next up = the in-progress episode
+        # The call-to-action points at resuming the in-progress episode.
+        action = str(detail.query_one("#detail-action").render())
+        assert "Resume Episode 2" in action
 
 
 async def test_synced_progress_marks_all_earlier_episodes():
