@@ -185,6 +185,29 @@ def test_render_cover_snaps_edges_to_two_colors():
                for st in styles)
 
 
+def test_progress_bar_fills_proportionally():
+    from anime_sh.tui.format import progress_bar
+
+    empty = progress_bar(0.0, 10)
+    full = progress_bar(1.0, 10)
+    half = progress_bar(0.5, 10)
+    assert "█" not in empty and "░" in empty          # nothing filled
+    assert "█" in full and "░" not in full            # fully filled
+    assert "█" in half and "░" in half                # partly filled
+    # Clamps out-of-range fractions instead of overflowing.
+    assert progress_bar(2.0, 10) == full
+    assert progress_bar(-1.0, 10) == empty
+
+
+def test_watch_summary_reads_watched_over_total():
+    from anime_sh.tui.format import watch_summary
+
+    assert "6/12" in watch_summary(6, 12) and "50%" in watch_summary(6, 12)
+    assert "complete" in watch_summary(12, 12)
+    # Unknown total → a count, never a misleading bar.
+    assert "░" not in watch_summary(3, None)
+
+
 def test_sextant_table_maps_known_patterns():
     from anime_sh.tui.coverart import _SEXTANTS
 

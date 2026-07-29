@@ -95,6 +95,37 @@ def continue_row(
     return (f"up next · Ep {nxt:g}", False, nxt)
 
 
+_BAR_EIGHTHS = "▏▎▍▌▋▊▉█"  # 1/8 … 8/8 of a cell, for sub-character bar resolution
+
+
+def progress_bar(
+    fraction: float, width: int = 14, *, color: str = "green", track: str = "grey30"
+) -> str:
+    """A markup progress bar ``width`` cells wide at 1/8-cell resolution, filled
+    to ``fraction`` (0–1). Filled part is ``color``, the remaining track dim."""
+    fraction = 0.0 if fraction < 0 else 1.0 if fraction > 1 else fraction
+    eighths = round(fraction * width * 8)
+    full, rem = divmod(eighths, 8)
+    filled = "█" * full + (_BAR_EIGHTHS[rem - 1] if rem else "")
+    empty = "░" * (width - len(filled))
+    return f"[{color}]{filled}[/{color}][{track}]{empty}[/{track}]"
+
+
+def watch_summary(watched: int, total: int | None, *, width: int = 16) -> str:
+    """The detail screen's overall-progress line: a bar + ``6/12 · 50%``.
+
+    With no known total (still-airing, count unknown) it shows just the watched
+    count and no bar, rather than a misleading full/empty ratio."""
+    if not total:
+        n = f"{watched} watched" if watched else "not started"
+        return f"[dim]{n}[/dim]"
+    frac = watched / total if total else 0.0
+    pct = round(frac * 100)
+    color = "green" if watched >= total else "cyan"
+    label = "complete" if watched >= total else f"{watched}/{total} · {pct}%"
+    return f"{progress_bar(frac, width, color=color)}  [b]{label}[/b]"
+
+
 def score_badge(score: int | None) -> str | None:
     """A colored ★ badge from a 0-100 AniList score (green ≥75, yellow ≥60)."""
     if not score:
