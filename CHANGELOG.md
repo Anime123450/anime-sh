@@ -2,6 +2,19 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.14] — 2026-07-29
+
+### Added
+
+- **A clear "what to do next" line on the detail screen** — "▶ Resume Episode 7 · 26%" / "▶ Start Episode 1" / "▶ Play Episode N" above the list, so the primary action is obvious.
+- **Counts on the home sections** — "Continue Watching  14", "Trending  20".
+
+### Fixed
+
+- **The "needs extra deps" hint showed the wrong command.** Rich markup ate the
+  `[tui]`, so it read `pip install anime-sh` (no extra) — the exact trap. It now
+  shows the correct `anime-sh[tui]` install (uv and pip).
+
 ## [0.2.13] — 2026-07-29
 
 ### Changed

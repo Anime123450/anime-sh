@@ -142,6 +142,7 @@ class HomeScreen(Screen):
         for anime, subtitle, dim, resume, frac in rows:
             lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume,
                                 dim=dim, progress=frac))
+        self._set_section("#sec-continue", "Continue Watching", len(rows))
 
     async def _fresh_airing(self, items) -> dict:
         """Map anilist id → freshly-fetched Anime (with airing schedule) for the
@@ -178,6 +179,7 @@ class HomeScreen(Screen):
         for fav in items:
             meta = " · ".join(str(x) for x in (fav.anime.format.value, fav.anime.year) if x)
             lv.append(AnimeItem(fav.anime, subtitle=meta))
+        self._set_section("#sec-favorites", "Favorites", len(items))
 
     @work(exclusive=True, group="seasonal")
     async def _load_seasonal(self) -> None:
@@ -197,6 +199,7 @@ class HomeScreen(Screen):
         await lv.clear()
         for a in animes[:20]:
             lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
+        self._set_section("#sec-seasonal", "Airing This Season", min(len(animes), 20))
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
@@ -212,6 +215,7 @@ class HomeScreen(Screen):
         await lv.clear()
         for a in animes:
             lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
+        self._set_section("#sec-trending", "Trending", len(animes))
 
     # -- search ------------------------------------------------------------- #
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -281,3 +285,11 @@ class HomeScreen(Screen):
             return len(self.query_one(selector, ListView)) > 0
         except Exception:
             return False
+
+    def _set_section(self, sec_id: str, base: str, count: int) -> None:
+        """Append a dim count to a section header, e.g. 'Trending  20'."""
+        try:
+            label = self.query_one(sec_id, Label)
+            label.update(f"{base}  [dim]{count}[/dim]" if count else base)
+        except Exception:
+            pass
