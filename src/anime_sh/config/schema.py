@@ -30,7 +30,7 @@ class ProvidersConfig(BaseModel):
     # built-in priority, ordered after the preferred ones. Unknown names are
     # ignored, so this stays valid as providers come and go.
     preferred: list[str] = Field(
-        default_factory=lambda: ["anizone", "anikoto", "allanime"]
+        default_factory=lambda: ["anizone", "anikoto"]
     )
     disabled: list[str] = Field(default_factory=list)
     timeout_s: float = 8.0

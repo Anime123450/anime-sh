@@ -54,9 +54,8 @@ blocked. Invoke the CLI as a module to sidestep the shim entirely:
   download.
 - `infra/` — http, metadata (AniList), db (sqlite: library/health/downloads +
   migrations), players (mpv over IPC, null), downloader (ffmpeg), registry.
-- `providers/` — allanime, anikoto, anizone (entry-point plugins).
-- `resolvers/` — allanime-clock, mp4upload, vidtube→megaplay, filemoon,
-  streamwish, generic.
+- `providers/` — anikoto, anizone (entry-point plugins).
+- `resolvers/` — mp4upload, vidtube→megaplay, filemoon, streamwish, generic.
 - `cli/`, `tui/` — the two adapters. Tests in `tests/{unit,contract,integration,tui}`.
 
 ## Adding a provider/resolver
@@ -68,16 +67,10 @@ load, never fatal.
 
 ## Provider notes (change often — canary tracks them)
 
-- **AllAnime** (rebranded to `mkissa.to`): Firefox UA. Search/episodes are plain
-  POST GraphQL. Sources are gated — the crypto (rotating `epoch`, per-build AES
-  key, persisted-query text+hash) is derived from the live site's JS bundle in
-  `keygen.py`. The sources GET carries `Origin: mkissa.to` (the old
-  `youtu-chan.com` origin now yields `AA_CRYPTO_STALE`), the full persisted-query
-  text (hash-only alone → `PersistedQueryNotFound` on cold instances), and an
-  `extensions.aaReq` AES-256-GCM token (`build_aareq`) or the API returns
-  `AA_CRYPTO_MISSING`. The reply is an AES-256-GCM `tobeparsed` blob (per-build
-  key, legacy sha256("Xot36i3lK3:v1") fallback), then XOR-0x38 per source URL.
-  Playback referer stays `youtu-chan.com` (the clock/CDN, not the API).
+- **AllAnime** was removed (2026-07-29): its streams came from third-party embed
+  hosts that are frequently geo/ISP-blocked, and its source-crypto rotated every
+  few days (per-build AES key + timed `epoch` scraped live) — an unsustainable
+  maintenance burden for a source that rarely played. anikoto + anizone cover it.
 - **anikoto**: HiAnime-family. `/search` → `/ajax/episode/list/<id>` →
   `/ajax/server/list?servers=<data-ids>` → `/ajax/server?get=<link-id>`. Streams
   on megaplay clones (vidtube.site/megaplay.buzz/vidwish.live): read `cidu` from
@@ -92,6 +85,6 @@ load, never fatal.
 
 ## Status
 
-M0–M5 done. Three live providers, circuit breakers, nightly canary, Textual TUI,
-auto-skip/auto-next, ffmpeg downloads. Next: M6 (docs site, plugin cookiecutter,
-PyPI). See `docs/architecture.md`.
+M0–M5 done. Two live providers (anikoto, anizone), circuit breakers, nightly
+canary, Textual TUI, auto-skip/auto-next, ffmpeg downloads, AniList sync. Next:
+M6 (docs site, plugin cookiecutter, PyPI). See `docs/architecture.md`.

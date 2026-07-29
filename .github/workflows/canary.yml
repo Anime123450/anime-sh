@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [allanime, anikoto]
+        provider: [anizone, anikoto]
     steps:
       - uses: actions/checkout@v4
       - name: Install uv

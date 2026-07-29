@@ -11,8 +11,8 @@ Reverse-engineered flow:
 4. ``GET /ajax/server?get=<data-link-id>``      → ``{url: <embed>, skip_data}``.
 
 The provider returns each embed URL (e.g. vidtube.site) as a candidate;
-resolvers turn those into playable streams. Anikoto covers shows AllAnime
-lacks — the whole reason for fanning out across providers.
+resolvers turn those into playable streams. Fanning out across providers is what
+lets one source cover the shows another lacks.
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ def _norm(s: str) -> str:
 
 class AnikotoProvider:
     name = "anikoto"
-    # Above AllAnime: its stream is direct (via the de-obfuscating proxy) rather
-    # than a third-party embed host that is often geo/ISP-blocked.
+    # Its stream is direct (via the de-obfuscating proxy) rather than a
+    # third-party embed host that is often geo/ISP-blocked.
     priority = 85
     api_version = 1
 
