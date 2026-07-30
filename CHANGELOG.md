@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.23] — 2026-07-30
+
+### Fixed
+
+- **The AniList sync no longer demotes shows you just watched here.** Continue
+  Watching now orders by your local play history — which the sync never touches —
+  so a show you watched on this device stays on top, instead of the sync bumping
+  other shows above it by their AniList timestamps. (A missing AniList updatedAt
+  also no longer gets stamped "now", which was inflating recency every sync.)
+
 ## [0.2.22] — 2026-07-30
 
 ### Fixed

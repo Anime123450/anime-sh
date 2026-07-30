@@ -110,6 +110,32 @@ async def test_save_progress_never_downgrades_recency(library):
     assert row.completed is True      # but the newer completed flag applied
 
 
+async def test_continue_watching_puts_locally_played_shows_first(library):
+    # The reported bug: a background AniList sync reordered Continue Watching and
+    # demoted the show you'd just watched here. Ordering is by local play history
+    # (which the sync never touches), so a show played here outranks a synced-only
+    # show even if the sync gave the latter a newer progress timestamp.
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=5)
+    # Show 2: freshest progress timestamp, but never played here (synced only).
+    await library.save_anime(_anime(2, "Synced Only"))
+    await library.save_progress(WatchProgress(
+        anime_id=AnimeId(anilist=2), episode=3.0, position_s=300, duration_s=1400,
+        updated_at=now, completed=False))
+    # Show 1: older progress, but actually played here → must rank first.
+    await library.save_anime(_anime(1, "Watched Here"))
+    await library.save_progress(WatchProgress(
+        anime_id=AnimeId(anilist=1), episode=2.0, position_s=300, duration_s=1400,
+        updated_at=old, completed=False))
+    await library.add_history(AnimeId(anilist=1), 2.0, provider="anikoto",
+                              seconds_watched=300)
+
+    items = await library.continue_watching()
+    assert [it.anime.id.anilist for it in items] == [1, 2]  # local play on top
+
+
 async def test_mark_watched_catches_up_to_episode(library):
     svc = LibraryService(library)
     marked = await svc.mark_watched(_anime(1, "Frieren"), 3.0)
