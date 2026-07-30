@@ -33,6 +33,55 @@ def _is_healthy(path: Path) -> bool:
         return False  # can't even read it → treat as corrupt
 
 
+def _scan_table(src: sqlite3.Connection, table: str) -> tuple[list[str], list[tuple]]:
+    """Read every *readable* row of a table, skipping only the rows on a corrupt
+    page rather than abandoning the rest of the table after the first bad one.
+
+    This is the whole point of the salvage: corruption usually sits on one page,
+    and the newest rows (highest rowid — a user's most recent watches) live at
+    the *end* of the table. A plain ``SELECT *`` that raises mid-scan loses every
+    row after the bad page, i.e. exactly the data you most want back. Instead we
+    walk by ``rowid`` and, when a page faults, step past it and resume — so a bad
+    page early in the file can't cost you the recent history that follows it.
+    """
+    try:
+        cur = src.execute(f"SELECT * FROM {table} LIMIT 0")
+        cols = [d[0] for d in cur.description]
+    except Exception:
+        return [], []
+    rows: list[tuple] = []
+    last = -1          # highest rowid successfully read so far
+    misses = 0         # consecutive faults with no progress → widen the skip
+    for _ in range(500_000):  # hard cap so a pathological file can't spin forever
+        try:
+            cur = src.execute(
+                f"SELECT _rowid_ AS __rid, * FROM {table} "
+                "WHERE _rowid_ > ? ORDER BY _rowid_",
+                (last,),
+            )
+        except sqlite3.OperationalError:
+            # WITHOUT ROWID table (no _rowid_) — one plain best-effort scan.
+            try:
+                cur = src.execute(f"SELECT * FROM {table}")
+                return cols, [tuple(r[c] for c in cols) for r in cur]
+            except Exception:
+                return cols, rows
+        progressed = False
+        try:
+            for r in cur:
+                last = r["__rid"]
+                rows.append(tuple(r[c] for c in cols))
+                progressed = True
+            return cols, rows  # reached the end with no fault
+        except Exception:
+            # Faulted on a page. Skip forward past the offending rowid and
+            # resume; widen the jump geometrically if we keep landing on bad
+            # rows so we escape a large damaged region instead of crawling.
+            misses = 0 if progressed else misses + 1
+            last += 1 << min(misses, 20)
+    return cols, rows
+
+
 def _salvage_rebuild(path: Path) -> bool:
     """Rebuild a corrupt DB from what's still readable.
 
@@ -50,20 +99,11 @@ def _salvage_rebuild(path: Path) -> bool:
         tables = [r[0] for r in src.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name NOT LIKE 'sqlite_%'").fetchall()]
-        salvaged: dict[str, tuple[list[str], list[tuple]]] = {}
-        for t in tables:
-            try:
-                cur = src.execute(f"SELECT * FROM {t}")
-                cols = [d[0] for d in cur.description]
-                rows = []
-                for r in cur:  # row-by-row: one bad page can't lose the table
-                    try:
-                        rows.append(tuple(r))
-                    except Exception:
-                        pass
-                salvaged[t] = (cols, rows)
-            except Exception as e:
-                log.warning("db recovery: could not scan %s: %s", t, e)
+        # Resilient per-table scan: a bad page costs only its own rows, never the
+        # newer rows that follow it (see _scan_table).
+        salvaged: dict[str, tuple[list[str], list[tuple]]] = {
+            t: _scan_table(src, t) for t in tables
+        }
     finally:
         src.close()
 
@@ -121,8 +161,18 @@ async def _quick_check_ok(conn: aiosqlite.Connection) -> bool:
         cur = await conn.execute("PRAGMA quick_check")
         row = await cur.fetchone()
         return bool(row) and row[0] == "ok"
+    except sqlite3.DatabaseError as e:
+        # Only genuine corruption should trigger the (destructive) salvage. A
+        # transient lock/busy is *also* a DatabaseError subclass here, so key off
+        # the message: "malformed"/"not a database"/"corrupt" mean rebuild;
+        # anything else (locked, busy) is treated as healthy so we don't rebuild —
+        # and risk losing rows — over a passing hiccup.
+        msg = str(e).lower()
+        if "malform" in msg or "not a database" in msg or "corrupt" in msg:
+            return False
+        return True
     except Exception:
-        return False
+        return True
 
 
 def _set_aside_corrupt(path: Path) -> None:
