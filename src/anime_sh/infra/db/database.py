@@ -112,22 +112,26 @@ def _salvage_rebuild(path: Path) -> bool:
     return True
 
 
-def _heal_if_corrupt(path: Path) -> None:
-    """Repair (or, as a last resort, set aside) a corrupt DB before opening it.
+async def _quick_check_ok(conn: aiosqlite.Connection) -> bool:
+    """Integrity-probe the *already-open* connection. Doing this on the live
+    connection (rather than opening a second one) is essential on Windows: a
+    separate probe connection races the WAL lock and makes the real connect fail
+    with 'database is locked'."""
+    try:
+        cur = await conn.execute("PRAGMA quick_check")
+        row = await cur.fetchone()
+        return bool(row) and row[0] == "ok"
+    except Exception:
+        return False
 
-    A silently-corrupt SQLite file otherwise freezes the app — writes fail on the
-    bad pages and nothing (progress, continue-watching) ever updates."""
-    if not path.exists() or _is_healthy(path):
-        return
-    log.warning("database %s is corrupt; attempting recovery", path.name)
+
+def _set_aside_corrupt(path: Path) -> None:
+    """Last resort when a rebuild isn't possible: move the corrupt file aside so
+    the app starts fresh rather than crash-looping. The backup lets the data be
+    recovered later."""
     try:
-        if _salvage_rebuild(path):
-            return
-    except Exception as e:
-        log.error("db recovery failed: %s", e)
-    # Couldn't rebuild — move the corrupt file aside so the app starts fresh
-    # rather than crash-looping on it. The backup lets the data be recovered later.
-    try:
+        for suffix in ("-wal", "-shm", "-journal"):
+            Path(str(path) + suffix).unlink(missing_ok=True)
         path.rename(path.with_suffix(f".db.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"))
         log.warning("started with a fresh database; corrupt file kept as backup")
     except Exception as e:  # pragma: no cover
@@ -146,10 +150,21 @@ class Database:
         if self._conn is not None:
             return self._conn
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # Self-heal a corrupt file before opening — otherwise writes silently
-        # fail on bad pages and the app looks frozen (progress never updates).
-        _heal_if_corrupt(self.path)
         conn = await aiosqlite.connect(self.path)
+        # Self-heal a corrupt file: probe on THIS connection (a second probe
+        # connection races the WAL lock on Windows → "database is locked"), and
+        # if it's damaged, close, rebuild, and reopen the clean file. Otherwise a
+        # silently-corrupt DB freezes the app — writes fail on the bad pages.
+        if self.path.exists() and not await _quick_check_ok(conn):
+            await conn.close()
+            log.warning("database %s is corrupt; attempting recovery", self.path.name)
+            try:
+                if not _salvage_rebuild(self.path):
+                    _set_aside_corrupt(self.path)
+            except Exception as e:
+                log.error("db recovery failed: %s", e)
+                _set_aside_corrupt(self.path)
+            conn = await aiosqlite.connect(self.path)
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA foreign_keys=ON")

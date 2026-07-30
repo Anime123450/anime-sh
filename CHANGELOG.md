@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.21] — 2026-07-30
+
+### Fixed
+
+- **App failed to launch with "database is locked" (regression in 0.2.20).** The
+  new corruption self-heal opened a second connection to probe the database
+  right before the main one, and on Windows that probe held the WAL lock long
+  enough to break the real connection. The integrity check now runs on the main
+  connection itself — no second connection, no lock.
+
 ## [0.2.20] — 2026-07-30
 
 ### Fixed
