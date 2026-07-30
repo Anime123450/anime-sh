@@ -25,7 +25,7 @@ async def library(tmp_path: Path):
 async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
     import sqlite3
 
-    from anime_sh.infra.db.database import _heal_if_corrupt, _is_healthy, _salvage_rebuild
+    from anime_sh.infra.db.database import _is_healthy, _salvage_rebuild
 
     # A populated, healthy DB.
     db = Database(tmp_path / "anime.db", migrations_dir="migrations")
@@ -37,7 +37,16 @@ async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
     path = tmp_path / "anime.db"
     assert _is_healthy(path)
 
-    # A garbage file reads as corrupt, and healing it sets it aside (fresh start).
+    # Regression: reopening an existing WAL database must connect cleanly — the
+    # integrity probe runs on the live connection, not a second one that would
+    # race the WAL lock ("database is locked").
+    db2 = Database(path, migrations_dir="migrations")
+    conn = await db2.connect()
+    cur = await conn.execute("SELECT COUNT(*) FROM progress")
+    assert (await cur.fetchone())[0] == 2
+    await db2.close()
+
+    # A garbage file reads as corrupt.
     junk = tmp_path / "junk.db"
     junk.write_bytes(b"SQLite format 3\x00" + b"\xde\xad\xbe\xef" * 500)
     assert not _is_healthy(junk)
@@ -45,12 +54,9 @@ async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
     # Rebuild preserves every row and yields a healthy database.
     assert _salvage_rebuild(path) is True
     assert _is_healthy(path)
-    conn = sqlite3.connect(str(path))
-    assert conn.execute("SELECT COUNT(*) FROM progress").fetchone()[0] == 2
-    conn.close()
-    # A healthy DB is left untouched by the heal pass.
-    _heal_if_corrupt(path)
-    assert _is_healthy(path)
+    conn2 = sqlite3.connect(str(path))
+    assert conn2.execute("SELECT COUNT(*) FROM progress").fetchone()[0] == 2
+    conn2.close()
 
 
 def _anime(anilist=154587, title="Frieren"):
