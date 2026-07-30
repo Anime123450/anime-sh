@@ -67,6 +67,21 @@ class HomeScreen(Screen):
         except Exception:
             pass
 
+    def on_screen_suspend(self) -> None:
+        # A screen (detail, sources, …) was pushed over Home.
+        self._was_suspended = True
+
+    def on_screen_resume(self) -> None:
+        # Only refresh after Home was actually suspended and revealed again —
+        # i.e. you went into a show and came back. Whatever you watched changed
+        # the library, so rebuild the library-backed sections. Guarding on the
+        # suspend avoids re-loading on the initial show (which on_mount already
+        # did) — that double-load churned the exclusive workers.
+        if getattr(self, "_was_suspended", False):
+            self._was_suspended = False
+            self._load_continue()
+            self._load_favorites()
+
     def _tick_countdowns(self) -> None:
         for wid in ("#seasonal", "#trending", "#results"):
             try:
