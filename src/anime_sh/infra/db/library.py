@@ -195,10 +195,17 @@ class SqliteLibrary:
             "JOIN (SELECT anilist_id, MAX(episode) AS furthest FROM progress "
             "      WHERE position_s > 0 OR completed = 1 GROUP BY anilist_id) f "
             "  ON f.anilist_id = p.anilist_id AND f.furthest = p.episode "
-            # Order by the show's most recent activity, not the furthest episode.
+            # Recency for ordering. Progress timestamps get rewritten by the
+            # AniList pull (with the entry's updatedAt), so they can't rank "what
+            # I watched here". The history table records every local play and the
+            # sync never touches it, so a show you played here ranks by when you
+            # played it — a background sync can't demote it. Shows only ever
+            # synced from AniList (no local history) fall back to progress recency.
             "JOIN (SELECT anilist_id, MAX(updated_at) AS recent FROM progress "
             "      WHERE position_s > 0 OR completed = 1 GROUP BY anilist_id) r "
             "  ON r.anilist_id = p.anilist_id "
+            "LEFT JOIN (SELECT anilist_id, MAX(watched_at) AS played FROM history "
+            "           GROUP BY anilist_id) h ON h.anilist_id = p.anilist_id "
             "LEFT JOIN anime a ON a.anilist_id = p.anilist_id "
             # position_s>0 OR completed keeps this to episodes actually watched or
             # marked here — an AniList import (progress but no local position)
@@ -209,7 +216,9 @@ class SqliteLibrary:
             # watched to the end, stays.
             "  AND NOT (p.completed = 1 AND a.status = 'FINISHED' "
             "           AND a.episodes IS NOT NULL AND p.episode >= a.episodes) "
-            "ORDER BY r.recent DESC LIMIT ?",
+            # Locally-played shows first (most recent play on top), then the
+            # AniList-only ones by their progress recency.
+            "ORDER BY (h.played IS NULL), h.played DESC, r.recent DESC LIMIT ?",
             (limit,),
         )
         rows = await cur.fetchall()

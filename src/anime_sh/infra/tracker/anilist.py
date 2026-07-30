@@ -218,7 +218,10 @@ class AniListTracker:
                         episode=float(e.progress),
                         position_s=0,
                         duration_s=0,
-                        updated_at=e.updated_at or datetime.now(timezone.utc),
+                        # A missing AniList updatedAt must sort *low*, not get
+                        # stamped "now" — that made every sync bump such shows to
+                        # the top and scramble Continue Watching's order.
+                        updated_at=e.updated_at or datetime(1970, 1, 1, tzinfo=timezone.utc),
                         # AniList ``progress = N`` means N episodes are finished,
                         # so the N-th is completed (the detail screen then treats
                         # every earlier episode as watched too). ``> 0`` guards
