@@ -61,7 +61,10 @@ class FakeLibrary:
     def __init__(self):
         self.progress = []
         self.favorites_list = []
+        self.continue_items = None  # None → the default single-show list
     async def continue_watching(self, *, limit=20):
+        if self.continue_items is not None:
+            return list(self.continue_items)
         prog = WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400,
                              datetime.now(timezone.utc))
         return [ResumeItem(anime=_anime(1, "Frieren"), progress=prog)]
@@ -242,6 +245,37 @@ async def test_search_shows_results_and_hides_home():
         assert results.display is True
         assert len(results) == 2
         assert app.query_one("#trending").display is False
+
+
+async def test_home_refreshes_continue_watching_on_resume():
+    # Watching a show then pressing Esc back to Home must re-query the library —
+    # otherwise Continue Watching keeps showing the launch-time state.
+    library = FakeLibrary()
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert len(app.query_one("#continue", ListView)) == 1
+        # Simulate the library changing while a detail screen is open.
+        now = datetime.now(timezone.utc)
+        library.continue_items = [
+            ResumeItem(anime=_anime(2, "Bocchi"),
+                       progress=WatchProgress(AnimeId(anilist=2), 3.0, 300, 1400, now)),
+            ResumeItem(anime=_anime(1, "Frieren"),
+                       progress=WatchProgress(AnimeId(anilist=1), 5.0, 300, 1400, now)),
+        ]
+        await app.push_screen(DetailScreen(_anime(1, "Frieren")))
+        await pilot.pause()
+        await app.pop_screen()  # Esc back to Home → should refresh
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        cont = app.query_one("#continue", ListView)
+        assert len(cont) == 2  # re-queried, now shows both
+        assert cont.children[0].anime.title.preferred == "Bocchi"
 
 
 async def test_selecting_item_opens_detail():

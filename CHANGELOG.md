@@ -2,6 +2,15 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.22] — 2026-07-30
+
+### Fixed
+
+- **Continue Watching refreshes when you return to Home.** After watching a show
+  and pressing Esc, the list kept showing the state from launch — it only loaded
+  once, on startup. It now rebuilds when you come back from a show, so what you
+  just watched moves to the top and reflects your latest progress.
+
 ## [0.2.21] — 2026-07-30
 
 ### Fixed
