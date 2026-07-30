@@ -2,6 +2,15 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.24] — 2026-07-30
+
+### Fixed
+
+- **Episode list no longer doubles after a series auto-completes.** Finishing a
+  season fired several workers that re-rendered the episode list at the same
+  time; their clear+append interleaved and the list showed every episode twice.
+  Rendering is now serialized so only one rebuild runs at a time.
+
 ## [0.2.23] — 2026-07-30
 
 ### Fixed

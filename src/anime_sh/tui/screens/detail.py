@@ -11,6 +11,8 @@ schedule, studio and score) renders just as fully as one reached from search.
 
 from __future__ import annotations
 
+import asyncio
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -61,6 +63,10 @@ class DetailScreen(Screen):
         self.source = source  # a chosen SourceOption, or None to fan out
         self._numbers: list[float] = []
         self._available: set[float] | None = None
+        # _render_episodes is called from several worker groups (episodes, play,
+        # marks); serialize them so a clear+append from one can't interleave with
+        # another and double the list (seen after a series auto-completes).
+        self._render_lock = asyncio.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -236,8 +242,6 @@ class DetailScreen(Screen):
     ) -> None:
         self._numbers = numbers
         self._available = available
-        lv = self.query_one("#episodes", ListView)
-        await lv.clear()
         watched_through = getattr(self, "_watched_through", 0)
         partial = getattr(self, "_partial", {})
 
@@ -257,27 +261,33 @@ class DetailScreen(Screen):
             else min(partial) if partial
             else next((n for n in numbers if n > watched_through and is_avail(n)), None)
         )
-        select_index = 0
-        for i, number in enumerate(numbers):
-            avail = is_avail(number)
-            is_watched = number <= watched_through
-            pct = partial.get(number)
-            if number == next_number:
-                select_index = i
-            lv.append(
-                EpisodeItem(
-                    number,
-                    watched=is_watched,
-                    resume_s=1 if number == resume else 0,
-                    progress_pct=pct,
-                    available=avail,
-                    air_label=None if avail else episode_air_label(self.anime, number),
-                    is_next=(not is_watched and pct is None
-                             and number == next_number and avail),
+        # Serialize the clear+append: without this, a concurrent render (play /
+        # marks / episodes workers all call here) can interleave — one clears, the
+        # other clears, both append — and the list ends up doubled.
+        async with self._render_lock:
+            lv = self.query_one("#episodes", ListView)
+            await lv.clear()
+            select_index = 0
+            for i, number in enumerate(numbers):
+                avail = is_avail(number)
+                is_watched = number <= watched_through
+                pct = partial.get(number)
+                if number == next_number:
+                    select_index = i
+                lv.append(
+                    EpisodeItem(
+                        number,
+                        watched=is_watched,
+                        resume_s=1 if number == resume else 0,
+                        progress_pct=pct,
+                        available=avail,
+                        air_label=None if avail else episode_air_label(self.anime, number),
+                        is_next=(not is_watched and pct is None
+                                 and number == next_number and avail),
+                    )
                 )
-            )
-        lv.index = select_index
-        lv.focus()
+            lv.index = select_index
+            lv.focus()
         self._refresh_action(next_number, partial, watched_through)
 
     def _refresh_action(self, next_number, partial: dict, watched_through) -> None:

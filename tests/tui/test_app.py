@@ -472,6 +472,26 @@ async def test_resume_pin_advances_after_you_finish_it():
         assert "Play Episode 3" in str(detail.query_one("#detail-action").render())
 
 
+async def test_episode_list_not_doubled_by_concurrent_renders():
+    # Regression: when a series auto-completes, the play/marks/episodes workers
+    # all re-render the episode list at once. Concurrent clear+append used to
+    # interleave and double the list (Ep 1-12 shown twice). Renders serialize now.
+    import asyncio as _asyncio
+
+    app, _ = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = DetailScreen(_anime(1, "Frieren", eps=3))
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        nums = [1.0, 2.0, 3.0]
+        await _asyncio.gather(*(detail._render_episodes(nums) for _ in range(5)))
+        await pilot.pause()
+        assert len(detail.query_one("#episodes", ListView)) == 3  # not 15
+
+
 async def test_unavailable_episodes_stay_listed_but_inert():
     # Planned 3 eps, only 1-2 available: the full season stays visible, the
     # missing one is marked unavailable and selecting it does NOT play.
