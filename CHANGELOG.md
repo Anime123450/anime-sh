@@ -2,6 +2,22 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.25] — 2026-07-30
+
+### Fixed
+
+- **Database recovery no longer discards your most recent watches.** When the
+  local database is damaged (it can happen on Windows when another process
+  touches the file mid-write), the self-heal rebuilds it from what's still
+  readable. It used to abandon a whole table the moment a scan hit a corrupt
+  page — and since the newest rows sit at the end of the table, that quietly
+  reverted recent watch history and progress. The salvage now walks each table
+  by row id and skips only the damaged rows, keeping everything that follows —
+  so a bad page early in the file can't cost you the history after it.
+- **A transient lock is no longer mistaken for corruption.** The integrity probe
+  only triggers the (destructive) rebuild on genuine "malformed"/"not a
+  database" errors now, not on a passing "database is locked" hiccup.
+
 ## [0.2.24] — 2026-07-30
 
 ### Fixed

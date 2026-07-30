@@ -59,6 +59,56 @@ async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
     conn2.close()
 
 
+def test_scan_table_skips_bad_page_but_keeps_newer_rows():
+    """The salvage must not lose the *newest* rows to an *early* corrupt page.
+
+    A plain ``SELECT *`` that faults mid-scan drops every row after the fault —
+    and the newest rows (highest rowid: a user's most recent watches) are exactly
+    what follows an early bad page. _scan_table walks by rowid and resumes past
+    the fault, so only the damaged row is lost, never the tail.
+    """
+    import sqlite3
+
+    from anime_sh.infra.db.database import _scan_table
+
+    class _Cur:
+        def __init__(self, description, it):
+            self.description = description
+            self._it = it
+
+        def __iter__(self):
+            return self._it
+
+    class _FaultyConn:
+        """Rows 1-10 with rowid 5 sitting on a 'corrupt page' that always faults."""
+
+        def __init__(self):
+            self.rows = {i: {"__rid": i, "id": i, "name": f"t{i}"} for i in range(1, 11)}
+            self.bad = 5
+
+        def execute(self, sql, params=()):
+            s = " ".join(sql.split())
+            if "LIMIT 0" in s:
+                return _Cur([("id",), ("name",)], iter([]))
+            after = params[0] if params else -1
+
+            def gen():
+                for rid in sorted(self.rows):
+                    if rid <= after:
+                        continue
+                    if rid == self.bad:
+                        raise sqlite3.DatabaseError("database disk image is malformed")
+                    yield self.rows[rid]
+
+            return _Cur([("__rid",), ("id",), ("name",)], gen())
+
+    cols, rows = _scan_table(_FaultyConn(), "t")
+    ids = sorted(r[0] for r in rows)
+    assert cols == ["id", "name"]
+    assert ids == [1, 2, 3, 4, 6, 7, 8, 9, 10]  # only the bad row 5 lost
+    assert 10 in ids  # the newest row survived the earlier fault
+
+
 def _anime(anilist=154587, title="Frieren"):
     return Anime(
         id=AnimeId(anilist=anilist),
