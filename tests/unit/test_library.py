@@ -59,6 +59,40 @@ async def test_db_recovery_detects_and_rebuilds(tmp_path: Path):
     conn2.close()
 
 
+async def test_airing_schedule_survives_the_cache(library):
+    """A Continue Watching row painted from the DB must know when the next
+    episode airs. Before this was cached, the first paint had no schedule and
+    offered an unreleased episode as "up next" until a live fetch corrected it —
+    and stayed wrong when that fetch failed."""
+    from anime_sh.tui.format import continue_row
+
+    airs = datetime(2026, 8, 5, 20, 16, tzinfo=timezone.utc)
+    show = Anime(
+        id=AnimeId(anilist=194829),
+        title=Title(romaji="Sequel", english="Sequel"),
+        format=Format.TV,
+        status=Status.RELEASING,
+        next_airing_episode=5,
+        next_airing_at=airs,
+    )
+    await library.save_anime(show)
+    cached = await library.get_anime(AnimeId(anilist=194829))
+    assert cached.next_airing_episode == 5
+    assert cached.next_airing_at == airs
+
+    # Caught up on everything aired (ep 4 of 4) → countdown, not "up next".
+    subtitle, dim, _ = continue_row(
+        cached, _progress(194829, 4.0, 0, completed=True),
+        now=datetime(2026, 7, 30, tzinfo=timezone.utc),
+    )
+    assert subtitle.startswith("caught up · Ep 5")
+    assert dim is True
+
+    # A later bare save (e.g. on playback) must not wipe the cached schedule.
+    await library.save_anime(Anime(id=AnimeId(anilist=194829), title=Title(romaji="Sequel")))
+    assert (await library.get_anime(AnimeId(anilist=194829))).next_airing_episode == 5
+
+
 def test_scan_table_skips_bad_page_but_keeps_newer_rows():
     """The salvage must not lose the *newest* rows to an *early* corrupt page.
 

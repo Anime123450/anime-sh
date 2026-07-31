@@ -182,8 +182,14 @@ def _set_aside_corrupt(path: Path) -> None:
     try:
         for suffix in ("-wal", "-shm", "-journal"):
             Path(str(path) + suffix).unlink(missing_ok=True)
-        path.rename(path.with_suffix(f".db.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"))
-        log.warning("started with a fresh database; corrupt file kept as backup")
+        kept = path.with_suffix(f".db.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        path.rename(kept)
+        # Name the backup: starting blank looks like "my whole library vanished",
+        # so the user needs to know their data still exists and exactly where.
+        log.warning(
+            "database was damaged beyond repair; started fresh. Your previous "
+            "library is kept at %s", kept
+        )
     except Exception as e:  # pragma: no cover
         log.error("could not set aside corrupt database: %s", e)
 

@@ -60,7 +60,29 @@ def _anime_from_row(row) -> Anime | None:
         genres=tuple(json.loads(row["genres_json"]) if row["genres_json"] else ()),
         cover_url=row["cover_url"],
         synopsis=row["synopsis"],
+        # Cached airing schedule: lets a row painted straight from the DB say
+        # "caught up · Ep 5 in 6d" instead of wrongly offering an episode that
+        # hasn't aired. Older databases predate these columns, hence the guard.
+        next_airing_episode=_col(row, "next_airing_episode"),
+        next_airing_at=_dt(_col(row, "next_airing_at")),
     )
+
+
+def _col(row, name):
+    """A column that may not exist on databases from before its migration."""
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        return None
+
+
+def _dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _placeholder(anilist_id: int) -> Anime:
@@ -71,7 +93,8 @@ def _placeholder(anilist_id: int) -> Anime:
 _ANIME_COLS = (
     "a.anilist_id AS a_anilist_id, a.mal_id, a.title_romaji, a.title_english, "
     "a.title_native, a.format, a.status, a.episodes, a.season, a.year, "
-    "a.cover_url, a.synopsis, a.genres_json"
+    "a.cover_url, a.synopsis, a.genres_json, "
+    "a.next_airing_episode, a.next_airing_at"
 )
 
 
@@ -248,15 +271,21 @@ class SqliteLibrary:
         await conn.execute(
             "INSERT INTO anime (anilist_id, mal_id, title_romaji, title_english, "
             "title_native, format, status, episodes, season, year, cover_url, "
-            "synopsis, genres_json, fetched_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "synopsis, genres_json, fetched_at, next_airing_episode, next_airing_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(anilist_id) DO UPDATE SET "
             "mal_id=excluded.mal_id, title_romaji=excluded.title_romaji, "
             "title_english=excluded.title_english, title_native=excluded.title_native, "
             "format=excluded.format, status=excluded.status, episodes=excluded.episodes, "
             "season=excluded.season, year=excluded.year, cover_url=excluded.cover_url, "
             "synopsis=excluded.synopsis, genres_json=excluded.genres_json, "
-            "fetched_at=excluded.fetched_at",
+            "fetched_at=excluded.fetched_at, "
+            # Only overwrite the cached schedule when the incoming row actually
+            # carries one: a bare Anime (e.g. saved on playback) must not wipe the
+            # airing times a metadata fetch put there.
+            "next_airing_episode=COALESCE(excluded.next_airing_episode, "
+            "                             anime.next_airing_episode), "
+            "next_airing_at=COALESCE(excluded.next_airing_at, anime.next_airing_at)",
             (
                 anime.id.anilist, anime.id.mal,
                 anime.title.romaji, anime.title.english, anime.title.native,
@@ -264,6 +293,8 @@ class SqliteLibrary:
                 anime.season.value if anime.season else None, anime.year,
                 anime.cover_url, anime.synopsis,
                 json.dumps(list(anime.genres)), _now(),
+                anime.next_airing_episode,
+                anime.next_airing_at.isoformat() if anime.next_airing_at else None,
             ),
         )
         await conn.commit()
