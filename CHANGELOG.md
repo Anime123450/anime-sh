@@ -16,6 +16,10 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   HTTP client and nothing ever closed them, so every run leaked those
   connections. The ports already declared `aclose()`; the implementations were
   missing and the container never called them.
+- **Auto-next stops at the last aired episode.** `episode_count` is AniList's
+  *planned* total, so for a currently-airing show it runs ahead of what has been
+  released. Finishing the newest episode rolled straight into one that doesn't
+  exist yet, then failed to find a stream for it.
 - **Being rate-limited no longer fails the request outright.** A 429 fell
   through to the generic "4xx → give up" path with no retry, so brisk browsing
   or a large `anime sync push` walked straight into a hard failure against
