@@ -2,6 +2,24 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.27] — 2026-07-30
+
+### Fixed
+
+- **"Couldn't load this season / trending: database is locked".** Opening a
+  database was a check-then-act race across an await: the home screen fans out
+  around twenty metadata fetches at once, every one of them found no connection
+  yet, and each opened its own. Those extra connections then fought over
+  SQLite's single writer lock — so a background AniList sync writing ~70 rows
+  made whatever else was loading fail outright. First-connect is serialized now,
+  so there is exactly one connection per database.
+
+  The same race is the likeliest source of the repeated database corruption:
+  the surplus connections were never closed by ``close()``, leaving the file
+  open while a recovery could be renaming and replacing it underneath them.
+- **Brief write contention no longer fails a read.** Connections now set
+  ``busy_timeout``, so a query waits out a busy writer instead of erroring.
+
 ## [0.2.26] — 2026-07-30
 
 ### Fixed
