@@ -14,6 +14,7 @@ not attempt to solve them.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Mapping
 
 import httpx
@@ -83,6 +84,9 @@ class HttpClient:
         # should sit out a full rate-limit window; anything a user is watching
         # must not, because a 60-second sleep is indistinguishable from a hang.
         self._max_retry_wait_s = max_retry_wait_s
+        # Monotonic deadline set when the server hands us a back-off longer
+        # than we'll wait for; requests short-circuit until it passes.
+        self._cooldown_until = 0.0
         self._sem = asyncio.Semaphore(max_concurrency)
         self._httpx: httpx.AsyncClient | None = None
         self._cffi: Any | None = None
@@ -95,6 +99,10 @@ class HttpClient:
         if self._cffi is not None:
             await self._cffi.close()
             self._cffi = None
+
+    def _cooldown_remaining(self) -> float:
+        """Seconds left on a server-imposed back-off, 0 when clear."""
+        return max(0.0, self._cooldown_until - time.monotonic())
 
     # -- requests ----------------------------------------------------------- #
     async def get_json(
@@ -129,6 +137,15 @@ class HttpClient:
     ) -> str:
         merged = {**self._headers, **(headers or {})}
         last: Exception | None = None
+        # Already told to back off? Fail here instead of on the wire. Each
+        # rejected request still counts against the server's window, so hammering
+        # through a rate limit is what keeps you inside it — one 429 used to turn
+        # into every later request failing for the rest of the session.
+        remaining = self._cooldown_remaining()
+        if remaining > 0:
+            raise RateLimited(
+                f"rate limited — try again in about {remaining:.0f}s"
+            )
         async with self._sem:
             for attempt in range(self._retries + 1):
                 try:
@@ -146,12 +163,17 @@ class HttpClient:
                     # and fail outright — which a large `sync push` walks straight
                     # into, since AniList caps requests per minute. Wait the
                     # server's own Retry-After when it sends one.
-                    last = RateLimited(f"{method} {url} -> 429 (rate limited)")
                     # `is None` rather than falsy: "Retry-After: 0" means retry
                     # immediately, not "no header".
                     delay = retry_after if retry_after is not None else 2.0 * (attempt + 1)
                     if delay > self._max_retry_wait_s:
-                        break  # longer than we're willing to block — surface it
+                        # Remember the window so everything else fails fast and
+                        # politely instead of spending more of the server's quota.
+                        self._cooldown_until = time.monotonic() + delay
+                        raise RateLimited(
+                            f"rate limited — try again in about {delay:.0f}s"
+                        )
+                    last = RateLimited(f"{method} {url} -> 429 (rate limited)")
                     await asyncio.sleep(delay)
                     continue
                 if status >= 500:

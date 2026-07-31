@@ -246,12 +246,9 @@ class AniListMetadata:
                 API, json={"query": query, "variables": variables}
             )
         except RateLimited as e:
-            # Actionable advice beats a URL and a status code: this one clears
-            # on its own, and the only useful response is to wait.
-            raise MetadataError(
-                "AniList is rate-limiting requests right now — wait a moment "
-                "and try again."
-            ) from e
+            # Actionable advice beats a URL and a status code: this one clears on
+            # its own, and the client knows roughly when — so say so.
+            raise MetadataError(f"AniList is rate-limiting requests: {e}") from e
         except HttpError as e:
             raise MetadataError(f"AniList request failed: {e}") from e
         if "errors" in data:

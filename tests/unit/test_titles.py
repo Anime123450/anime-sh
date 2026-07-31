@@ -43,3 +43,19 @@ def test_the_reported_case_separates_the_two_seasons():
         "Katainaka no Ossan, Kensei ni Naru",
         "From Old Country Bumpkin to Master Swordsman",
     ]
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        # AniList writes some sequels with the Unicode roman numerals (U+2160+).
+        # An ASCII-only pattern can't see them, so the sequel read as season 1 —
+        # and could then be offered as a source for its own prequel.
+        ("The Misfit of Demon King Academy Ⅱ", 2),
+        ("Show Ⅲ", 3),
+        ("Show Ⅳ", 4),
+        ("ＦＵＬＬＷＩＤＴＨ Season 2", 2),
+    ],
+)
+def test_unicode_season_markers(title, expected):
+    assert season_number(title) == expected

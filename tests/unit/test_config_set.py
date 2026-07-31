@@ -77,3 +77,31 @@ def test_set_rejects_a_value_outside_the_allowed_set(tmp_path):
     # Valid values still go through.
     assert set_config_value("playback.quality", "720p", path) == "720p"
     assert set_config_value("playback.audio", "dub", path) == "dub"
+
+
+def test_a_utf8_bom_does_not_break_the_config(tmp_path):
+    """Notepad writes a BOM by default on Windows, and reading strict utf-8 made
+    the whole config unreadable for anyone who edited it there."""
+    from anime_sh.config.loader import load_config
+
+    path = tmp_path / "config.toml"
+    path.write_text('[ui]\ntheme = "tokyo-night"\n', encoding="utf-8-sig")
+    assert load_config(path).ui.theme == "tokyo-night"
+
+
+def test_provider_parallelism_must_be_at_least_one(tmp_path):
+    """`providers[:parallel]` with a negative value slices the list down to
+    nothing, so every playback attempt silently found no sources at all."""
+    from anime_sh.config.loader import ConfigError, load_config
+
+    path = tmp_path / "config.toml"
+    path.write_text("[providers]\nparallel = -3\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+    path.write_text("[providers]\nparallel = 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+    path.write_text("[providers]\nparallel = 2\n", encoding="utf-8")
+    assert load_config(path).providers.parallel == 2
