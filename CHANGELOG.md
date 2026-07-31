@@ -2,6 +2,41 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.28] — 2026-07-31
+
+### Fixed
+
+- **A background failure no longer takes the whole app down.** Continue
+  Watching, the episode list, the watched-marks refresh and cover loading all
+  ran unguarded in their workers, so a momentarily busy database or a provider
+  hiccup raised straight out and crashed the TUI with a traceback — this is what
+  killed the app on launch when the database was locked. Each now degrades to a
+  message (or silently, for decoration) and leaves the rest usable.
+- **Providers and resolvers are closed on shutdown.** Six of them build their own
+  HTTP client and nothing ever closed them, so every run leaked those
+  connections. The ports already declared `aclose()`; the implementations were
+  missing and the container never called them.
+- **Auto-next stops at the last aired episode.** `episode_count` is AniList's
+  *planned* total, so for a currently-airing show it runs ahead of what has been
+  released. Finishing the newest episode rolled straight into one that doesn't
+  exist yet, then failed to find a stream for it.
+- **Being rate-limited no longer fails the request outright.** A 429 fell
+  through to the generic "4xx → give up" path with no retry, so brisk browsing
+  or a large `anime sync push` walked straight into a hard failure against
+  AniList's per-minute cap. 429s are retried now, waiting the server's own
+  `Retry-After` when it sends one.
+- **A rejected row no longer aborts `sync push`.** One bad media id (or a rate
+  limit that outlasted its retries) ended the whole run and lost every row still
+  queued behind it. Failures are counted as skipped and the push continues.
+- **Abandoning a download no longer leaves ffmpeg running.** Cancelling a
+  download (quitting, Ctrl-C) left the ffmpeg child alive and still writing to
+  the destination file after anime-sh had exited. The child is now killed with
+  its parent.
+- **Quitting any way other than `q` now shuts down cleanly.** Ctrl-C, a crash or
+  the terminal going away skipped the container's shutdown entirely, leaking
+  clients and leaving the database without a clean close. Shutdown is idempotent
+  and now runs from the TUI's own exit path.
+
 ## [0.2.27] — 2026-07-30
 
 ### Fixed

@@ -78,3 +78,23 @@ def _param_count(fn) -> int:
         for p in sig.parameters.values()
         if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
     )
+
+
+# --------------------------------------------------------------------------- #
+# Shutdown
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "plugin", [*PROVIDERS, *RESOLVERS], ids=_ids([*PROVIDERS, *RESOLVERS])
+)
+async def test_plugin_owning_an_http_client_can_be_closed(plugin):
+    """A plugin that builds its own HTTP client must be able to release it.
+
+    The container closes every provider and resolver on shutdown. Before that,
+    each run leaked these clients — six of them — and printed "unclosed client"
+    noise on exit.
+    """
+    if getattr(plugin, "_http", None) is None:
+        pytest.skip("holds no HTTP client of its own")
+    assert hasattr(plugin, "aclose"), "owns an HTTP client but exposes no aclose()"
+    await plugin.aclose()
+    await plugin.aclose()  # closing twice must stay harmless

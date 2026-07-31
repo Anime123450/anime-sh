@@ -55,13 +55,32 @@ class Container:
     sync: SyncService
     tracker: AniListTracker | None
 
+    # Shutdown is reachable from more than one path (the TUI closes on quit and
+    # again from its run loop's finally), so closing twice must be harmless.
+    _closed: bool = False
+
     async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.stream_proxy.stop()
         await self.stream_probe.aclose()
         await self.skip_source.aclose()
         await self.metadata.aclose()
         if self.tracker is not None:
             await self.tracker.aclose()
+        # Providers and resolvers each hold their own HTTP client. They were never
+        # closed, so every run leaked those connections (and printed "unclosed
+        # client" noise on exit). Plugins are third-party, so a missing or failing
+        # aclose must not stop the rest of shutdown.
+        for component in (*self.provider_manager.providers, *self.resolvers):
+            closer = getattr(component, "aclose", None)
+            if closer is None:
+                continue
+            try:
+                await closer()
+            except Exception as e:  # pragma: no cover - defensive
+                log.debug("closing %s failed: %s", type(component).__name__, e)
         await self.user_db.close()
         await self.cache_db.close()
 

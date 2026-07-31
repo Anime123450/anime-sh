@@ -14,6 +14,7 @@ pretending. Well-behaved HLS/MP4 hosts download fine.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -81,14 +82,24 @@ class FfmpegDownloader:
         )
         assert proc.stderr is not None
         tail: list[str] = []
-        async for raw in proc.stderr:
-            line = raw.decode(errors="replace").strip()
-            if not line:
-                continue
-            tail = (tail + [line])[-5:]
-            if on_line is not None:
-                on_line(line)
-        await proc.wait()
+        try:
+            async for raw in proc.stderr:
+                line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
+                tail = (tail + [line])[-5:]
+                if on_line is not None:
+                    on_line(line)
+            await proc.wait()
+        finally:
+            # Abandoning the download (quit, Ctrl-C, a cancelled worker) used to
+            # leave ffmpeg running headless, still writing to the destination
+            # long after anime-sh was gone. Make the child die with us.
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    proc.kill()
+                with contextlib.suppress(Exception):
+                    await proc.wait()
         if proc.returncode != 0:
             raise DownloadError(
                 f"ffmpeg exited {proc.returncode}: {' / '.join(tail) or 'no output'}"

@@ -45,6 +45,9 @@ class VidtubeResolver:
     def __init__(self, http: HttpClient | None = None) -> None:
         self._http = http or HttpClient(headers={"User-Agent": AGENT})
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
     def handles(self, candidate: StreamCandidate) -> bool:
         return any(h in candidate.url for h in _FAMILY_HOSTS)
 

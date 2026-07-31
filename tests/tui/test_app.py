@@ -516,3 +516,25 @@ async def test_unavailable_episodes_stay_listed_but_inert():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert playback.played == []  # inert, only a toast
+
+
+async def test_home_survives_a_failing_library():
+    """A database error must not take the whole TUI down.
+
+    Continue Watching ran unguarded in its worker, so a momentarily locked or
+    damaged database raised straight out of it and crashed the app on launch
+    with a traceback. It should degrade to a warning and leave the rest usable.
+    """
+    app, _ = _make_app()
+
+    async def boom(*a, **k):
+        raise RuntimeError("database is locked")
+
+    app.services.library.continue_watching = boom
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # Still alive, and the sections that don't depend on it still rendered.
+        assert app.is_running
+        assert len(app.query_one("#trending", ListView)) == 2

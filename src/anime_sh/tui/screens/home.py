@@ -116,6 +116,15 @@ class HomeScreen(Screen):
     # -- home data ---------------------------------------------------------- #
     @work(exclusive=True, group="continue")
     async def _load_continue(self) -> None:
+        try:
+            await self._continue_worker()
+        except Exception as e:
+            # An unhandled worker error takes the whole TUI down with a traceback.
+            # A momentarily busy or damaged database must degrade to an empty
+            # section and a message, never a crash on launch.
+            self.notify(f"Couldn't load Continue Watching: {e}", severity="warning")
+
+    async def _continue_worker(self) -> None:
         items = await self.app.services.library.continue_watching(limit=20)
         # First paint from the cached rows — a local DB read, so it's instant.
         # This is what stops Continue Watching sitting blank on launch while a

@@ -151,3 +151,50 @@ async def test_download_store_round_trip(db):
     assert items[0].status is DownloadStatus.DONE
     assert items[0].anime.title.preferred == "Frieren"  # joined from cache
     assert items[0].episode == 3.0
+
+
+async def test_cancelling_a_download_kills_ffmpeg(monkeypatch, tmp_path):
+    """Abandoning a download must not leave ffmpeg running.
+
+    The stderr pump had no cleanup, so cancelling the worker (quit, Ctrl-C) left
+    the child process alive and still writing to the destination file.
+    """
+    import asyncio as aio
+
+    from anime_sh.infra.downloader.ffmpeg import FfmpegDownloader
+
+    class FakeProc:
+        def __init__(self):
+            self.returncode = None
+            self.killed = False
+            self.stderr = self
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await aio.sleep(3600)  # hang like a long download
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self):
+            return self.returncode
+
+    proc = FakeProc()
+
+    async def fake_exec(*a, **k):
+        return proc
+
+    monkeypatch.setattr("shutil.which", lambda _: "ffmpeg")
+    monkeypatch.setattr(aio, "create_subprocess_exec", fake_exec)
+
+    task = aio.ensure_future(
+        FfmpegDownloader().download(_stream(), tmp_path / "ep.mp4")
+    )
+    await aio.sleep(0)  # let it reach the stderr pump
+    task.cancel()
+    with pytest.raises(aio.CancelledError):
+        await task
+    assert proc.killed, "ffmpeg was left running after cancellation"

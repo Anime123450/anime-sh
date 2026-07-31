@@ -48,7 +48,14 @@ class SyncService:
                 continue
             anime = await self._library.get_anime(progress.anime_id)
             total = anime.episode_count if anime else None
-            await self._tracker.push(progress, total=total)
+            try:
+                await self._tracker.push(progress, total=total)
+            except Exception:
+                # One rejected row (a deleted media id, a rate-limit that
+                # outlasted its retries) used to abort the whole push and lose
+                # every row still queued behind it. Count it and keep going.
+                skipped += 1
+                continue
             pushed += 1
         return SyncResult(pushed=pushed, skipped=skipped)
 

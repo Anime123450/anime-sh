@@ -32,6 +32,25 @@ class CloudflareChallenge(HttpError):
     """The origin returned a Cloudflare JS interstitial. Not solvable here."""
 
 
+def _retry_after(headers: Mapping[str, str] | Any) -> float | None:
+    """Seconds from a ``Retry-After`` header, when it carries a plain number.
+
+    The HTTP-date form is ignored on purpose: the fixed backoff is a fine
+    fallback and parsing dates here would only add a way to get it wrong.
+    """
+    try:
+        raw = headers.get("Retry-After") or headers.get("retry-after")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        seconds = float(str(raw).strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
 def _looks_like_challenge(status: int, text: str) -> bool:
     if status not in (403, 429, 503):
         return False
@@ -102,7 +121,7 @@ class HttpClient:
         async with self._sem:
             for attempt in range(self._retries + 1):
                 try:
-                    status, text = await self._send(
+                    status, text, retry_after = await self._send(
                         method, url, params, json, merged
                     )
                 except (httpx.TransportError, asyncio.TimeoutError) as e:
@@ -111,6 +130,17 @@ class HttpClient:
                     continue
                 if _looks_like_challenge(status, text):
                     raise CloudflareChallenge(f"{url} is behind a Cloudflare challenge")
+                if status == 429:
+                    # Rate limited. This used to fall into the generic 4xx raise
+                    # and fail outright — which a large `sync push` walks straight
+                    # into, since AniList caps requests per minute. Wait the
+                    # server's own Retry-After when it sends one.
+                    last = HttpError(f"{method} {url} -> 429 (rate limited)")
+                    # `is None` rather than falsy: "Retry-After: 0" means retry
+                    # immediately, not "no header".
+                    delay = retry_after if retry_after is not None else 2.0 * (attempt + 1)
+                    await asyncio.sleep(min(delay, 60.0))
+                    continue
                 if status >= 500:
                     last = HttpError(f"{method} {url} -> {status}")
                     await asyncio.sleep(0.4 * (attempt + 1))
@@ -126,7 +156,9 @@ class HttpClient:
         params: Mapping[str, Any] | None,
         json: Any,
         headers: Mapping[str, str],
-    ) -> tuple[int, str]:
+    ) -> tuple[int, str, float | None]:
+        """``(status, body, retry_after_seconds)`` — the third is the server's
+        Retry-After when it sent a usable one."""
         if self._impersonate:
             return await self._send_cffi(method, url, params, json, headers)
         return await self._send_httpx(method, url, params, json, headers)
@@ -137,7 +169,7 @@ class HttpClient:
         r = await self._httpx.request(
             method, url, params=params, json=json, headers=headers
         )
-        return r.status_code, r.text
+        return r.status_code, r.text, _retry_after(r.headers)
 
     async def _send_cffi(self, method, url, params, json, headers):
         if self._cffi is None:
@@ -149,7 +181,7 @@ class HttpClient:
         r = await self._cffi.request(
             method, url, params=params, json=json, headers=headers
         )
-        return r.status_code, r.text
+        return r.status_code, r.text, _retry_after(r.headers)
 
 
 def _loads(text: str) -> Any:

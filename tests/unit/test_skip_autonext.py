@@ -144,3 +144,37 @@ async def test_no_auto_next_when_incomplete():
     svc = _service(player, [FakeResolver("h", host="h")], auto_next=True)
     await svc.play_and_track(_anime_with_eps(5), 1.0)
     assert len(player.handles) == 1
+
+
+def test_auto_next_stops_at_the_last_aired_episode():
+    """Auto-next must not roll into an episode that hasn't been released.
+
+    episode_count is AniList's *planned* total, so for an airing show it runs
+    ahead of what exists. Finishing the newest episode used to advance anyway and
+    then fail to find a stream for an episode that isn't out.
+    """
+    from datetime import datetime, timezone
+
+    from anime_sh.app.playback import PlaybackService
+    from anime_sh.domain.models import Anime, AnimeId, Title
+
+    def _airing(next_ep: int | None, planned: int | None = 12) -> Anime:
+        return Anime(
+            id=AnimeId(anilist=1), title=Title(romaji="Show"),
+            episode_count=planned,
+            next_airing_episode=next_ep,
+            next_airing_at=datetime(2026, 8, 5, tzinfo=timezone.utc) if next_ep else None,
+        )
+
+    has_next = PlaybackService._has_next
+    airing = _airing(5)          # episodes 1-4 are out, 5 is not
+    assert has_next(None, airing, 3.0) is True    # 4 exists → advance
+    assert has_next(None, airing, 4.0) is False   # 5 isn't out → stop
+
+    # A finished series still uses the planned total as the ceiling.
+    done = _airing(None)
+    assert has_next(None, done, 11.0) is True
+    assert has_next(None, done, 12.0) is False
+
+    # No known total → nothing to advance into.
+    assert has_next(None, _airing(None, None), 4.0) is False
