@@ -16,6 +16,10 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   HTTP client and nothing ever closed them, so every run leaked those
   connections. The ports already declared `aclose()`; the implementations were
   missing and the container never called them.
+- **Abandoning a download no longer leaves ffmpeg running.** Cancelling a
+  download (quitting, Ctrl-C) left the ffmpeg child alive and still writing to
+  the destination file after anime-sh had exited. The child is now killed with
+  its parent.
 - **Quitting any way other than `q` now shuts down cleanly.** Ctrl-C, a crash or
   the terminal going away skipped the container's shutdown entirely, leaking
   clients and leaving the database without a clean close. Shutdown is idempotent
