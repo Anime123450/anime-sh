@@ -16,6 +16,14 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   HTTP client and nothing ever closed them, so every run leaked those
   connections. The ports already declared `aclose()`; the implementations were
   missing and the container never called them.
+- **Being rate-limited no longer fails the request outright.** A 429 fell
+  through to the generic "4xx → give up" path with no retry, so brisk browsing
+  or a large `anime sync push` walked straight into a hard failure against
+  AniList's per-minute cap. 429s are retried now, waiting the server's own
+  `Retry-After` when it sends one.
+- **A rejected row no longer aborts `sync push`.** One bad media id (or a rate
+  limit that outlasted its retries) ended the whole run and lost every row still
+  queued behind it. Failures are counted as skipped and the push continues.
 - **Abandoning a download no longer leaves ffmpeg running.** Cancelling a
   download (quitting, Ctrl-C) left the ffmpeg child alive and still writing to
   the destination file after anime-sh had exited. The child is now killed with

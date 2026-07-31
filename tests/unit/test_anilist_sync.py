@@ -199,3 +199,42 @@ async def test_sync_disabled_without_tracker():
     svc = SyncService(FakeLibrary(), None)
     assert svc.enabled is False
     assert (await svc.push()).pushed == 0
+
+
+async def test_push_keeps_going_when_one_row_is_rejected():
+    """One bad row must not cost you the rest of the push.
+
+    A single rejected media id (deleted entry, rate limit that outlasted its
+    retries) aborted the whole run, losing every row still queued behind it.
+    """
+    from anime_sh.app.sync import SyncService
+    from anime_sh.domain.models import AnimeId, WatchProgress
+
+    def _prog(anilist_id: int) -> WatchProgress:
+        return WatchProgress(
+            anime_id=AnimeId(anilist=anilist_id), episode=1.0, position_s=0,
+            duration_s=0, updated_at=datetime.now(timezone.utc), completed=True,
+        )
+
+    class Library:
+        async def all_progress_rows(self):
+            return [_prog(1), _prog(2), _prog(3)]
+
+        async def get_anime(self, anime_id):
+            return None
+
+    class Tracker:
+        name = "anilist"
+
+        def __init__(self):
+            self.seen = []
+
+        async def push(self, progress, *, total=None):
+            self.seen.append(progress.anime_id.anilist)
+            if progress.anime_id.anilist == 2:
+                raise RuntimeError("media does not exist")
+
+    tracker = Tracker()
+    result = await SyncService(Library(), tracker).push()
+    assert tracker.seen == [1, 2, 3]  # row 3 was still attempted
+    assert (result.pushed, result.skipped) == (2, 1)
