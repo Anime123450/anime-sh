@@ -115,3 +115,37 @@ async def test_relations_keeps_anime_with_types_skips_non_anime():
     meta = AniListMetadata(http=_FakeHttp(response=resp))
     rels = await meta.relations(AnimeId(anilist=1))
     assert [(rel, a.id.anilist) for rel, a in rels] == [("SEQUEL", 7), ("PREQUEL", 6)]
+
+
+async def test_a_malformed_record_does_not_lose_the_whole_response():
+    """AniList sometimes returns a partial media row. `m["id"]` raised a bare
+    KeyError out of search, losing every good result alongside the bad one."""
+    from anime_sh.infra.metadata.anilist import AniListMetadata
+
+    meta = AniListMetadata()
+
+    async def send(*a, **k):
+        return 200, '{"data":{"Page":{"media":[{},{"id":1,' \
+                    '"title":{"romaji":"Good Show"}}]}}}', None
+
+    meta._http._send = send
+    try:
+        results = await meta.search("q", limit=5)
+        assert [a.title.preferred for a in results] == ["Good Show"]
+    finally:
+        await meta.aclose()
+
+
+async def test_every_record_malformed_yields_no_results_not_a_crash():
+    from anime_sh.infra.metadata.anilist import AniListMetadata
+
+    meta = AniListMetadata()
+
+    async def send(*a, **k):
+        return 200, '{"data":{"Page":{"media":[{},{}]}}}', None
+
+    meta._http._send = send
+    try:
+        assert await meta.search("q", limit=5) == []
+    finally:
+        await meta.aclose()

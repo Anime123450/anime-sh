@@ -156,6 +156,11 @@ def _clean_synopsis(text: str | None) -> str | None:
 
 
 def _to_anime(m: dict) -> Anime:
+    # AniList occasionally returns a partial record. Without an id there is
+    # no identity to hang anything off, and m["id"] used to raise a bare
+    # KeyError straight out of search.
+    if not m or m.get("id") is None:
+        raise MetadataError("AniList returned a record with no id")
     t = m.get("title") or {}
     next_ep = m.get("nextAiringEpisode") or {}
     airing_at = next_ep.get("airingAt")
@@ -185,6 +190,20 @@ def _to_anime(m: dict) -> Anime:
         if airing_at
         else None,
     )
+
+
+def _anime_list(items) -> list[Anime]:
+    """Map media rows, skipping any the API returned without an id.
+
+    One malformed row shouldn't cost you the entire search result.
+    """
+    out: list[Anime] = []
+    for m in items or ():
+        try:
+            out.append(_to_anime(m))
+        except MetadataError:
+            continue
+    return out
 
 
 def _main_studio(studios) -> str | None:
@@ -262,7 +281,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEARCH, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def search_filtered(
         self,
@@ -298,7 +317,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEARCH, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def get(self, id: AnimeId) -> Anime:
         # Omit missing ids entirely: an explicit {"malId": null} makes AniList
@@ -370,7 +389,7 @@ class AniListMetadata:
                     if n.get("mediaRecommendation")]
 
         raw = await self._cached(f"recs:{id.key}:{limit}", _TTL_SEASONAL, produce)
-        return [_to_anime(m) for m in raw]
+        return _anime_list(raw)
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
         async def produce():
@@ -378,7 +397,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(f"trending:{limit}", _TTL_TRENDING, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def popular(self, *, limit: int = 500) -> list[Anime]:
         """A broad, popularity-ranked catalog snapshot, most-popular first.
@@ -405,7 +424,7 @@ class AniListMetadata:
             return media[:limit]
 
         media = await self._cached(f"popular:{limit}", _TTL_POPULAR, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def seasonal(self, season: Season, year: int) -> list[Anime]:
         key = f"seasonal:{season.value}:{year}"
@@ -417,7 +436,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEASONAL, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def airing_schedule(self, start: date, end: date) -> list[AiringEvent]:
         start_ts = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())

@@ -16,6 +16,9 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   a full minute (measured: 61s). Interactive requests now give up after 5s and
   say "AniList is rate-limiting requests right now — wait a moment and try
   again"; batch work like `sync push` still waits out the window.
+- **A malformed record no longer loses the whole search.** AniList occasionally
+  returns a partial media row; reading its id raised a bare `KeyError` out of
+  the entire call. Bad rows are skipped and the good results come back.
 - **`config set` rejects values it doesn't understand.** `playback.quality` and
   `playback.audio` are plain strings in the schema, so a typo saved happily and
   then silently played at the wrong quality (an unknown target falls back to
