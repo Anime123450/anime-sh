@@ -2,6 +2,27 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.35] — 2026-07-31
+
+### Fixed
+
+- **One rate limit no longer poisons the whole session.** After a 429, every
+  later request failed too — and each rejected request still spends the server's
+  quota, so retrying through a limit is what keeps you inside it. The client now
+  remembers the back-off window and fails fast and locally until it passes,
+  telling you roughly how long is left.
+- **Sequels written with Unicode roman numerals were read as season 1.** AniList
+  titles some sequels "… Academy Ⅱ" (U+2162, not the letters I-I), which an
+  ASCII pattern can't see — so such a sequel could still be offered as a source
+  for its own prequel. Titles are NFKC-folded before parsing.
+- **Fullwidth queries matched nothing.** Normalisation stripped every non-ASCII
+  character, so "ＮＡＲＵＴＯ" folded away to an empty query.
+- **An exact title now outranks a more popular near-match.** "Nisekoi:" and
+  "Nisekoi" (and "Kaguya-sama: Love is War?" / "…War") differ only by
+  punctuation, which folding erases, so the more popular season won whichever
+  one you typed. Validated across 500 real titles: every show now ranks first
+  for its own title (was 496/500).
+
 ## [0.2.34] — 2026-07-31
 
 ### Fixed

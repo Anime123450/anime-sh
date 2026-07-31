@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 from ..domain.models import Anime, AnimeId, SearchResult
@@ -73,17 +74,24 @@ _INDEX_SIZE = 500
 _INDEX_MATCH_THRESHOLD = 0.5
 
 
+def _fold(s: str) -> str:
+    """Lowercase after NFKC folding, so fullwidth text (ＮＡＲＵＴＯ) and the
+    Unicode roman numerals (Ⅱ) compare as their ASCII equivalents instead of
+    being stripped out entirely."""
+    return unicodedata.normalize("NFKC", s).lower()
+
+
 def _norm(s: str) -> str:
     """Fold to lowercase alphanumerics + single spaces, so ``Don't`` and
     ``dont`` compare equal when ranking."""
-    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+    return re.sub(r"[^a-z0-9]+", " ", _fold(s)).strip()
 
 
 def _squash(s: str) -> str:
     """Fold to lowercase alphanumerics with *no* separators, so spacing and
     punctuation stop mattering (``One Piece`` / ``one-piece`` / ``onepiece`` all
     become ``onepiece``)."""
-    return re.sub(r"[^a-z0-9]+", "", s.lower())
+    return re.sub(r"[^a-z0-9]+", "", _fold(s))
 
 
 def _restore_contractions(query: str) -> str | None:
@@ -188,11 +196,33 @@ def _ranked(pool: list[Anime], query: str, limit: int) -> list[Anime]:
     norm_query, squash_query = _norm(query), _squash(query)
     if not norm_query:
         return pool[:limit]
-    return sorted(
-        pool,
-        key=lambda a: (_rank_score(a, norm_query, squash_query), a.popularity or 0),
-        reverse=True,
-    )[:limit]
+    def key(a: Anime):
+        # Exactness before popularity: "Nisekoi:" and "Nisekoi" fold to the same
+        # string, so without this the more popular season won even when the user
+        # typed the other one's title character for character.
+        return (
+            _rank_score(a, norm_query, squash_query),
+            _exactly_titled(a, query, norm_query),
+            a.popularity or 0,
+        )
+
+    return sorted(pool, key=key, reverse=True)[:limit]
+
+
+def _exactly_titled(anime: Anime, query: str, norm_query: str) -> int:
+    """2 for a character-for-character title, 1 for one that only differs in
+    punctuation or spacing, 0 otherwise.
+
+    The two levels matter because folding is what makes "Kaguya-sama: Love is
+    War?" and "Kaguya-sama: Love is War" indistinguishable — the trailing "?" is
+    the entire difference between two seasons.
+    """
+    raw = _fold(query).strip()
+    titles = (anime.title.english, anime.title.romaji, anime.title.native,
+              *anime.title.synonyms)
+    if any(c and _fold(c).strip() == raw for c in titles):
+        return 2
+    return int(any(c and _norm(c) == norm_query for c in titles))
 
 
 def _merge(*groups: list[Anime]) -> list[Anime]:

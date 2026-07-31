@@ -186,3 +186,41 @@ async def test_despaced_variant_also_hits_anilist():
     out = await svc.search("ReZero")
     assert out and out[0].anime.id.anilist == 21355
     assert "Re Zero" in meta.calls
+
+
+def _titled(anilist, english=None, romaji=None, synonyms=(), popularity=0):
+    from anime_sh.domain.models import Anime, AnimeId, Title
+
+    return Anime(
+        id=AnimeId(anilist=anilist),
+        title=Title(romaji=romaji or english, english=english, synonyms=tuple(synonyms)),
+        popularity=popularity,
+    )
+
+
+def test_exact_title_beats_a_more_popular_near_match():
+    """Validated against 500 real titles: every show must rank first for its own
+    title. These two only differ by punctuation, which folding erases, so the
+    more popular season used to win no matter which one you typed."""
+    from anime_sh.app.search import _ranked
+
+    s1 = _titled(1, "Nisekoi", popularity=500_000)
+    s2 = _titled(2, "Nisekoi:", popularity=200_000)
+    pool = [s1, s2]
+    assert _ranked(pool, "Nisekoi:", 1)[0].id.anilist == 2
+    assert _ranked(pool, "Nisekoi", 1)[0].id.anilist == 1
+
+    k1 = _titled(3, "Kaguya-sama: Love is War", popularity=600_000)
+    k2 = _titled(4, "Kaguya-sama: Love is War?", popularity=400_000)
+    assert _ranked([k1, k2], "Kaguya-sama: Love is War?", 1)[0].id.anilist == 4
+
+
+def test_fullwidth_and_unicode_queries_fold_to_ascii():
+    """`_norm` stripped every non-ASCII character, so a fullwidth query folded
+    to nothing and matched nothing."""
+    from anime_sh.app.search import _norm, _ranked, _squash
+
+    assert _norm("ＮＡＲＵＴＯ") == "naruto"
+    assert _squash("ＮＡＲＵＴＯ") == "naruto"
+    pool = [_titled(1, "Naruto", popularity=900_000), _titled(2, "Bleach")]
+    assert _ranked(pool, "ＮＡＲＵＴＯ", 1)[0].id.anilist == 1

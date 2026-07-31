@@ -79,3 +79,50 @@ async def test_a_short_rate_limit_is_still_waited_out(monkeypatch):
     client = HttpClient(retries=2, max_retry_wait_s=5.0)
     monkeypatch.setattr(client, "_send", briefly_limited)
     assert await client.get_json("https://example.test/x") == {"ok": True}
+
+
+async def test_one_rate_limit_does_not_poison_the_whole_session(monkeypatch):
+    """After a long 429, later calls must fail locally, not on the wire.
+
+    Every rejected request still counts against the server's window, so retrying
+    through a rate limit is what keeps you inside it: one 429 turned into every
+    later query failing for the rest of the session (observed: 11 in a row).
+    """
+    from anime_sh.infra.http.client import RateLimited
+
+    sent: list[int] = []
+
+    async def always_limited(method, url, params, json, headers):
+        sent.append(1)
+        return 429, "slow down", 60.0
+
+    client = HttpClient(retries=2, max_retry_wait_s=5.0)
+    monkeypatch.setattr(client, "_send", always_limited)
+
+    with pytest.raises(RateLimited):
+        await client.get_json("https://example.test/1")
+    assert len(sent) == 1
+
+    # Subsequent calls short-circuit: no further requests leave the process.
+    for _ in range(5):
+        with pytest.raises(RateLimited, match="try again in about"):
+            await client.get_json("https://example.test/2")
+    assert len(sent) == 1, "kept spending the server's quota while banned"
+
+
+async def test_the_cooldown_expires(monkeypatch):
+    async def limited(method, url, params, json, headers):
+        return 429, "slow down", 60.0
+
+    client = HttpClient(retries=0, max_retry_wait_s=5.0)
+    monkeypatch.setattr(client, "_send", limited)
+    with pytest.raises(Exception):
+        await client.get_json("https://example.test/1")
+    assert client._cooldown_remaining() > 0
+    client._cooldown_until = 0.0  # simulate the window passing
+
+    async def ok(method, url, params, json, headers):
+        return 200, '{"ok": true}', None
+
+    monkeypatch.setattr(client, "_send", ok)
+    assert await client.get_json("https://example.test/1") == {"ok": True}

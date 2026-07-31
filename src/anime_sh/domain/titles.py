@@ -10,6 +10,7 @@ while progress is recorded against season 1's AniList id.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 _ROMAN = {
     "ii": 2, "iii": 3, "iv": 4, "v": 5,
@@ -31,7 +32,11 @@ def season_number(title: str | None) -> int:
     """
     if not title:
         return 1
-    low = title.strip().lower()
+    # NFKC first: AniList uses the Unicode roman numerals (U+2160+) for some
+    # sequels — "…Demon King Academy Ⅱ" — and those are invisible to an
+    # ASCII pattern, so the sequel read as season 1 and could be offered as a
+    # source for its own prequel.
+    low = unicodedata.normalize("NFKC", title).strip().lower()
     for pattern in (_SEASON_N, _NTH_SEASON):
         m = pattern.search(low)
         if m:
