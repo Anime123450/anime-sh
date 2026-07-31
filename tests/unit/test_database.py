@@ -37,6 +37,25 @@ def _latest_migration(name: str) -> int:
     return max(int(p.name.split("_", 1)[0]) for p in root.glob("*.sql"))
 
 
+async def test_concurrent_connect_opens_exactly_one_connection(tmp_path: Path):
+    """Twenty callers racing to first-connect must share ONE connection.
+
+    ``connect`` checked ``self._conn is None`` and then awaited, so concurrent
+    callers (the home screen fans out ~20 metadata fetches at once) each opened
+    their own connection. The extras fought over SQLite's single writer lock —
+    surfacing as "database is locked" — were never closed, and held the file open
+    while a recovery might be renaming it.
+    """
+    import asyncio
+
+    db = Database(tmp_path / "anime.db", migrations_dir="migrations")
+    conns = await asyncio.gather(*(db.connect() for _ in range(20)))
+    assert len({id(c) for c in conns}) == 1
+    # And closing really releases it — no leaked connection left behind.
+    await db.close()
+    assert db._conn is None
+
+
 async def test_user_migrations_apply(user_db):
     assert await user_db.schema_version() == _latest_migration("migrations")
 

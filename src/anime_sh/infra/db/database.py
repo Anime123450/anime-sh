@@ -8,6 +8,7 @@ commit #1.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 import time
@@ -201,10 +202,24 @@ class Database:
         self.path = path
         self._migrations_dir = _MIGRATIONS_ROOT / migrations_dir
         self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
 
     async def connect(self) -> aiosqlite.Connection:
         if self._conn is not None:
             return self._conn
+        # Serialise the first connect. Without this the check above is a
+        # check-then-act race across an await: the home screen fans out ~20
+        # metadata fetches at once, every one of them sees _conn as None, and each
+        # opens its OWN connection. The extras then fight over the single writer
+        # lock ("database is locked" on seasonal/trending), are never closed by
+        # close(), and keep the file open while a recovery may be renaming it —
+        # exactly the conditions that keep corrupting the database.
+        async with self._lock:
+            if self._conn is not None:
+                return self._conn
+            return await self._open()
+
+    async def _open(self) -> aiosqlite.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         conn = await aiosqlite.connect(self.path)
         # Self-heal a corrupt file: probe on THIS connection (a second probe
@@ -224,6 +239,11 @@ class Database:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA foreign_keys=ON")
+        # Wait out a busy writer instead of failing the read. SQLite allows one
+        # writer at a time, and a background AniList sync writing ~70 rows would
+        # otherwise surface as "database is locked" on whatever the user was
+        # loading at that moment.
+        await conn.execute("PRAGMA busy_timeout=5000")
         await self._migrate(conn)
         self._conn = conn
         return conn
