@@ -175,6 +175,26 @@ def _rank_score(anime: Anime, norm_query: str, squash_query: str) -> float:
     return best
 
 
+def _ranked(pool: list[Anime], query: str, limit: int) -> list[Anime]:
+    """Order candidates by how well they match, popularity breaking ties.
+
+    Ties are common and meaningful: an exact-alias match on an obscure tie-in
+    commercial and one on the famous film both score 1.0, and only popularity
+    tells them apart. Python's sort is stable, so anything still tied keeps the
+    order the metadata source gave it.
+    """
+    if not pool:
+        return pool
+    norm_query, squash_query = _norm(query), _squash(query)
+    if not norm_query:
+        return pool[:limit]
+    return sorted(
+        pool,
+        key=lambda a: (_rank_score(a, norm_query, squash_query), a.popularity or 0),
+        reverse=True,
+    )[:limit]
+
+
 def _merge(*groups: list[Anime]) -> list[Anime]:
     """Concatenate result groups, first occurrence wins (preserves AniList's
     relevance order within each group)."""
@@ -208,10 +228,13 @@ class SearchService:
     # -- forgiving search --------------------------------------------------- #
     async def _smart_search(self, query: str, *, limit: int) -> list[Anime]:
         primary = await self._metadata.search(query, limit=limit)
-        # Fast path: AniList found something → trust its relevance order, no
-        # extra requests, no index build. Nothing regresses for a good query.
+        # Fast path: AniList found something → no extra requests, no index build.
+        # Its ordering alone is not enough though: searching "Your Name" put a
+        # soft-drink commercial above the film, and "JoJo" put a one-off short
+        # above the series. Re-rank what we already have — same scoring the
+        # fallback path uses, pure CPU on ≤20 rows, so the fast path stays fast.
         if primary or not query.strip():
-            return primary
+            return _ranked(primary, query, limit)
 
         # AniList came back empty — the query needs help. Fire a few targeted
         # AniList retries and match against the local popularity index, then
@@ -232,13 +255,7 @@ class SearchService:
         ]
 
         pool = _merge(*groups, index_hits)
-        if not pool:
-            return []
-        pool.sort(
-            key=lambda a: (_rank_score(a, norm_query, squash_query), a.popularity or 0),
-            reverse=True,
-        )
-        return pool[:limit]
+        return _ranked(pool, query, limit)
 
     async def _catalog(self) -> list[Anime]:
         """The local popularity index, built once (per process) on first need.

@@ -43,3 +43,39 @@ async def test_429_that_never_clears_still_raises(monkeypatch):
     monkeypatch.setattr(client, "_send", always_429)
     with pytest.raises(HttpError, match="429"):
         await client.get_json("https://example.test/x")
+
+
+async def test_a_long_rate_limit_is_surfaced_not_slept_through(monkeypatch):
+    """Interactive callers must not block for a full rate-limit window.
+
+    AniList answers 429 with `Retry-After: 60`. Honouring that on a search made
+    the app sit silent for a minute — indistinguishable from a hang (measured:
+    61s for one query). Anything longer than the caller's budget is raised.
+    """
+    import time as _time
+
+    from anime_sh.infra.http.client import RateLimited
+
+    async def rate_limited(method, url, params, json, headers):
+        return 429, "slow down", 60.0
+
+    client = HttpClient(retries=2, max_retry_wait_s=5.0)
+    monkeypatch.setattr(client, "_send", rate_limited)
+    started = _time.perf_counter()
+    with pytest.raises(RateLimited):
+        await client.get_json("https://example.test/x")
+    assert _time.perf_counter() - started < 1.0, "slept through the rate limit"
+
+
+async def test_a_short_rate_limit_is_still_waited_out(monkeypatch):
+    calls: list[int] = []
+
+    async def briefly_limited(method, url, params, json, headers):
+        calls.append(1)
+        if len(calls) == 1:
+            return 429, "slow down", 0.0
+        return 200, '{"ok": true}', None
+
+    client = HttpClient(retries=2, max_retry_wait_s=5.0)
+    monkeypatch.setattr(client, "_send", briefly_limited)
+    assert await client.get_json("https://example.test/x") == {"ok": True}

@@ -28,6 +28,12 @@ class HttpError(Exception):
     """Any non-recoverable HTTP failure."""
 
 
+class RateLimited(HttpError):
+    """The server asked us to slow down (HTTP 429) for longer than we were
+    willing to block. Callers can turn this into advice rather than a stack of
+    URL noise."""
+
+
 class CloudflareChallenge(HttpError):
     """The origin returned a Cloudflare JS interstitial. Not solvable here."""
 
@@ -67,11 +73,16 @@ class HttpClient:
         timeout: float = 15.0,
         max_concurrency: int = 5,
         retries: int = 2,
+        max_retry_wait_s: float = 60.0,
     ) -> None:
         self._headers = {"User-Agent": DEFAULT_UA, **(headers or {})}
         self._impersonate = impersonate
         self._timeout = timeout
         self._retries = retries
+        # How long we'll honour a Retry-After. Batch work (pushing a whole list)
+        # should sit out a full rate-limit window; anything a user is watching
+        # must not, because a 60-second sleep is indistinguishable from a hang.
+        self._max_retry_wait_s = max_retry_wait_s
         self._sem = asyncio.Semaphore(max_concurrency)
         self._httpx: httpx.AsyncClient | None = None
         self._cffi: Any | None = None
@@ -135,11 +146,13 @@ class HttpClient:
                     # and fail outright — which a large `sync push` walks straight
                     # into, since AniList caps requests per minute. Wait the
                     # server's own Retry-After when it sends one.
-                    last = HttpError(f"{method} {url} -> 429 (rate limited)")
+                    last = RateLimited(f"{method} {url} -> 429 (rate limited)")
                     # `is None` rather than falsy: "Retry-After: 0" means retry
                     # immediately, not "no header".
                     delay = retry_after if retry_after is not None else 2.0 * (attempt + 1)
-                    await asyncio.sleep(min(delay, 60.0))
+                    if delay > self._max_retry_wait_s:
+                        break  # longer than we're willing to block — surface it
+                    await asyncio.sleep(delay)
                     continue
                 if status >= 500:
                     last = HttpError(f"{method} {url} -> {status}")

@@ -24,7 +24,7 @@ from ...domain.models import (
     Status,
     Title,
 )
-from ..http import HttpClient, HttpError
+from ..http import HttpClient, HttpError, RateLimited
 
 if TYPE_CHECKING:
     from ..cache.kv import KvCache
@@ -156,6 +156,11 @@ def _clean_synopsis(text: str | None) -> str | None:
 
 
 def _to_anime(m: dict) -> Anime:
+    # AniList occasionally returns a partial record. Without an id there is
+    # no identity to hang anything off, and m["id"] used to raise a bare
+    # KeyError straight out of search.
+    if not m or m.get("id") is None:
+        raise MetadataError("AniList returned a record with no id")
     t = m.get("title") or {}
     next_ep = m.get("nextAiringEpisode") or {}
     airing_at = next_ep.get("airingAt")
@@ -187,6 +192,20 @@ def _to_anime(m: dict) -> Anime:
     )
 
 
+def _anime_list(items) -> list[Anime]:
+    """Map media rows, skipping any the API returned without an id.
+
+    One malformed row shouldn't cost you the entire search result.
+    """
+    out: list[Anime] = []
+    for m in items or ():
+        try:
+            out.append(_to_anime(m))
+        except MetadataError:
+            continue
+    return out
+
+
 def _main_studio(studios) -> str | None:
     nodes = (studios or {}).get("nodes") or []
     # Prefer an actual animation studio; fall back to the first main studio.
@@ -210,7 +229,12 @@ class AniListMetadata:
     def __init__(
         self, http: HttpClient | None = None, *, cache: "KvCache | None" = None
     ) -> None:
-        self._http = http or HttpClient(headers={"Accept": "application/json"})
+        # Interactive: every call here backs a screen someone is looking at, so
+        # cap how long a rate limit can stall it. Sitting out AniList's full
+        # 60-second window would read as a frozen app.
+        self._http = http or HttpClient(
+            headers={"Accept": "application/json"}, max_retry_wait_s=5.0
+        )
         self._cache = cache
 
     async def aclose(self) -> None:
@@ -221,6 +245,13 @@ class AniListMetadata:
             data = await self._http.post_json(
                 API, json={"query": query, "variables": variables}
             )
+        except RateLimited as e:
+            # Actionable advice beats a URL and a status code: this one clears
+            # on its own, and the only useful response is to wait.
+            raise MetadataError(
+                "AniList is rate-limiting requests right now — wait a moment "
+                "and try again."
+            ) from e
         except HttpError as e:
             raise MetadataError(f"AniList request failed: {e}") from e
         if "errors" in data:
@@ -250,7 +281,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEARCH, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def search_filtered(
         self,
@@ -286,7 +317,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEARCH, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def get(self, id: AnimeId) -> Anime:
         # Omit missing ids entirely: an explicit {"malId": null} makes AniList
@@ -358,7 +389,7 @@ class AniListMetadata:
                     if n.get("mediaRecommendation")]
 
         raw = await self._cached(f"recs:{id.key}:{limit}", _TTL_SEASONAL, produce)
-        return [_to_anime(m) for m in raw]
+        return _anime_list(raw)
 
     async def trending(self, *, limit: int = 30) -> list[Anime]:
         async def produce():
@@ -366,7 +397,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(f"trending:{limit}", _TTL_TRENDING, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def popular(self, *, limit: int = 500) -> list[Anime]:
         """A broad, popularity-ranked catalog snapshot, most-popular first.
@@ -393,7 +424,7 @@ class AniListMetadata:
             return media[:limit]
 
         media = await self._cached(f"popular:{limit}", _TTL_POPULAR, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def seasonal(self, season: Season, year: int) -> list[Anime]:
         key = f"seasonal:{season.value}:{year}"
@@ -405,7 +436,7 @@ class AniListMetadata:
             return data["Page"]["media"]
 
         media = await self._cached(key, _TTL_SEASONAL, produce)
-        return [_to_anime(m) for m in media]
+        return _anime_list(media)
 
     async def airing_schedule(self, start: date, end: date) -> list[AiringEvent]:
         start_ts = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
