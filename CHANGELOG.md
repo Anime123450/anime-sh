@@ -2,6 +2,20 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.36] — 2026-07-31
+
+### Fixed
+
+- **Obscure exact-title matches no longer bury the show you meant.** A 89-view
+  short whose romaji title is literally "JoJo" outranked JoJo's Bizarre
+  Adventure (470,000 views), because an exact title beat a prefix match no
+  matter what. Ranking is now a blend — match strength, exactness and
+  popularity all bounded — so a huge popularity gap can overcome a small
+  exactness edge, while "Nisekoi:" still beats the more popular "Nisekoi".
+- **Synonym matches rank below real titles.** AniList synonyms are
+  crowd-sourced aliases, and treating them as equal to a show's own name is what
+  let those obscure entries score a perfect match.
+
 ## [0.2.35] — 2026-07-31
 
 ### Fixed

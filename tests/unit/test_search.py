@@ -224,3 +224,33 @@ def test_fullwidth_and_unicode_queries_fold_to_ascii():
     assert _squash("ＮＡＲＵＴＯ") == "naruto"
     pool = [_titled(1, "Naruto", popularity=900_000), _titled(2, "Bleach")]
     assert _ranked(pool, "ＮＡＲＵＴＯ", 1)[0].id.anilist == 1
+
+
+def test_a_hugely_more_popular_prefix_match_beats_an_obscure_exact_title():
+    """The case that forced ranking to be a blend rather than strict tiers.
+
+    "Hello Again, JoJo" (popularity 89) has the romaji title "JoJo", so it is a
+    genuine exact match and buried JoJo's Bizarre Adventure (popularity 470k),
+    whose title merely starts with the query. Exactness still has to win for
+    "Nisekoi:" vs "Nisekoi", so neither can dominate unconditionally.
+    """
+    from anime_sh.app.search import _ranked
+
+    obscure_exact = _titled(1, romaji="JoJo", popularity=89)
+    famous_prefix = _titled(2, "JoJo's Bizarre Adventure (TV)", popularity=470_694)
+    assert _ranked([obscure_exact, famous_prefix], "JoJo", 1)[0].id.anilist == 2
+
+    # …but a modest popularity gap must not override an exact title.
+    s1 = _titled(3, "Nisekoi", popularity=500_000)
+    s2 = _titled(4, "Nisekoi:", popularity=200_000)
+    assert _ranked([s1, s2], "Nisekoi:", 1)[0].id.anilist == 4
+
+
+def test_a_synonym_match_ranks_below_a_real_title_match():
+    """AniList synonyms are crowd-sourced aliases, not names."""
+    from anime_sh.app.search import _rank_score, _norm, _squash
+
+    by_title = _titled(1, "Gintama")
+    by_synonym = _titled(2, "Something Else", synonyms=["Gintama"])
+    nq, sq = _norm("Gintama"), _squash("Gintama")
+    assert _rank_score(by_title, nq, sq) > _rank_score(by_synonym, nq, sq)
