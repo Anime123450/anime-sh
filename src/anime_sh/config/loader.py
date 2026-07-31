@@ -55,6 +55,7 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
         raise ConfigError(f"no such setting: {section}.{field}")
 
     typed = _coerce(value, sub_model.model_fields[field].annotation)
+    _reject_unknown_choice(dotted_key, typed)
     raw = _read_raw(path)
     raw.setdefault(section, {})[field] = typed
     try:
@@ -65,6 +66,24 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_dump_toml(raw), encoding="utf-8")
     return typed
+
+
+# Settings typed as plain strings that nonetheless accept only a fixed set.
+# They stay `str` in the schema so an old config file with an odd value still
+# loads (playback falls back to a sane default) — but writing one is a typo, and
+# a typo that silently changes behaviour is worse than an error.
+_CHOICES: dict[str, tuple[str, ...]] = {
+    "playback.quality": ("best", "1080p", "720p", "480p", "360p", "worst"),
+    "playback.audio": ("sub", "dub"),
+}
+
+
+def _reject_unknown_choice(dotted_key: str, typed: Any) -> None:
+    allowed = _CHOICES.get(dotted_key)
+    if allowed and str(typed) not in allowed:
+        raise ConfigError(
+            f"{dotted_key} must be one of: {', '.join(allowed)} (got {typed!r})"
+        )
 
 
 def _coerce(value: str, annotation: Any) -> Any:

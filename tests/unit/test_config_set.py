@@ -61,3 +61,19 @@ def test_dump_toml_formats_types():
     out = _dump_toml({"s": {"b": True, "n": 3, "t": "x", "l": ["a", "b"]}})
     parsed = tomllib.loads(out)
     assert parsed["s"] == {"b": True, "n": 3, "t": "x", "l": ["a", "b"]}
+
+
+def test_set_rejects_a_value_outside_the_allowed_set(tmp_path):
+    """`config set` is documented as validated, but quality/audio are plain
+    strings in the schema — so a typo saved happily and then silently played at
+    the wrong quality (an unknown target falls back to 1080p)."""
+    from anime_sh.config.loader import ConfigError, set_config_value
+
+    path = tmp_path / "config.toml"
+    with pytest.raises(ConfigError, match="must be one of"):
+        set_config_value("playback.quality", "nonsense", path)
+    with pytest.raises(ConfigError, match="must be one of"):
+        set_config_value("playback.audio", "spanish", path)
+    # Valid values still go through.
+    assert set_config_value("playback.quality", "720p", path) == "720p"
+    assert set_config_value("playback.audio", "dub", path) == "dub"

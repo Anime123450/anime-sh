@@ -24,7 +24,7 @@ from ...domain.models import (
     Status,
     Title,
 )
-from ..http import HttpClient, HttpError
+from ..http import HttpClient, HttpError, RateLimited
 
 if TYPE_CHECKING:
     from ..cache.kv import KvCache
@@ -210,7 +210,12 @@ class AniListMetadata:
     def __init__(
         self, http: HttpClient | None = None, *, cache: "KvCache | None" = None
     ) -> None:
-        self._http = http or HttpClient(headers={"Accept": "application/json"})
+        # Interactive: every call here backs a screen someone is looking at, so
+        # cap how long a rate limit can stall it. Sitting out AniList's full
+        # 60-second window would read as a frozen app.
+        self._http = http or HttpClient(
+            headers={"Accept": "application/json"}, max_retry_wait_s=5.0
+        )
         self._cache = cache
 
     async def aclose(self) -> None:
@@ -221,6 +226,13 @@ class AniListMetadata:
             data = await self._http.post_json(
                 API, json={"query": query, "variables": variables}
             )
+        except RateLimited as e:
+            # Actionable advice beats a URL and a status code: this one clears
+            # on its own, and the only useful response is to wait.
+            raise MetadataError(
+                "AniList is rate-limiting requests right now — wait a moment "
+                "and try again."
+            ) from e
         except HttpError as e:
             raise MetadataError(f"AniList request failed: {e}") from e
         if "errors" in data:
