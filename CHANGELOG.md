@@ -2,6 +2,23 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.31] — 2026-07-31
+
+### Fixed
+
+- **A source that stops early no longer looks like an unaired show.** Opening a
+  12-episode season on a source that only carries 4 showed the rest as
+  "not aired yet" — on a season that finished airing in 2025. Those episodes had
+  aired; the chosen source just didn't have them. They now say
+  "not on this source — press Esc to switch", and an episode that genuinely
+  hasn't aired still shows its countdown.
+- **The screen no longer offers an episode the source hasn't got.** The resume
+  pin from Continue Watching skipped the availability check, so the call to
+  action read "Play Episode 5 · up next" (with the cursor parked on it) while
+  the list below marked episode 5 unavailable — pressing Enter could only fail.
+- **Running out of episodes on a source now says so**, instead of leaving the
+  action line blank, and points at Esc to pick another source.
+
 ## [0.2.30] — 2026-07-31
 
 ### Changed

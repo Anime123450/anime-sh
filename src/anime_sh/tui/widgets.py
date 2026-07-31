@@ -88,8 +88,11 @@ class EpisodeItem(ListItem):
     def _label(number, watched, resume_s, available, progress_pct, air_label, is_next):
         n = f"{number:g}"
         if not available:
-            # An unreleased episode: show how long to wait, not a flat "n/a".
-            tail = air_label or "not aired yet"
+            # Why it can't be played. "Hasn't aired" and "this source doesn't
+            # carry it" are different things, and calling both "not aired yet"
+            # made a season that finished airing in 2025 claim its later episodes
+            # were unreleased — when really the chosen source only had four.
+            tail = air_label or "not on this source"
             return f"[grey42]○  Episode {n}[/grey42]  [dim]· {tail}[/dim]"
         if watched:
             return f"[green]✓[/green]  [dim]Episode {n}[/dim]"

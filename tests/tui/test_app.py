@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from textual.widgets import ListView
+from textual.widgets import Label, ListView, Static
 
 from anime_sh.domain.models import (
     Anime,
@@ -538,3 +538,49 @@ async def test_home_survives_a_failing_library():
         # Still alive, and the sections that don't depend on it still rendered.
         assert app.is_running
         assert len(app.query_one("#trending", ListView)) == 2
+
+
+async def test_source_without_the_pinned_episode_does_not_offer_it():
+    """Reproduces the reported screen: a 12-episode season opened on a source
+    that only carries 4.
+
+    The resume pin skipped the availability check, so the screen offered
+    "Play Episode 5 · up next" and parked the cursor there while the list below
+    marked episode 5 unavailable — pressing Enter could only fail. The missing
+    episodes were also labelled "not aired yet" on a season that finished airing
+    in 2025; the real reason is the source, and switching source fixes it.
+    """
+    from anime_sh.tui.widgets import EpisodeItem
+
+    now = datetime.now(timezone.utc)
+    library = FakeLibrary()
+    library.progress = [
+        WatchProgress(AnimeId(anilist=1), float(n), 1400, 1400, now, completed=True)
+        for n in range(1, 5)
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # A finished 12-episode season, pinned to episode 5 by Continue Watching.
+        show = _anime(1, "Bumpkin", eps=12)
+        detail = DetailScreen(show, resume_episode=5.0)
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        # The source carries only episodes 1-4.
+        await detail._render_episodes([float(n) for n in range(1, 13)],
+                                      available={1.0, 2.0, 3.0, 4.0})
+        await pilot.pause()
+
+        text = str(detail.query_one("#detail-action", Static).render())
+        assert "Play Episode 5" not in text, "offered an episode this source lacks"
+        assert "no further episodes" in text.lower()
+
+        # And the unavailable episodes blame the source, not the airing schedule.
+        items = list(detail.query_one("#episodes", ListView).children)
+        ep5 = [i for i in items if isinstance(i, EpisodeItem) and i.number == 5.0][0]
+        assert "not aired yet" not in str(ep5.query_one(Label).render())
