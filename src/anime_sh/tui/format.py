@@ -92,6 +92,13 @@ def continue_row(
     waiting = waiting_subtitle(anime, ep, now)
     if waiting is not None:
         return (waiting, True, nxt)
+    # Say how many episodes exist when we know. "up next · Ep 5" next to another
+    # season's "caught up · Ep 5 in 5d" is genuinely ambiguous — both read as "the
+    # next episode is 5" — whereas "Ep 5 of 12" makes it obvious this one is a
+    # finished season you are partway through, not a release you are waiting on.
+    total = anime.episode_count
+    if total:
+        return (f"up next · Ep {nxt:g} of {total}", False, nxt)
     return (f"up next · Ep {nxt:g}", False, nxt)
 
 

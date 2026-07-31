@@ -2,6 +2,18 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.30] — 2026-07-31
+
+### Changed
+
+- **Continue Watching says how many episodes a show has.** A finished season you
+  are partway through now reads `up next · Ep 5 of 12`. On its own, `up next ·
+  Ep 5` looks identical to an airing show's awaited next episode — which is how
+  a 2025 season sitting above its 2026 sequel gets mistaken for a release that
+  hasn't happened yet.
+- **The year badge is parenthesised** — `From Old Country Bumpkin to Master
+  Swordsman (2025)`. Bare, it read as part of the title.
+
 ## [0.2.29] — 2026-07-31
 
 ### Fixed
