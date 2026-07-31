@@ -6,6 +6,15 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **A UTF-8 BOM no longer breaks your config.** Notepad writes one by default on
+  Windows, so editing `config.toml` there made the app refuse to start with
+  "could not read config".
+- **`providers.parallel` must be at least 1.** A zero or negative value sliced
+  the provider list down to nothing, so every playback attempt silently found no
+  sources at all.
+- **ffmpeg failures report a sane exit code.** Windows reports a negative status
+  as 32-bit unsigned, so an ordinary failure read as "ffmpeg exited 4294967291".
+
 - **One rate limit no longer poisons the whole session.** After a 429, every
   later request failed too — and each rejected request still spends the server's
   quota, so retrying through a limit is what keeps you inside it. The client now

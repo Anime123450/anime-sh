@@ -198,3 +198,14 @@ async def test_cancelling_a_download_kills_ffmpeg(monkeypatch, tmp_path):
     with pytest.raises(aio.CancelledError):
         await task
     assert proc.killed, "ffmpeg was left running after cancellation"
+
+
+def test_windows_exit_codes_are_shown_signed():
+    """Windows reports a negative status as 32-bit unsigned, so an ordinary
+    ffmpeg failure read as "ffmpeg exited 4294967291"."""
+    from anime_sh.infra.downloader.ffmpeg import _signed
+
+    assert _signed(4294967291) == -5
+    assert _signed(1) == 1
+    assert _signed(0) == 0
+    assert _signed(None) is None

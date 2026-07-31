@@ -19,7 +19,10 @@ def _read_raw(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig, not utf-8: Notepad writes a BOM by default on Windows, and a
+        # BOM made the whole config unreadable ("could not read config") for
+        # anyone who edited the file with it.
+        return tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, tomllib.TOMLDecodeError) as e:
         raise ConfigError(f"could not read config at {path}: {e}") from e
 

@@ -60,6 +60,14 @@ def build_ffmpeg_command(binary: str, stream: Stream, dest: Path) -> list[str]:
     return cmd
 
 
+def _signed(code: int | None) -> int | None:
+    """Windows reports a negative exit status as a 32-bit unsigned value, so
+    a plain failure surfaced to the user as "ffmpeg exited 4294967291"."""
+    if code is not None and code >= 2 ** 31:
+        return code - 2 ** 32
+    return code
+
+
 class FfmpegDownloader:
     def __init__(self, binary: str = "ffmpeg") -> None:
         self._binary = binary
@@ -102,5 +110,6 @@ class FfmpegDownloader:
                     await proc.wait()
         if proc.returncode != 0:
             raise DownloadError(
-                f"ffmpeg exited {proc.returncode}: {' / '.join(tail) or 'no output'}"
+                f"ffmpeg exited {_signed(proc.returncode)}: "
+                f"{' / '.join(tail) or 'no output'}"
             )

@@ -25,7 +25,9 @@ class PlaybackConfig(BaseModel):
 
 
 class ProvidersConfig(BaseModel):
-    parallel: int = 5
+    # At least one: a zero or negative value silently sliced the provider
+    # list down to nothing, so every playback attempt found no sources.
+    parallel: int = Field(default=5, ge=1)
     # Provider order preference (highest first). Names not listed keep their
     # built-in priority, ordered after the preferred ones. Unknown names are
     # ignored, so this stays valid as providers come and go.
@@ -33,7 +35,7 @@ class ProvidersConfig(BaseModel):
         default_factory=lambda: ["anizone", "anikoto"]
     )
     disabled: list[str] = Field(default_factory=list)
-    timeout_s: float = 8.0
+    timeout_s: float = Field(default=8.0, gt=0)
 
 
 class ResolversConfig(BaseModel):
