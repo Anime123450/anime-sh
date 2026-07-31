@@ -93,11 +93,14 @@ class DetailScreen(Screen):
         url = self.anime.cover_url
         if not url:
             return
-        data = await fetch_cover(url)
-        if not data:
-            return
-        self._cover_data = data
-        await self._mount_cover()
+        try:
+            data = await fetch_cover(url)
+            if not data:
+                return
+            self._cover_data = data
+            await self._mount_cover()
+        except Exception:
+            return  # decoration only — a broken image never costs you the screen
 
     async def _mount_cover(self) -> None:
         data = getattr(self, "_cover_data", None)
@@ -143,6 +146,14 @@ class DetailScreen(Screen):
 
     @work(exclusive=True, group="episodes")
     async def _populate_episodes(self) -> None:
+        try:
+            await self._populate_episodes_worker()
+        except Exception as e:
+            # Same reasoning as Home's Continue Watching: a provider or database
+            # hiccup here must show a message, not crash out of the app.
+            self.notify(f"Couldn't load episodes: {e}", severity="warning")
+
+    async def _populate_episodes_worker(self) -> None:
         # One serialized pass so the three sources never race each other:
         #   1. instant render from AniList's planned count (+ watched marks)
         #   2. enrich to full, fresh metadata (synopsis / airing / studio / score)
@@ -218,9 +229,12 @@ class DetailScreen(Screen):
 
     @work(exclusive=True, group="marks")
     async def _refresh_marks_worker(self) -> None:
-        await self._load_marks()
-        if self._numbers:
-            await self._render_episodes(self._numbers, available=self._available)
+        try:
+            await self._load_marks()
+            if self._numbers:
+                await self._render_episodes(self._numbers, available=self._available)
+        except Exception:
+            return  # a refresh that fails leaves the marks as they were
         try:
             self.app.refresh(repaint=True)
         except Exception:
@@ -366,9 +380,14 @@ class DetailScreen(Screen):
             self.notify(f"Playback error: {e}", severity="error")
         # Playback (and any auto-next) is done and progress is saved — refresh
         # the ✓ / ▸ marks in place so the list reflects what you just watched.
-        await self._load_marks()
-        if self._numbers:
-            await self._render_episodes(self._numbers, available=self._available)
+        # Guarded: the episode already played, so a hiccup reading it back must
+        # not crash the screen you're returning to.
+        try:
+            await self._load_marks()
+            if self._numbers:
+                await self._render_episodes(self._numbers, available=self._available)
+        except Exception:
+            pass
         # mpv plays in its own window while Textual sits idle in the background,
         # so it doesn't repaint on its own when mpv closes — the updated marks
         # would otherwise only show after leaving and re-opening the screen.

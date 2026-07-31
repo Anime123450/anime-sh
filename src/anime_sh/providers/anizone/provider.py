@@ -58,6 +58,9 @@ class AnizoneProvider:
             headers={"User-Agent": AGENT, "Referer": f"{BASE}/"}
         )
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
     # -- transport ---------------------------------------------------------- #
     async def _get(self, path: str, params: dict | None = None) -> str:
         try:

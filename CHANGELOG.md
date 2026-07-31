@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.28] — 2026-07-31
+
+### Fixed
+
+- **A background failure no longer takes the whole app down.** Continue
+  Watching, the episode list, the watched-marks refresh and cover loading all
+  ran unguarded in their workers, so a momentarily busy database or a provider
+  hiccup raised straight out and crashed the TUI with a traceback — this is what
+  killed the app on launch when the database was locked. Each now degrades to a
+  message (or silently, for decoration) and leaves the rest usable.
+- **Providers and resolvers are closed on shutdown.** Six of them build their own
+  HTTP client and nothing ever closed them, so every run leaked those
+  connections. The ports already declared `aclose()`; the implementations were
+  missing and the container never called them.
+- **Quitting any way other than `q` now shuts down cleanly.** Ctrl-C, a crash or
+  the terminal going away skipped the container's shutdown entirely, leaking
+  clients and leaving the database without a clean close. Shutdown is idempotent
+  and now runs from the TUI's own exit path.
+
 ## [0.2.27] — 2026-07-30
 
 ### Fixed

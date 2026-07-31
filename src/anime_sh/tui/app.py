@@ -128,4 +128,11 @@ async def run_tui(services: TuiServices, *, theme: str = "tokyo-night") -> None:
 
     prime_graphics()
     app = AnimeShApp(services, theme=theme)
-    await app.run_async()
+    try:
+        await app.run_async()
+    finally:
+        # Quitting with `q` closes the container itself, but every other way out —
+        # Ctrl-C, a crash, the terminal going away — used to skip it, leaking HTTP
+        # clients and leaving the database without a clean close. aclose is
+        # idempotent, so doing it here covers all of them.
+        await services.aclose()

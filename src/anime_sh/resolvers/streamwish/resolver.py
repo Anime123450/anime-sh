@@ -34,6 +34,9 @@ class StreamwishResolver:
         # would stall the resolve walk. One short attempt, then move on.
         self._http = http or HttpClient(headers={"User-Agent": AGENT}, timeout=8.0, retries=0)
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
     def handles(self, candidate: StreamCandidate) -> bool:
         url = candidate.url.lower()
         if any(d in url for d in _DOMAINS):

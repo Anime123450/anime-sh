@@ -61,6 +61,9 @@ class AnikotoProvider:
             }
         )
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
     # -- transport ---------------------------------------------------------- #
     async def _get_text(self, path: str, params: dict | None = None) -> str:
         try:
