@@ -32,6 +32,7 @@ from ..domain.models import (
     StreamCandidate,
 )
 from ..domain.ports import HealthStore, Provider
+from ..domain.titles import season_number
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +126,17 @@ class ProviderManager:
         out: list[SourceOption] = []
         for group in results:
             out.extend(group)
-        return out
+        # Keep only sources for *this* season. A provider search returns sequels
+        # too, and offering "… Season 2" as a source for season 1 is how you end
+        # up watching season 2 while progress is written against season 1's
+        # AniList id. Never filter down to nothing: if the titles don't line up,
+        # an imperfect source beats no source at all.
+        wanted = max(
+            season_number(t)
+            for t in (anime.title.english, anime.title.romaji, anime.title.preferred)
+        )
+        same = [o for o in out if season_number(o.title) == wanted]
+        return same or out
 
     async def _sources_guarded(
         self, provider: Provider, anime: Anime, audio: Audio

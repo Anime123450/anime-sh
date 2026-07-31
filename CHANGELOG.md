@@ -2,6 +2,24 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.32] — 2026-07-31
+
+### Fixed
+
+- **A sequel is no longer offered as a source for its prequel.** Provider
+  searches return neighbouring seasons too, and nothing filtered them out — so
+  opening season 1 listed season 2's entry as a source for it. Picking that (the
+  season you were actually watching) played season 2's episodes while progress
+  was recorded against season 1's AniList id. Everything downstream followed from
+  that: the wrong show sat in Continue Watching, its episode list showed
+  "4/12 available", and the remaining episodes looked unreleased. Sources are
+  now matched to the season of the show you opened.
+
+### Removed
+
+- **The year badge in Continue Watching.** It was papering over the mis-matching
+  above; with sources tied to the right season it is just noise.
+
 ## [0.2.31] — 2026-07-31
 
 ### Fixed
