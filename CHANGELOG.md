@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.29] — 2026-07-31
+
+### Fixed
+
+- **Errors and Ctrl-C no longer print a traceback.** The CLI called into its
+  command framework unguarded, so a bad config file surfaced as a Python stack
+  trace and pressing Ctrl-C during a search or download looked like a crash.
+  Known failures now print their message (exit 2) and an interrupt exits quietly
+  (exit 130).
+
 ## [0.2.28] — 2026-07-31
 
 ### Fixed

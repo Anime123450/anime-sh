@@ -206,3 +206,45 @@ def test_download_all_failed_exits_nonzero(dl_container):
     with pytest.raises(typer.Exit) as ei:
         asyncio.run(cli_main._download("x", "1", False, None))
     assert ei.value.exit_code == 2
+
+
+def test_main_reports_our_errors_without_a_traceback(monkeypatch, capsys):
+    """A known failure should print a message, not a stack trace.
+
+    `main()` called into typer unguarded, so a bad config file — or Ctrl-C —
+    surfaced as a raw traceback.
+    """
+    import pytest as _pytest
+
+    from anime_sh.cli import main as cli_main
+    from anime_sh.domain.errors import AnimeShError
+
+    monkeypatch.setattr(cli_main.sys, "argv", ["anime", "version"])
+
+    def boom():
+        raise AnimeShError("invalid config at config.toml: bad value")
+
+    monkeypatch.setattr(cli_main, "app", boom)
+    with _pytest.raises(SystemExit) as exc:
+        cli_main.main()
+    assert exc.value.code == 2
+    out = capsys.readouterr().out
+    assert "invalid config" in out
+    assert "Traceback" not in out
+
+
+def test_main_treats_ctrl_c_as_deliberate(monkeypatch, capsys):
+    import pytest as _pytest
+
+    from anime_sh.cli import main as cli_main
+
+    monkeypatch.setattr(cli_main.sys, "argv", ["anime", "search", "x"])
+
+    def interrupted():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_main, "app", interrupted)
+    with _pytest.raises(SystemExit) as exc:
+        cli_main.main()
+    assert exc.value.code == 130
+    assert "Interrupted" in capsys.readouterr().out

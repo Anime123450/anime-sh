@@ -1539,7 +1539,18 @@ def main() -> None:
     known = _known_commands()
     if known and argv and argv[0] not in known and not argv[0].startswith("-"):
         sys.argv.insert(1, "play")
-    app()
+    try:
+        app()
+    except KeyboardInterrupt:
+        # Ctrl-C is how people stop a search or a download. It should read as
+        # deliberate, not dump a traceback as if anime-sh had crashed.
+        console.print("\n[dim]Interrupted.[/]")
+        raise SystemExit(130) from None
+    except AnimeShError as e:
+        # Our own errors already carry a human-readable message (bad config,
+        # nothing playable, no such show) — show that, not a stack trace.
+        console.print(f"[red]Error:[/] {e}")
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":
