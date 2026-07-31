@@ -30,16 +30,24 @@ class AnimeItem(ListItem):
         resume_episode: float | None = None,
         dim: bool = False,
         progress: float | None = None,
+        badge: str = "",
     ) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
         self._dim = dim
         self._progress = progress
+        self._badge = badge
         self._label = Label(self._compose_label(subtitle))
         super().__init__(self._label)
 
     def _compose_label(self, subtitle: str) -> str:
         label = _lit(self.anime.title.preferred)
+        # Seasons of one franchise read almost identically in a list ("…Master
+        # Swordsman" directly above "…Master Swordsman II"), and picking the wrong
+        # one means watching last year's season by mistake. A year badge tells
+        # them apart at a glance.
+        if self._badge:
+            label = f"{label} [grey54]{_lit(self._badge)}[/grey54]"
         if subtitle:
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
         # A small bar mirrors the detail screen for a show you're partway through.

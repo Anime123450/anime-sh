@@ -2,6 +2,27 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.26] — 2026-07-30
+
+### Fixed
+
+- **Seasons of the same show can be told apart.** Two entries reading
+  "…Master Swordsman" and "…Master Swordsman II" sat next to each other in
+  Continue Watching with nothing to distinguish them, so it was easy to open —
+  and track progress against — last year's season instead of the one currently
+  airing. Rows whose titles overlap now carry their year.
+- **A show you're caught up on no longer offers an unaired episode.** The
+  airing schedule wasn't stored locally, so a Continue Watching row painted from
+  the cache had no idea when the next episode lands and said "up next · Ep N"
+  until a live AniList fetch corrected it — and stayed wrong offline or when
+  that fetch failed. The schedule is cached now (migration 0002), so the first
+  paint shows the real countdown.
+
+### Changed
+
+- When a database is damaged beyond repair, the log now names the backup file
+  holding your previous library, instead of only saying a backup was kept.
+
 ## [0.2.25] — 2026-07-30
 
 ### Fixed

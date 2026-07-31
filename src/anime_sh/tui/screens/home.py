@@ -142,6 +142,19 @@ class HomeScreen(Screen):
                     and p.duration_s > 0 else None)
             rows.append((anime, subtitle, dim, resume, frac))
 
+        # Tag seasons of one franchise with their year. Two rows whose titles are
+        # in a prefix relationship ("…Master Swordsman" / "…Master Swordsman II")
+        # are indistinguishable mid-list, and choosing wrong means watching — and
+        # tracking — the wrong season.
+        lowered = [r[0].title.preferred.casefold() for r in rows]
+        rows = [
+            (*r, str(r[0].year) if r[0].year and any(
+                j != i and (other.startswith(lowered[i]) or lowered[i].startswith(other))
+                for j, other in enumerate(lowered)
+            ) else "")
+            for i, r in enumerate(rows)
+        ]
+
         lv = self.query_one("#continue", ListView)
         sec = self.query_one("#sec-continue")
         await lv.clear()
@@ -154,9 +167,9 @@ class HomeScreen(Screen):
         rows.sort(key=lambda r: r[2])
         sec.display = True
         lv.display = True
-        for anime, subtitle, dim, resume, frac in rows:
+        for anime, subtitle, dim, resume, frac, badge in rows:
             lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume,
-                                dim=dim, progress=frac))
+                                dim=dim, progress=frac, badge=badge))
         self._set_section("#sec-continue", "Continue Watching", len(rows))
 
     async def _fresh_airing(self, items) -> dict:

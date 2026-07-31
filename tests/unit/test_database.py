@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import anime_sh.infra.db
 from anime_sh.infra.db.database import Database
 from anime_sh.infra.db.library import SqliteLibrary
 from anime_sh.infra.cache.kv import KvCache
@@ -30,8 +31,14 @@ async def cache_db(tmp_path: Path):
     await db.close()
 
 
+def _latest_migration(name: str) -> int:
+    """Highest numbered migration on disk — so adding one doesn't break these."""
+    root = Path(anime_sh.infra.db.__file__).parent / name
+    return max(int(p.name.split("_", 1)[0]) for p in root.glob("*.sql"))
+
+
 async def test_user_migrations_apply(user_db):
-    assert await user_db.schema_version() == 1
+    assert await user_db.schema_version() == _latest_migration("migrations")
 
 
 async def test_migrations_are_idempotent(tmp_path: Path):
@@ -39,7 +46,8 @@ async def test_migrations_are_idempotent(tmp_path: Path):
     for _ in range(3):
         db = Database(path, migrations_dir="migrations")
         await db.connect()
-        assert await db.schema_version() == 1
+        # Re-opening must not re-apply or skip anything.
+        assert await db.schema_version() == _latest_migration("migrations")
         await db.close()
 
 
