@@ -131,12 +131,7 @@ class ProviderManager:
         # up watching season 2 while progress is written against season 1's
         # AniList id. Never filter down to nothing: if the titles don't line up,
         # an imperfect source beats no source at all.
-        wanted = max(
-            season_number(t)
-            for t in (anime.title.english, anime.title.romaji, anime.title.preferred)
-        )
-        same = [o for o in out if season_number(o.title) == wanted]
-        return same or out
+        return self._this_season(anime, out) or out
 
     async def _sources_guarded(
         self, provider: Provider, anime: Anime, audio: Audio
@@ -197,6 +192,38 @@ class ProviderManager:
             await self._health.save(updated)
         return ref
 
+    def _this_season(
+        self, anime: Anime, options: list[SourceOption]
+    ) -> list[SourceOption]:
+        """Options whose title names the same season as ``anime``.
+
+        Providers rank by title similarity, and a sequel's title is nearly
+        identical to its prequel's — so without this the best "match" for one
+        season is regularly the other one.
+        """
+        wanted = max(
+            season_number(t)
+            for t in (anime.title.english, anime.title.romaji, anime.title.preferred)
+        )
+        return [o for o in options if season_number(o.title) == wanted]
+
+    async def _best_ref(
+        self, provider: Provider, anime: Anime, audio: Audio
+    ) -> ProviderRef | None:
+        """The provider's best entry for this show, preferring the right season.
+
+        ``match()`` returns whatever the provider ranked first, which is how
+        auto-play (no source picked by hand) could silently start a sequel while
+        recording progress against the season you opened.
+        """
+        finder = getattr(provider, "find_sources", None)
+        if finder is None:
+            return await provider.match(anime, audio)
+        options = await finder(anime, audio)
+        if not options:
+            return None
+        return (self._this_season(anime, options) or options)[0].ref()
+
     async def _match_outcome(
         self, provider: Provider, anime: Anime, audio: Audio
     ) -> tuple[ProviderRef | None, bool]:
@@ -205,7 +232,7 @@ class ProviderManager:
         only timeouts/errors count against the breaker."""
         try:
             async with asyncio.timeout(self._match_timeout):
-                ref = await provider.match(anime, audio)
+                ref = await self._best_ref(provider, anime, audio)
             return ref, True
         except (TimeoutError, ProviderError) as e:
             log.debug("provider %s match failed: %s", provider.name, e)

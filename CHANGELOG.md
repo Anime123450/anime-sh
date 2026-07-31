@@ -2,6 +2,16 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.33] — 2026-07-31
+
+### Fixed
+
+- **Auto-play picks the right season too.** 0.2.32 tied the *source picker* to
+  the season you opened, but playing without choosing a source by hand went
+  through a separate path that still took whatever the provider ranked first —
+  and a sequel's title is nearly identical to its prequel's, so that was
+  regularly the wrong season. Both paths now agree.
+
 ## [0.2.32] — 2026-07-31
 
 ### Fixed
