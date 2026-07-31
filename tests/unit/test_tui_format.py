@@ -111,8 +111,17 @@ def test_continue_row_resume_in_progress_episode():
 
 
 def test_continue_row_up_next_when_more_available():
-    # Finished ep 3 of a 12-ep finished show → next one's already out.
+    # Finished ep 3 of a 12-ep finished show → next one's already out. The total
+    # is spelled out: "Ep 4" alone reads the same as an airing show's awaited
+    # next episode, which is how a finished season gets mistaken for one you're
+    # waiting on.
     a = _anime(status=Status.FINISHED, episode_count=12)
+    assert continue_row(a, _prog(3.0, 1400, completed=True), _NOW) == (
+        "up next · Ep 4 of 12", False, 4.0)
+
+
+def test_continue_row_up_next_without_a_known_total():
+    a = _anime(status=Status.FINISHED, episode_count=None)
     assert continue_row(a, _prog(3.0, 1400, completed=True), _NOW) == (
         "up next · Ep 4", False, 4.0)
 

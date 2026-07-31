@@ -47,7 +47,9 @@ class AnimeItem(ListItem):
         # one means watching last year's season by mistake. A year badge tells
         # them apart at a glance.
         if self._badge:
-            label = f"{label} [grey54]{_lit(self._badge)}[/grey54]"
+            # Parenthesised: a bare year tacked onto a title reads as part of it
+            # ("…Master Swordsman 2025"), which defeats the whole point.
+            label = f"{label} [grey54]({_lit(self._badge)})[/grey54]"
         if subtitle:
             label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
         # A small bar mirrors the detail screen for a show you're partway through.
