@@ -251,6 +251,22 @@ class DetailScreen(Screen):
         except Exception:
             pass
 
+    def _unavailable_label(self, number: float) -> str:
+        """Why an episode can't be played right now.
+
+        Two different reasons used to share one wrong label: an episode that
+        hasn't aired, and an episode this *source* simply doesn't carry. A
+        finished season whose chosen source stops at episode 4 would say its
+        remaining episodes were "not aired yet" — years after they aired. The
+        fix for that one is to switch source, so say so.
+        """
+        airing = episode_air_label(self.anime, number)
+        if airing:
+            return airing
+        if self.anime.is_airing:
+            return "not aired yet"
+        return "not on this source — press Esc to switch"
+
     async def _render_episodes(
         self, numbers: list[float], available: set[float] | None = None
     ) -> None:
@@ -267,7 +283,11 @@ class DetailScreen(Screen):
         # roll on), then the in-progress episode, then the first available one
         # past the watched-through mark.
         resume = self.resume_episode
-        if resume is not None and resume <= watched_through:
+        # Drop the pin once you've finished that episode, and also when the
+        # chosen source doesn't actually carry it — otherwise the screen offers
+        # "Play Episode 5" (and parks the cursor there) for an episode this
+        # source hasn't got, and pressing Enter can only fail.
+        if resume is not None and (resume <= watched_through or not is_avail(resume)):
             resume = None
         next_number = (
             resume
@@ -295,7 +315,7 @@ class DetailScreen(Screen):
                         resume_s=1 if number == resume else 0,
                         progress_pct=pct,
                         available=avail,
-                        air_label=None if avail else episode_air_label(self.anime, number),
+                        air_label=None if avail else self._unavailable_label(number),
                         is_next=(not is_watched and pct is None
                                  and number == next_number and avail),
                     )
@@ -309,8 +329,16 @@ class DetailScreen(Screen):
         Enter will do — resume, start, play next, or a done note."""
         total = self.anime.episode_count
         if next_number is None:
-            text = ("[green]✓ You've finished this series.[/green]"
-                    if total and watched_through >= total else "")
+            if total and watched_through >= total:
+                text = "[green]✓ You've finished this series.[/green]"
+            elif self._available is not None and self._available:
+                # Nothing left to play *here*, but the series isn't finished —
+                # this source just stops earlier than the show does. Silence
+                # looked like a bug; the fix is one keypress away.
+                text = ("[yellow]This source has no further episodes.[/yellow] "
+                        "[dim]Press Esc to pick another source.[/dim]")
+            else:
+                text = ""
         else:
             n = f"{next_number:g}"
             pct = partial.get(next_number)
