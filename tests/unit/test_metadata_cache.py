@@ -96,3 +96,35 @@ async def test_clear_forces_a_refetch(cache):
     assert removed >= 1
     await meta.search("frieren")
     assert http.calls == 2
+
+
+async def test_expired_entries_are_swept_without_a_maintenance_command(tmp_path):
+    """A cache keyed by search query is mostly keys nobody types twice.
+
+    Expired rows were only dropped when that exact key was read again, so they
+    accumulated forever — a real install was found at 55 rows of which 53 were
+    already expired, in a 2.3 MB file. Nothing called purge_expired except the
+    manual `anime cache purge` command.
+    """
+    from datetime import timedelta
+
+    from anime_sh.infra.cache.kv import _SWEEP_EVERY_WRITES, KvCache
+    from anime_sh.infra.db.database import Database
+
+    db = Database(tmp_path / "cache.db", migrations_dir="migrations_cache")
+    conn = await db.connect()
+    cache = KvCache(db)
+    try:
+        # Write a pile of entries that are already dead on arrival.
+        for i in range(_SWEEP_EVERY_WRITES - 1):
+            await cache.set(f"stale-{i}", {"i": i}, ttl=timedelta(seconds=-1))
+        rows = (await (await conn.execute("SELECT COUNT(*) FROM kv_cache")).fetchone())[0]
+        assert rows == _SWEEP_EVERY_WRITES - 1, "nothing should have swept yet"
+
+        # The write that reaches the cadence sweeps the dead ones away.
+        await cache.set("fresh", {"ok": True}, ttl=timedelta(hours=1))
+        rows = (await (await conn.execute("SELECT COUNT(*) FROM kv_cache")).fetchone())[0]
+        assert rows == 1, f"expired entries were not swept (kept {rows})"
+        assert await cache.get("fresh") == {"ok": True}
+    finally:
+        await db.close()

@@ -6,6 +6,7 @@ Stores search results, trending/seasonal lists, and candidate lists. Resolved
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -17,9 +18,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Expired rows are otherwise only dropped when that exact key is read again, and
+# a cache keyed by search query is mostly keys nobody types twice — a real
+# install was found at 96% dead rows. Sweep them on a fixed cadence of writes so
+# the file stays bounded without a maintenance command nobody knows to run.
+_SWEEP_EVERY_WRITES = 50
+
+
 class KvCache:
     def __init__(self, db: Database) -> None:
         self._db = db
+        self._writes_since_sweep = 0
 
     async def get(self, key: str) -> Any | None:
         conn = await self._db.connect()
@@ -45,6 +54,13 @@ class KvCache:
             (key, json.dumps(value), expires),
         )
         await conn.commit()
+        self._writes_since_sweep += 1
+        if self._writes_since_sweep >= _SWEEP_EVERY_WRITES:
+            self._writes_since_sweep = 0
+            # Best-effort housekeeping: never let tidying break a cache write,
+            # which is itself only an optimisation.
+            with contextlib.suppress(Exception):
+                await self.purge_expired()
 
     async def purge_expired(self) -> int:
         conn = await self._db.connect()
