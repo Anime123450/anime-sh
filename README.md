@@ -161,16 +161,21 @@ anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
 anime continue               # episodes you started but didn't finish
 anime resume                 # jump back into the most recent one
 anime next "Mob Psycho 100"  # find + play the next season (sequel)
+anime sources "Frieren"      # every provider entry that matches, before playing
 
 # Discover
 anime search "frieren"       # AniList search (instant; no providers touched)
 anime search --genre action --year 2024 --sort score   # browse with filters
 anime trending
+anime seasonal               # this season (or: --season fall --year 2025)
+anime calendar --days 7      # what airs next, and when
+anime random                 # surprise me, picked from what's trending
 anime recommend "Frieren"    # shows for people who liked it (AniList)
 anime related "Attack on Titan"  # prequels, sequels, side stories, movies
 
 # Library & tracking
 anime mark "Frieren" -e 12    # mark eps 1–12 watched (syncs to AniList)
+anime unmark "Frieren"        # clear local progress for a show (undo a mark)
 anime history                 # what you've watched
 anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
 anime stats                   # episodes, hours, top genres & providers
