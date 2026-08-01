@@ -2,6 +2,24 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.39] — 2026-08-01
+
+### Removed
+
+- **The `cryptography` dependency.** It existed for AllAnime's source
+  decryption, and AllAnime was removed in July — so every install has been
+  pulling a large native package that nothing imports. Verified: a clean
+  install no longer contains it, and both providers still work (anizone's TLS
+  impersonation comes from `curl-cffi`, which stays).
+- **The `discord` extra.** It installed `pypresence` for a Rich Presence
+  feature that was never implemented, so `pip install anime-sh[discord]` cost
+  you a dependency and gave you nothing. Also dropped from `[all]`.
+
+### Added
+
+- **`CONTRIBUTING.md`** — the enforced architecture rules, the identity-spine
+  invariant, and what a provider or resolver has to satisfy.
+
 ## [0.2.38] — 2026-08-01
 
 ### Changed
