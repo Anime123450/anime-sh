@@ -2,6 +2,24 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.40] — 2026-08-01
+
+### Fixed
+
+- **Downloads of two long-titled seasons no longer overwrite each other.** The
+  length cap added in 0.2.37 truncated titles from the end — which is exactly
+  where the season marker lives — so "…Rich Kid School" and
+  "…Rich Kid School Season 2" produced the same folder *and* file name, and
+  downloading one silently replaced the other's episodes. Truncated names now
+  carry a short digest of the full title, so distinct shows stay distinct.
+  Titles short enough to keep whole are unchanged.
+
+### Changed
+
+- Corrected the search module's documentation, which still claimed results were
+  returned in AniList's order "with no reordering". They have been re-ranked
+  locally since 0.2.34.
+
 ## [0.2.39] — 2026-08-01
 
 ### Removed

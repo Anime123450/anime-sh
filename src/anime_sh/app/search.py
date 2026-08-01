@@ -14,8 +14,12 @@ is how search in a modern anime client should feel.
 So this service layers a **local index** over AniList without slowing the fast
 path:
 
-* A working query is passed straight through, in AniList's own relevance order —
-  no reordering, no extra requests, no index build. Nothing regresses.
+* A working query costs exactly one request — no extra lookups, no index build.
+  Its results are re-ranked locally against what was typed, because AniList's
+  own order is not enough on its own: it put a soft-drink commercial above the
+  film for "Your Name" and a one-off short above the series for "JoJo". Ranking
+  blends match strength, exactness and popularity (see :func:`_ranked`); it is
+  pure CPU over at most a screenful of rows, so the fast path stays fast.
 * Only when AniList returns **nothing** do we escalate: retry a few normalised
   variants (apostrophes restored, punctuation/camelCase de-glued, the query's
   distinctive words) *and* substring/prefix/fuzzy-match the query against a

@@ -247,3 +247,24 @@ def test_download_names_are_safe_on_every_platform():
     # Ordinary titles are left alone — including a real one that starts with a dot.
     assert _safe("Frieren: Beyond Journey's End") == "Frieren Beyond Journey's End"
     assert _safe(".hack//SIGN") == ".hackSIGN"
+
+
+def test_long_titles_that_share_a_prefix_get_different_names():
+    """Truncating to a length cap threw away what distinguishes two seasons.
+
+    The season marker sits at the *end* of a long title, so plain truncation
+    gave "…Rich Kid School" and "…Rich Kid School Season 2" the identical folder
+    AND file name — downloading one would silently overwrite the other's
+    episodes. A path-length failure is loud; this was not.
+    """
+    from anime_sh.app.download import _MAX_COMPONENT, _safe
+
+    base = ("Rich Girl Caretaker: I'm Secretly the Caregiver of the Most "
+            "Popular Girl in This Rich Kid School")
+    names = [_safe(base), _safe(base + " Season 2"), _safe(base + " Season 3")]
+    assert len(set(names)) == 3, f"distinct titles collided: {names}"
+    assert all(len(n) <= _MAX_COMPONENT for n in names)
+    # Deterministic, so a re-download resolves to the file already on disk.
+    assert _safe(base) == _safe(base)
+    # Titles short enough to keep whole are untouched by the uniquifier.
+    assert _safe("Frieren: Beyond Journey's End") == "Frieren Beyond Journey's End"

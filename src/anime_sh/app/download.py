@@ -7,6 +7,7 @@ The show's metadata is cached so ``anime downloads`` renders titles offline.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Callable
@@ -88,7 +89,14 @@ def _safe(name: str) -> str:
     # path to (ffmpeg reads a bare "-i" as an option, not a file).
     cleaned = cleaned.lstrip("-").strip()
     if len(cleaned) > _MAX_COMPONENT:
-        cleaned = cleaned[:_MAX_COMPONENT].strip().rstrip(".")
+        # What distinguishes two seasons of a long-titled show is the *end* of
+        # the title, which is precisely what truncation throws away — plain
+        # truncation gave "…Season 2" and "…Season 3" the same folder AND file
+        # name, so downloading one silently overwrote the other. Keep the length
+        # bound, but make the result unique to the full title.
+        digest = hashlib.sha1(cleaned.encode("utf-8")).hexdigest()[:6]
+        head = cleaned[: _MAX_COMPONENT - len(digest) - 1].strip().rstrip(".")
+        cleaned = f"{head}-{digest}"
     if cleaned.split(".")[0].lower() in _RESERVED:
         cleaned = f"_{cleaned}"
     return cleaned or "anime"
