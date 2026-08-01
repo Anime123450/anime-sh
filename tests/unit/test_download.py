@@ -209,3 +209,41 @@ def test_windows_exit_codes_are_shown_signed():
     assert _signed(1) == 1
     assert _signed(0) == 0
     assert _signed(None) is None
+
+
+def test_download_names_are_safe_on_every_platform():
+    """Titles come from AniList and end up as folder and file names twice over.
+
+    Path separators were already stripped (no traversal), but three gaps
+    remained: Windows refuses reserved device names, a leading dash makes the
+    path look like a flag to whatever tool receives it, and long light-novel
+    titles push the full path toward Windows' 260-character limit — a
+    96-character title already reaches 229 with the *default* download folder.
+    """
+    from anime_sh.app.download import _MAX_COMPONENT, _safe
+
+    # No traversal: separators are removed, not resolved.
+    assert "/" not in _safe("../../etc/passwd")
+    assert "\\" not in _safe("..\..\windows\system32")
+    assert _safe("..") == "anime"
+
+    # Reserved device names are escaped rather than left to fail at write time.
+    for reserved in ("CON", "NUL", "com1", "LPT1.mp4", "aux"):
+        assert _safe(reserved).startswith("_"), reserved
+
+    # A leading dash must not survive into an argv position.
+    assert not _safe("-i").startswith("-")
+    assert not _safe("-rf --output=/tmp/x").startswith("-")
+
+    # Long titles are capped, and never end in a dot or space.
+    long_title = "A" * 300
+    assert len(_safe(long_title)) <= _MAX_COMPONENT
+    real = ("Rich Girl Caretaker: I'm Secretly the Caregiver of the Most "
+            "Popular Girl in This Rich Kid School")
+    capped = _safe(real)
+    assert len(capped) <= _MAX_COMPONENT
+    assert capped == capped.rstrip(". ")
+
+    # Ordinary titles are left alone — including a real one that starts with a dot.
+    assert _safe("Frieren: Beyond Journey's End") == "Frieren Beyond Journey's End"
+    assert _safe(".hack//SIGN") == ".hackSIGN"

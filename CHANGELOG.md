@@ -2,6 +2,22 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.37] — 2026-08-01
+
+### Fixed
+
+- **The metadata cache prunes itself.** Expired entries were only dropped when
+  that exact key was read again, and a cache keyed by search query is mostly
+  keys nobody types twice — a real install was found at 55 rows of which 53 were
+  already expired. Nothing swept them except the manual `anime cache purge`.
+  Writes now sweep on a fixed cadence.
+- **Download names are safe on every platform.** Titles become a folder *and* a
+  file name, and three gaps remained: Windows refuses reserved device names
+  (`CON`, `NUL`, `COM1`…), a leading dash makes the path look like a flag to any
+  tool receiving it, and long light-novel titles push the path toward Windows'
+  260-character limit — a 96-character title already reaches 229 with the
+  default folder, so a deeper `downloads.dir` tips it over mid-download.
+
 ## [0.2.36] — 2026-07-31
 
 ### Fixed

@@ -69,8 +69,26 @@ class DownloadService:
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+# Names Windows refuses to create a file under, whatever the extension.
+_RESERVED = {"con", "prn", "aux", "nul"} | {
+    f"{stem}{i}" for stem in ("com", "lpt") for i in range(1, 10)
+}
+
+# Anime titles run long — a 96-character light-novel title already puts the
+# default download path at 229 of Windows' 260-character limit, and the path is
+# used twice (folder and file). A deeper downloads.dir tips it over, and the
+# failure surfaces as a bare OSError mid-download.
+_MAX_COMPONENT = 80
+
 
 def _safe(name: str) -> str:
-    """Filesystem-safe file/dir name."""
+    """Filesystem-safe file/dir name, on every platform we target."""
     cleaned = _ILLEGAL.sub("", name).strip().rstrip(".")
+    # A leading dash makes the name look like a flag to any tool we hand the
+    # path to (ffmpeg reads a bare "-i" as an option, not a file).
+    cleaned = cleaned.lstrip("-").strip()
+    if len(cleaned) > _MAX_COMPONENT:
+        cleaned = cleaned[:_MAX_COMPONENT].strip().rstrip(".")
+    if cleaned.split(".")[0].lower() in _RESERVED:
+        cleaned = f"_{cleaned}"
     return cleaned or "anime"
