@@ -5,7 +5,9 @@ candidates) against a known title, and, where possible, tries to resolve one
 candidate to a playable stream. Writes ``provider-status.json`` and exits
 non-zero if any *checked* provider is broken (candidates empty / errored) — host
 flakiness alone (candidates OK but nothing resolves) is reported, not failed,
-because that is the resolver chain's job, not a provider regression.
+because that is the resolver chain's job, not a provider regression. A
+Cloudflare challenge is reported as ``blocked`` for the same reason: it is a
+property of the IP the check ran from, not of the provider.
 
 Run locally:   uv run python scripts/canary.py
 One provider:  uv run python scripts/canary.py --provider anikoto
@@ -22,6 +24,7 @@ from datetime import datetime, timezone
 
 from anime_sh.domain.models import Audio
 from anime_sh.infra import registry
+from anime_sh.infra.http import CloudflareChallenge
 from anime_sh.infra.metadata import AniListMetadata
 
 # A title each provider should carry. Extend as providers are added.
@@ -72,8 +75,30 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
             + ("" if result["playable"] else ", no host resolved (hosts flaky)"),
         )
     except Exception as e:
-        result.update(status="fail", detail=f"{type(e).__name__}: {e}")
+        if _is_cloudflare(e):
+            # A datacenter IP meeting a Cloudflare interstitial says nothing
+            # about the provider's protocol: anizone answers home connections
+            # fine and blocks CI runners. Reporting that as "broken" every night
+            # files an issue nobody can act on and trains everyone to ignore the
+            # canary — which costs us the one alert that would have mattered.
+            result.update(status="blocked", detail=f"Cloudflare challenge from this IP: {e}")
+        else:
+            result.update(status="fail", detail=f"{type(e).__name__}: {e}")
     return _timed(result, started)
+
+
+def _is_cloudflare(exc: BaseException) -> bool:
+    """True if a Cloudflare challenge caused this, however it was re-raised.
+
+    Providers wrap transport errors in ProviderUnavailable, so the type alone is
+    not enough — walk the cause chain, then fall back to the message.
+    """
+    seen: BaseException | None = exc
+    while seen is not None:
+        if isinstance(seen, CloudflareChallenge):
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return "cloudflare challenge" in str(exc).lower()
 
 
 def _timed(result: dict, started: float) -> dict:
@@ -115,10 +140,18 @@ def main() -> int:
         json.dump(payload, f, indent=2)
 
     for name, r in report.items():
-        mark = {"ok": "OK  ", "fail": "FAIL"}.get(r["status"], "????")
+        mark = {"ok": "OK  ", "fail": "FAIL", "blocked": "BLKD"}.get(r["status"], "????")
         play = "playable" if r["playable"] else "unresolved"
         print(f"[{mark}] {name}: {r['detail']} ({play}, {r['latency_ms']}ms)", file=sys.stderr)
 
+    blocked = [n for n, r in report.items() if r["status"] == "blocked"]
+    if blocked:
+        joined = ", ".join(blocked)
+        print("", file=sys.stderr)
+        print(
+            f"BLOCKED (environment, not a provider regression): {joined}",
+            file=sys.stderr,
+        )
     broken = [n for n, r in report.items() if r["status"] == "fail"]
     if broken:
         print(f"\nBROKEN: {', '.join(broken)}", file=sys.stderr)
