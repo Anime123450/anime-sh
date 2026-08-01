@@ -2,6 +2,14 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.38] — 2026-08-01
+
+### Changed
+
+- **The command reference now lists every command.** `calendar`, `random`,
+  `seasonal`, `sources` and `unmark` shipped undocumented — findable only
+  through `--help`, and invisible on the PyPI page.
+
 ## [0.2.37] — 2026-08-01
 
 ### Fixed
