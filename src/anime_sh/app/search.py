@@ -31,6 +31,7 @@ AniList's strict behaviour.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -162,9 +163,15 @@ def _rank_score(anime: Anime, norm_query: str, squash_query: str) -> float:
     first = norm_query.split()[0]
     t = anime.title
     best = 0.0
-    for c in (t.romaji, t.english, t.native, *t.synonyms):
+    primary = (t.romaji, t.english, t.native)
+    for c in (*primary, *t.synonyms):
         if not c:
             continue
+        # Synonyms are crowd-sourced aliases, not the show's name, and they are
+        # noisy: an 89-popularity short listing "JoJo" as an alias outscored
+        # JoJo's Bizarre Adventure, whose *title* merely starts with it. Discount
+        # them just below a prefix match on a real title.
+        weight = 1.0 if c in primary else 0.94
         nt = _norm(c)
         if not nt:
             continue
@@ -178,6 +185,7 @@ def _rank_score(anime: Anime, norm_query: str, squash_query: str) -> float:
             s = max(s, 0.75)
         if any(w.startswith(first) for w in nt.split()):
             s = max(s, 0.85)
+        s *= weight
         if s > best:
             best = s
     return best
@@ -196,17 +204,35 @@ def _ranked(pool: list[Anime], query: str, limit: int) -> list[Anime]:
     norm_query, squash_query = _norm(query), _squash(query)
     if not norm_query:
         return pool[:limit]
-    def key(a: Anime):
-        # Exactness before popularity: "Nisekoi:" and "Nisekoi" fold to the same
-        # string, so without this the more popular season won even when the user
-        # typed the other one's title character for character.
+    def key(a: Anime) -> float:
+        # One blended score rather than strict tiers. Exactness has to outrank
+        # popularity — "Nisekoi:" and "Nisekoi" differ only by the colon, and the
+        # colon is the whole difference between two seasons. But it can't outrank
+        # it *unconditionally*: an 89-popularity short whose romaji title is
+        # literally "JoJo" would then bury JoJo's Bizarre Adventure. Both are
+        # bounded contributions, so a huge popularity gap can overcome a small
+        # exactness edge and nothing else can.
         return (
-            _rank_score(a, norm_query, squash_query),
-            _exactly_titled(a, query, norm_query),
-            a.popularity or 0,
+            _rank_score(a, norm_query, squash_query)
+            + _EXACTNESS_WEIGHT * _exactly_titled(a, query, norm_query)
+            + _POPULARITY_WEIGHT * _popularity_factor(a.popularity)
         )
 
     return sorted(pool, key=key, reverse=True)[:limit]
+
+
+# Tuned against 500 real titles plus the known-bad queries; see the tests.
+_EXACTNESS_WEIGHT = 0.05
+_POPULARITY_WEIGHT = 0.25
+
+
+def _popularity_factor(popularity: int | None) -> float:
+    """Popularity on a 0–1 curve. Log-scaled because AniList popularity spans
+    five orders of magnitude, and the difference between 90 and 900 should not
+    count for as much as the difference between 90 and 400,000."""
+    if not popularity or popularity <= 0:
+        return 0.0
+    return min(math.log10(popularity) / 6.0, 1.0)
 
 
 def _exactly_titled(anime: Anime, query: str, norm_query: str) -> int:
