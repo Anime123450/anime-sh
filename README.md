@@ -59,28 +59,50 @@ anything) is missing.
 
 ## Install
 
-You need a way to install a Python CLI tool. The cleanest is
-**[uv](https://docs.astral.sh/uv/)** (`pip install uv`, or see its docs) or
-**[pipx](https://pipx.pypa.io)** — both put `anime` on your PATH in an isolated
-environment so it never clashes with other Python packages.
-
 ### Method A — from PyPI (recommended)
 
-This is the normal way to install and use it. Pick one:
+**You do not need Python installed.** `uv` is a single standalone binary that
+fetches its own Python, so this works from a clean machine. Copy the block for
+your OS:
+
+**Windows**
+
+```powershell
+winget install astral-sh.uv          # the installer (no Python needed)
+winget install shinchiro.mpv         # the video player
+uv tool install "anime-sh[tui]"      # anime-sh itself
+anime doctor                         # check everything was found
+```
+
+**macOS**
 
 ```bash
-uv tool install "anime-sh[tui]"      # with uv  (recommended)
-pipx install "anime-sh[tui]"         # or with pipx
-pip install --user "anime-sh[tui]"   # or plain pip
+brew install uv mpv
+uv tool install "anime-sh[tui]"
+anime doctor
 ```
+
+**Linux**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # if you don't have uv
+sudo apt install mpv                              # or your package manager
+uv tool install "anime-sh[tui]"
+anime doctor
+```
+
+Then run `anime` to launch it.
+
+> **`anime` not recognised after installing?** The install worked; your shell
+> just hasn't picked up the new folder. Run `uv tool update-shell`, then close
+> and reopen the terminal.
+
+**Already have Python?** `pipx install "anime-sh[tui]"` works too — but note
+that pipx is itself a Python package, so it can't be the *first* thing you
+install on a machine without Python.
 
 The `[tui]` extra pulls in the interactive terminal UI and cover-art rendering.
-Then:
-
-```bash
-anime doctor      # verify mpv/ffmpeg are found
-anime             # launch the app
-```
+`ffmpeg` is optional and only needed for `anime download`.
 
 ### Method B — from GitHub (source)
 
@@ -245,6 +267,13 @@ upgrading never touches them.
 
 ## Troubleshooting
 
+- **`pipx` / `pip` "not recognised", or you don't have Python** — that's the
+  wrong starting point on a clean machine: pipx and pip *are* Python packages.
+  Use the `uv` block under [Install](#install) instead; uv is a standalone
+  binary and brings its own Python.
+- **`anime` not recognised right after installing** — the install succeeded,
+  your shell just hasn't picked up the new folder. `uv tool update-shell`, then
+  reopen the terminal.
 - **`anime doctor` says mpv/ffmpeg not found** — install them (see
   [Requirements](#requirements)) and make sure they're on your PATH.
 - **A show won't play / "trying next…" on every source** — providers get
