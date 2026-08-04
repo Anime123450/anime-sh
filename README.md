@@ -59,6 +59,17 @@ anything) is missing.
 
 ## Install
 
+### Easiest on Windows — one file, no terminal
+
+Download this repo (green **Code** button → **Download ZIP**), unzip it, and
+double-click **`run-anime.bat`**.
+
+It installs what's missing and starts the app. You do **not** need Python — it
+uses [uv](https://docs.astral.sh/uv/), a single standalone program that brings
+its own. Running the file again later just launches anime-sh.
+
+Prefer typing commands, or not on Windows? Use Method A.
+
 ### Method A — from PyPI (recommended)
 
 **You do not need Python installed.** `uv` is a single standalone binary that
