@@ -268,7 +268,10 @@ uv run lint-imports          # architecture contracts (must stay green)
 ```
 
 Add `ANIME_SH_LIVE=1` to run the gated live-provider tests. See
-[`docs/plugins.md`](docs/plugins.md) to add a provider or resolver.
+[`docs/plugins.md`](docs/plugins.md) to add a provider or resolver,
+[`CONTRIBUTING.md`](CONTRIBUTING.md) before sending a change, and
+[`docs/ENGINEERING_STANDARDS.md`](docs/ENGINEERING_STANDARDS.md) for the rules
+this project learned the hard way — each one names the bug that caused it.
 
 ## Design
 

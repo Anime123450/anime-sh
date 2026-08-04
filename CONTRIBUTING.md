@@ -55,6 +55,16 @@ targets the wrong `api_version` is skipped with a warning.
 See `docs/plugins.md` for the full walkthrough and `docs/architecture.md` for
 the design.
 
+## Before you send a change
+
+Read [`docs/ENGINEERING_STANDARDS.md`](docs/ENGINEERING_STANDARDS.md). It is not
+generic advice — every rule in it names the bug that caused it, and it ends with
+the PR checklist your change is expected to satisfy. The short version:
+
+- add a regression test, and **check it fails when you revert the fix**;
+- ask whether the same bug class exists elsewhere before closing it out;
+- update the docstrings and help text that describe what you changed.
+
 ## Style
 
 Match the surrounding code. Comments explain *why*, especially where the
