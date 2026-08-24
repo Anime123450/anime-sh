@@ -52,12 +52,12 @@ jobs:
       - name: Extract the release notes from CHANGELOG.md
         run: python scripts/changelog_section.py "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: RELEASE_NOTES.md
