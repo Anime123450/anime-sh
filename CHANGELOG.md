@@ -33,6 +33,12 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   and never tested.
 - **`scripts/changelog_section.py`** — extracts one version's notes from this
   file, so the tag, the changelog and the release page cannot drift apart.
+  It writes UTF-8 regardless of what the console claims to be: this changelog
+  describes provider request flows with real `→` arrows, and Python piped on
+  Windows picks cp1252 and dies encoding them — which made the first run report
+  "no section" for the nine versions that contain one. A release backfill
+  driven by that output would have silently skipped exactly the versions whose
+  notes are worth reading.
 - **Issue and pull request templates**, a `SECURITY.md` with the actual threat
   boundary (provider HTML, subprocess arguments, generated filenames, the
   loopback proxy, the AniList token), a `CODE_OF_CONDUCT.md`, `CODEOWNERS`, and

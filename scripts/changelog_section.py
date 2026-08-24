@@ -51,6 +51,17 @@ def sections(text: str) -> dict[str, tuple[str, str]]:
 
 
 def main() -> int:
+    # This changelog describes provider request flows with arrows ("/search ->
+    # /ajax/episode/list"), and those are real U+2192. Piped on Windows, Python
+    # picks cp1252 for stdout and dies encoding them -- which made this script
+    # report "no section" for the nine versions that happen to contain one,
+    # exactly the versions whose notes are most worth reading. Write UTF-8
+    # regardless of what the console claims to be.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):  # pragma: no cover - exotic stdout
+        pass
+
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("version", nargs="?", help="e.g. 0.2.40 or v0.2.40")
     ap.add_argument("--list", action="store_true", help="list every version in the changelog")
