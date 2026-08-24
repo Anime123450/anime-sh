@@ -1,6 +1,6 @@
 [project]
 name = "anime-sh"
-version = "0.2.40"
+version = "0.2.41"
 description = "The terminal-native anime client — providers, mirrors and resolvers, handled for you."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,11 +46,14 @@ dev = [
     "pillow>=10.0",
 ]
 
+# The account is Anime123450 and the default branch is master. These were
+# wrong on both counts, so every link in PyPI's sidebar 404'd.
 [project.urls]
-Homepage = "https://github.com/animesh/anime-sh"
-Repository = "https://github.com/animesh/anime-sh"
-Issues = "https://github.com/animesh/anime-sh/issues"
-Documentation = "https://github.com/animesh/anime-sh/tree/main/docs"
+Homepage = "https://github.com/Anime123450/anime-sh"
+Repository = "https://github.com/Anime123450/anime-sh"
+Issues = "https://github.com/Anime123450/anime-sh/issues"
+Changelog = "https://github.com/Anime123450/anime-sh/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/Anime123450/anime-sh/tree/master/docs"
 
 [project.scripts]
 anime = "anime_sh.cli.main:main"

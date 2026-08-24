@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose something anime-sh should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Start with what is annoying today, not with the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like instead
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options: [CLI, TUI, playback, downloads, library / tracking, AniList sync, providers / resolvers, packaging, docs]
+    validations:
+      required: true

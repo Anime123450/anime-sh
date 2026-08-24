@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Actions pinned by major tag still go stale — v4 checkout eventually stops
+  # getting fixes. Monthly is enough noise for a repo this size.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies"]
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine patch churn; anything major still arrives alone
+      # so it gets read.
+      minor-and-patch:
+        update-types: ["minor", "patch"]

@@ -1,0 +1,43 @@
+name: Provider broken
+description: A streaming provider stopped resolving streams
+labels: ["provider-broken"]
+title: "[provider] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Providers break constantly and the nightly canary opens its own issue
+        when one does. **Search first** — if the canary already filed it, add
+        your detail there rather than opening a second one.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider
+      options: [anikoto, anizone, not sure / all of them]
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Output of the canary probe
+      description: "`uv run python scripts/canary.py --provider <name>` — or `anime sources \"<title>\"` if you installed from PyPI."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What it looks like from the app
+      placeholder: Every episode says "didn't play, trying next…" and falls through to the end of the list.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched for an existing `provider-broken` issue
+          required: true
+        - label: The other provider still works (so it is not my network)

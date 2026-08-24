@@ -1,0 +1,3 @@
+# Every path, one owner. Keeps review assignment automatic on a solo project and
+# stays correct if that stops being true.
+*       @Anime123450

@@ -1,13 +1,21 @@
 name: release
 
-# Build and publish to PyPI on a version tag, using trusted publishing
-# (OIDC) — no API tokens stored in the repo. Configure the publisher once at
+# Build, publish to PyPI, and cut the matching GitHub Release on a version tag.
+# PyPI upload uses trusted publishing (OIDC) — no API tokens stored in the repo.
+# Configure the publisher once at
 # https://pypi.org/manage/project/anime-sh/settings/publishing/
+#
+# The GitHub Release step exists because for 39 versions it did not: PyPI moved
+# from 0.2.1 to 0.2.40 while this repo's Releases page still showed 0.2.1, so
+# anyone judging the project by GitHub saw one abandoned nine months ago.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -17,17 +25,42 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          enable-cache: true
+
+      - name: The tag, pyproject and changelog must agree
+        # A tag that disagrees with pyproject publishes a version nobody can
+        # trace back, and one with no changelog section publishes empty notes.
+        # Both are cheap to check and expensive to undo after upload.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          proj=$(uv run python -c "import tomllib,pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $proj"
+            exit 1
+          fi
+          python scripts/changelog_section.py "$tag" > /dev/null
+
       - name: Run the full test suite + contracts
         run: |
           uv sync --extra dev --extra tui
           uv run pytest -q
           uv run lint-imports
+
       - name: Build sdist + wheel
         run: uv build
+
+      - name: Extract the release notes from CHANGELOG.md
+        run: python scripts/changelog_section.py "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
 
   publish:
     needs: build
@@ -41,3 +74,28 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    # Runs after PyPI so the release page never advertises a version you cannot
+    # yet `uv tool install`.
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "anime-sh ${GITHUB_REF_NAME#v}" \
+            --notes-file RELEASE_NOTES.md \
+            dist/*
