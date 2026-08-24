@@ -2,6 +2,36 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.43] — 2026-08-24
+
+### Fixed
+
+- **A mistyped command is no longer searched for as if it were a show.**
+  `anime <anything>` is sugar for `anime play <anything>`, which is the point of
+  the tool — but it also meant that anything anime-sh did not recognise became a
+  search. `anime plugins` went off to resolve a stream for a show called
+  "plugins"; `anime serach frieren` searched for a show called "serach". You got
+  provider fan-out and a "nothing playable" error instead of "no such command".
+
+  anime-sh now recognises two kinds of near-miss and says so instead:
+
+  - **Words that name a real concept here but are not commands** — `plugins`,
+    `server`, `update`, `install`, `help`, `watch`. These are guesses rather
+    than typos and are listed explicitly, because `plugins` is no closer to a
+    real command name than an actual anime title is.
+  - **Typos of real commands** — `serach` → `search`, `donwload` → `download`,
+    `provider` → `providers`.
+
+  Every message names what to run instead, and says how to force the search
+  anyway (`anime play "plugins"`) in case you really did mean a show by that
+  name.
+
+  The threshold for "that's a typo" was chosen by measurement, not by feel:
+  one-word anime titles reach at most 0.67 similarity against the command list
+  (`bleach` against `search`), while real typos start around 0.80. A test pins
+  that gap, so lowering the threshold to catch one more typo fails the build
+  rather than quietly making `anime bleach` stop playing Bleach.
+
 ## [0.2.42] — 2026-08-24
 
 ### Fixed
