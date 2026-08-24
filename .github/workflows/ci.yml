@@ -10,11 +10,20 @@ on:
   pull_request:
   workflow_dispatch: {}
 
-# A second push to the same PR makes the first run's answer worthless. Cancel it
-# rather than paying for nine jobs that nobody will read.
+# Cancel superseded *pull request* runs — a second push to a PR makes the first
+# run's answer worthless. Never cancel a push to master: every commit on the
+# default branch has to keep its own verdict, or a broken commit slips through
+# unnoticed between two merges and `git bisect` has nothing to read.
+#
+# The safety comes from the group key, not from `cancel-in-progress`. Making
+# that flag conditional does not work — with
+# `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, six merges
+# to master inside five minutes cancelled three of each other's runs. Giving
+# every push its own group makes cancellation structurally impossible rather
+# than depending on how an expression coerces to a boolean.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
