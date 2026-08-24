@@ -34,7 +34,7 @@ jobs:
              --output provider-status-${{ matrix.provider }}.json
       - name: Upload status
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: provider-status-${{ matrix.provider }}
           path: provider-status-${{ matrix.provider }}.json
@@ -60,7 +60,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync
       - run: uv run python scripts/canary.py --output provider-status.json || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: provider-status
           path: provider-status.json
