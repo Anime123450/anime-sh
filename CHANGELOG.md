@@ -2,6 +2,29 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.42] — 2026-08-24
+
+### Fixed
+
+- **A download that lost part of the episode was recorded as complete.** When a
+  host drops an HLS segment mid-transfer, ffmpeg retries it, gives up, skips it
+  and carries on to the end. It reports that at *warning* level and leaves the
+  exit code at 0 — and anime-sh ran ffmpeg at `-loglevel error`, so nothing was
+  printed at all. The only success criterion was the exit code, so a file
+  missing a third of its runtime went into your downloads folder marked
+  **done**. Reproduced by removing one segment of a three-segment playlist:
+  exit 0, no output, 4.04 seconds of video where 6.06 were expected.
+
+  anime-sh now asks ffmpeg for warnings, treats a skipped segment as a failed
+  download, and deletes the partial file instead of leaving it to be mistaken
+  for a good one. A partial episode is worse than a failed one — a failure
+  retries, whereas a file sitting in the folder marked done is trusted, watched
+  halfway, and only then discovered to be truncated.
+
+  Downloads are also verified with `ffprobe` before being reported as finished:
+  a file with no playable stream, or zero duration, is discarded with an error
+  saying the host most likely returned an error page instead of the stream.
+
 ## [0.2.41] — 2026-08-24
 
 ### Fixed
