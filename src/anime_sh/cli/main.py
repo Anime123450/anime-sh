@@ -60,6 +60,66 @@ def _known_commands() -> set[str]:
         return set()
 
 
+# Words that name a real concept in this project but are not commands. Each is
+# a guess someone actually makes: `docs/plugins.md` exists, so `anime plugins`
+# is a reasonable thing to type, and the sugar below happily turned it into a
+# search for a show called "plugins" and started resolving a stream.
+#
+# These need to be listed explicitly because they are *not* typos — "plugins"
+# scores 0.55 against the closest real command, well inside the range where
+# genuine one-word titles live ("bleach" scores 0.67 against "search").
+_NOT_A_COMMAND = {
+    "plugin": "anime providers ls",
+    "plugins": "anime providers ls",
+    "server": "anime providers ls",
+    "servers": "anime providers ls",
+    "watch": "anime play <title>",
+    "help": "anime --help",
+    "update": "uv tool upgrade anime-sh",
+    "upgrade": "uv tool upgrade anime-sh",
+    "install": "uv tool install 'anime-sh[tui]'",
+    "uninstall": "uv tool uninstall anime-sh",
+}
+
+# Above the range real titles occupy. Measured over the command list against
+# both plausible typos and one-word anime titles: typos score 0.80 and up
+# (serach 0.83, donwload 0.88, provider 0.94) while the worst-case real title
+# reaches 0.67. Lowering this starts refusing to play actual shows.
+_TYPO_CUTOFF = 0.75
+
+
+def _command_suggestion(word: str, known: set[str]) -> str | None:
+    """A message to print instead of searching for ``word``, or None to search.
+
+    `anime <query>` sugar means anything unrecognised is treated as a title, so
+    a mistyped or guessed subcommand silently became a search — `anime plugins`
+    went off to resolve a stream for a show called "plugins" rather than saying
+    it did not know the command.
+    """
+    import difflib
+
+    # `main()` only calls this for words that already failed the known-command
+    # check, so this is belt-and-braces — but a function that answers "did you
+    # mean play?" for `play` is a bug waiting for the next refactor to move it.
+    if word in known:
+        return None
+
+    target = _NOT_A_COMMAND.get(word.lower())
+    if target is None:
+        close = difflib.get_close_matches(word.lower(), sorted(known), n=1,
+                                          cutoff=_TYPO_CUTOFF)
+        target = f"anime {close[0]}" if close else None
+    if target is None:
+        return None
+    return (
+        f"[red]Error:[/] [b]{word}[/] is not an anime-sh command.\n"
+        f"Did you mean [cyan]{target}[/]?\n"
+        f"[dim]If you really did mean the show, use "
+        f"[/][cyan]anime play \"{word}\"[/][dim] — and "
+        f"[/][cyan]anime --help[/][dim] lists every command.[/]"
+    )
+
+
 def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"anime-sh {__version__}")
@@ -1538,6 +1598,11 @@ def main() -> None:
     argv = sys.argv[1:]
     known = _known_commands()
     if known and argv and argv[0] not in known and not argv[0].startswith("-"):
+        # ...but a mistyped or guessed *command* must not become a search.
+        hint = _command_suggestion(argv[0], known)
+        if hint is not None:
+            err.print(hint)
+            raise SystemExit(2)
         sys.argv.insert(1, "play")
     try:
         app()
