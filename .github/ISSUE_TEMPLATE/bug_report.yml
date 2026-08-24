@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in anime-sh behaves wrongly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        If a title just won't play and every source says "trying next…", that is
+        almost certainly a blocked provider rather than a bug — see the
+        provider-broken template instead.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        I ran `anime play "Frieren" -e 18`.
+        I expected episode 18 to start.
+        Instead the progress bar showed episode 1's runtime.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: The exact command or key sequence
+      description: >-
+        Including the title. Some bugs in this project only appear for specific
+        shows — long titles, sequels, unicode — so the title is data, not noise.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `anime doctor`
+      description: This answers the version, player, ffmpeg, database and plugin questions in one paste.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and terminal
+      placeholder: Windows 11 / Windows Terminal · macOS 15 / iTerm2 · Ubuntu 24.04 / kitty
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or error text, if any
+      render: shell

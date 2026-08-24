@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Something won't play, or a provider looks dead
+    url: https://github.com/Anime123450/anime-sh/issues?q=is%3Aissue+label%3Aprovider-broken
+    about: >-
+      Streaming providers get Cloudflare-gated and geo-blocked constantly — that
+      is the normal operating state, not a bug in anime-sh. The nightly canary
+      files these automatically; check for an existing one before opening yours.
+  - name: Install or setup trouble
+    url: https://github.com/Anime123450/anime-sh#troubleshooting
+    about: >-
+      Run `anime doctor` first — it checks Python, mpv, ffmpeg, the database and
+      the plugins, and names what is missing. The README's Troubleshooting
+      section covers the common answers.

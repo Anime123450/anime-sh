@@ -1,27 +1,77 @@
 name: ci
 
+# The default branch is `master`. This said `main` from the first commit, which
+# meant CI had never once run on a push to the default branch — every green tick
+# in this repo's history came from a pull_request run. A branch protection rule
+# built on that would have been protecting nothing.
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
+  workflow_dispatch: {}
+
+# A second push to the same PR makes the first run's answer worthless. Cancel it
+# rather than paying for nine jobs that nobody will read.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   test:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12"]
+        # 3.13 is advertised in the trove classifiers, so it has to be tested.
+        python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python }}
+          enable-cache: true
       - name: Sync
-        run: uv sync --extra dev
-      - name: Unit tests
+        run: uv sync --extra dev --extra tui
+      - name: Unit, contract and TUI tests
         run: uv run pytest -q
       - name: Architecture contracts
         run: uv run lint-imports
+
+  package:
+    # Catches the class of break that only appears in a built artifact: a module
+    # missing from the wheel, a broken entry point, a console script that does
+    # not start. Tests run from the source tree and cannot see any of it.
+    name: build + install the wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Install the built wheel into a clean venv
+        run: |
+          uv venv /tmp/clean
+          uv pip install --python /tmp/clean/bin/python "$(ls dist/*.whl)[tui]"
+      - name: The installed console script must run
+        run: |
+          /tmp/clean/bin/anime --version
+          /tmp/clean/bin/anime --help > /dev/null
+      - name: Every declared plugin entry point must load
+        run: |
+          /tmp/clean/bin/python - <<'PY'
+          from importlib.metadata import entry_points
+          for group in ("anime_sh.providers", "anime_sh.resolvers"):
+              found = list(entry_points(group=group))
+              assert found, f"no entry points registered for {group}"
+              for ep in found:
+                  ep.load()
+                  print(f"ok  {group}  {ep.name}")
+          PY

@@ -2,6 +2,8 @@
 
 [![PyPI](https://img.shields.io/pypi/v/anime-sh)](https://pypi.org/project/anime-sh/)
 [![Python](https://img.shields.io/pypi/pyversions/anime-sh)](https://pypi.org/project/anime-sh/)
+[![CI](https://github.com/Anime123450/anime-sh/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Anime123450/anime-sh/actions/workflows/ci.yml)
+[![Providers](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml/badge.svg)](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **The terminal-native anime client.** You type a title; it plays. Providers,
@@ -10,6 +12,10 @@ mirrors, and resolvers are internal details you never have to think about.
 ```bash
 anime "Frieren"
 ```
+
+> The **Providers** badge is a nightly liveness probe of the real streaming
+> sites. It goes red when a site blocks us, which happens routinely and is not a
+> build failure — see [How it behaves](#how-it-behaves).
 
 Under the hood: AniList metadata, live streaming providers fanned out with
 circuit breakers, stream resolvers, `mpv` driven over JSON IPC, auto-skip of
@@ -327,6 +333,13 @@ anime-sh is a **client**, not a content library. It bundles no media, mirrors
 nothing, and bypasses no DRM. Providers read public pages and are expected to
 break; a broken provider is a degraded experience, not an outage. Provider
 plugins are separable from the core so the project survives any single one.
+
+## Project
+
+- [Changelog](CHANGELOG.md) — every release, written for users
+- [Releases](https://github.com/Anime123450/anime-sh/releases) — tagged builds with notes
+- [Contributing](CONTRIBUTING.md) · [Engineering standards](docs/ENGINEERING_STANDARDS.md) · [Architecture](docs/architecture.md) · [Writing a plugin](docs/plugins.md)
+- [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 
 ## License
 

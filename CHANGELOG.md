@@ -2,6 +2,48 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.41] — 2026-08-24
+
+### Fixed
+
+- **Every project link on the PyPI page was a 404.** `[project.urls]` pointed at
+  `github.com/animesh/anime-sh` — the wrong account — and the docs link added a
+  `main` branch that does not exist. Homepage, Repository, Issues and
+  Documentation now resolve, and a Changelog link was added beside them.
+- **CI had never run on a push to the default branch.** The `ci` workflow
+  triggered on `push: branches: [main]` while the default branch is `master`, so
+  every green run in this repository's history came from a pull request. A
+  branch protection rule built on that would have been guarding nothing.
+- **Releases are now published to GitHub, not only to PyPI.** PyPI had moved
+  from 0.2.1 to 0.2.40 while the repository's Releases page still showed 0.2.1;
+  the release workflow uploaded the wheel and stopped. It now cuts the matching
+  GitHub Release with the notes taken verbatim from this file, and attaches the
+  built sdist and wheel.
+
+### Added
+
+- **A packaging job in CI.** It builds the wheel, installs it into a clean venv,
+  runs the console script, and loads every declared provider and resolver entry
+  point. Tests run from the source tree and structurally cannot catch a module
+  missing from the wheel or a broken entry point.
+- **Release-tag guards.** A tag whose version disagrees with `pyproject.toml`,
+  or that has no section in this changelog, now fails the release before
+  anything is uploaded rather than after.
+- **Python 3.13 in the test matrix.** It was advertised in the trove classifiers
+  and never tested.
+- **`scripts/changelog_section.py`** — extracts one version's notes from this
+  file, so the tag, the changelog and the release page cannot drift apart.
+  It writes UTF-8 regardless of what the console claims to be: this changelog
+  describes provider request flows with real `→` arrows, and Python piped on
+  Windows picks cp1252 and dies encoding them — which made the first run report
+  "no section" for the nine versions that contain one. A release backfill
+  driven by that output would have silently skipped exactly the versions whose
+  notes are worth reading.
+- **Issue and pull request templates**, a `SECURITY.md` with the actual threat
+  boundary (provider HTML, subprocess arguments, generated filenames, the
+  loopback proxy, the AniList token), a `CODE_OF_CONDUCT.md`, `CODEOWNERS`, and
+  a monthly Dependabot schedule for actions and dependencies.
+
 ## [0.2.40] — 2026-08-01
 
 ### Fixed
