@@ -92,22 +92,48 @@ def _ffprobe_for(ffmpeg_binary: str) -> str | None:
     return shutil.which("ffprobe")
 
 
-def probe_media(ffprobe_binary: str, path: Path) -> tuple[int, float]:
-    """``(stream_count, duration_seconds)`` for a local file. ``(0, 0.0)`` when
-    the file is unreadable, unparseable, or carries no usable header — which is
-    itself the answer we want, since that file is not playable."""
-    import subprocess
+async def probe_media(ffprobe_binary: str, path: Path) -> tuple[int, float] | None:
+    """``(stream_count, duration_seconds)`` for a local file, or ``None`` when
+    the probe could not be carried out at all.
+
+    That distinction is the entire point of this function. "ffprobe looked and
+    found no video" is a verdict about the *file*. "ffprobe would not start, hung
+    until the timeout, or printed something that is not JSON" is a verdict about
+    *ffprobe*. Collapsing the second into the first — which this returned as
+    ``(0, 0.0)`` — made a broken or missing prober indistinguishable from a
+    broken download, and the caller deletes broken downloads. A perfectly good
+    episode was destroyed that way in testing.
+
+    Runs the probe as a child process rather than blocking: the caller is an
+    async download, and a synchronous ``subprocess.run`` here froze the event
+    loop — measured at 1.2 s for a small local file, and bounded only by the
+    30 s timeout. In the TUI that is the whole interface locking up.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ffprobe_binary, "-v", "error", "-show_entries",
+            "format=duration,nb_streams", "-of", "json", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+    except (OSError, ValueError):
+        return None  # no such binary, not executable — nothing was learned
 
     try:
-        out = subprocess.run(
-            [ffprobe_binary, "-v", "error", "-show_entries",
-             "format=duration,nb_streams", "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=30,
-        )
-        fmt = json.loads(out.stdout).get("format", {})
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except (asyncio.TimeoutError, TimeoutError):
+        # Leaving the child alive would leak a process per stuck download.
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        return None
+
+    try:
+        fmt = json.loads(stdout.decode(errors="replace")).get("format", {})
         return int(fmt.get("nb_streams") or 0), float(fmt.get("duration") or 0.0)
-    except Exception:
-        return 0, 0.0
+    except (ValueError, AttributeError):
+        # ffprobe ran but said nothing we can read. Still not a verdict.
+        return None
 
 
 def _signed(code: int | None) -> int | None:
@@ -170,22 +196,27 @@ class FfmpegDownloader:
         # Exit code 0 is not evidence that the file is watchable. Two failure
         # modes reach this point with a clean exit, and both used to be recorded
         # as completed downloads.
-        self._verify(binary, dest, lost_segments)
+        await self._verify(binary, dest, lost_segments)
 
-    def _verify(self, ffmpeg_binary: str, dest: Path, lost_segments: int) -> None:
+    async def _verify(
+        self, ffmpeg_binary: str, dest: Path, lost_segments: int
+    ) -> None:
         """Fail a download whose artifact is not actually playable.
 
         A partial episode is worse than a failed one: a failure retries, while a
         file sitting in the downloads folder marked DONE is trusted, watched
         halfway, and only then discovered to be truncated. So a bad artifact is
         deleted rather than left behind to be mistaken for a good one.
+
+        Deleting is only ever done on a *positive* finding of damage. Anything
+        this cannot determine leaves the file alone — the opposite policy turned
+        a broken prober into a downloads-eating bug.
         """
         if lost_segments:
             _discard(dest)
             raise DownloadError(
                 f"the stream dropped {lost_segments} segment(s) mid-download, so "
-                f"the file would have been missing about "
-                f"{lost_segments * 6}s of video — discarded it. "
+                f"part of the episode is missing — discarded it. "
                 f"Try again; if it keeps happening the host is rate-limiting you."
             )
 
@@ -194,7 +225,12 @@ class FfmpegDownloader:
             # ffprobe ships with ffmpeg, so this is close to unreachable. Not
             # worth failing a download that may well be fine.
             return
-        streams, duration = probe_media(ffprobe, dest)
+        probed = await probe_media(ffprobe, dest)
+        if probed is None:
+            # The prober failed, not the download. Keep the file: a false
+            # positive here deletes an episode that is very probably fine.
+            return
+        streams, duration = probed
         if streams < 1 or duration <= 0:
             _discard(dest)
             raise DownloadError(
