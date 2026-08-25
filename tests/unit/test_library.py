@@ -64,7 +64,7 @@ async def test_airing_schedule_survives_the_cache(library):
     episode airs. Before this was cached, the first paint had no schedule and
     offered an unreleased episode as "up next" until a live fetch corrected it —
     and stayed wrong when that fetch failed."""
-    from anime_sh.tui.format import continue_row
+    from anime_sh.tui.format import continue_cells
 
     airs = datetime(2026, 8, 5, 20, 16, tzinfo=timezone.utc)
     show = Anime(
@@ -81,12 +81,13 @@ async def test_airing_schedule_survives_the_cache(library):
     assert cached.next_airing_at == airs
 
     # Caught up on everything aired (ep 4 of 4) → countdown, not "up next".
-    subtitle, dim, _ = continue_row(
+    row, _ = continue_cells(
         cached, _progress(194829, 4.0, 0, completed=True),
         now=datetime(2026, 7, 30, tzinfo=timezone.utc),
     )
-    assert subtitle.startswith("caught up · Ep 5")
-    assert dim is True
+    assert row.position == "Ep 5"
+    assert row.status.startswith("in ")
+    assert row.dim is True
 
     # A later bare save (e.g. on playback) must not wipe the cached schedule.
     await library.save_anime(Anime(id=AnimeId(anilist=194829), title=Title(romaji="Sequel")))

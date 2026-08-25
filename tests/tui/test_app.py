@@ -170,7 +170,7 @@ async def test_caught_up_show_is_dimmed_with_countdown():
         cont = app.query_one("#continue", ListView)
         assert len(cont) == 1
         item = cont.children[0]
-        assert item._dim is True  # greyed: caught up, waiting for next episode
+        assert item._row.dim is True  # greyed: caught up, waiting for next episode
 
 
 async def test_favorites_section_shows_when_present_else_hidden():

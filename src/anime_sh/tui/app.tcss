@@ -11,22 +11,41 @@ Screen {
     padding: 0 2;
 }
 
+/* More space above a heading than below it, so a section reads as a lid on the
+   rows beneath rather than as a line floating between two lists. The rows
+   themselves stay tight: dense inside a group, generous between groups. */
 .section {
-    margin: 1 0 0 0;
+    margin: 2 0 0 0;
     padding: 0 1;
     text-style: bold;
     color: $accent;
 }
 
+/* Rows cap their text at a readable measure (rows.MEASURE_MAX), so let the list
+   stop there too. Left at full width, the selection bar stretched the whole of a
+   190-column terminal to highlight text occupying half of it. */
 ListView {
     background: $surface;
     height: auto;
     max-height: 20;
-    margin-bottom: 1;
+    max-width: 100;
 }
 
 ListView > ListItem {
     padding: 0 1;
+}
+
+/* Rows are a grid: each one is exactly one line, and its cells are padded to
+   fixed widths in rows.py. Pinning the height here means a title long enough to
+   defeat the truncation still cannot wrap and shunt every row below it out of
+   alignment. */
+AnimeItem {
+    height: 1;
+}
+
+AnimeItem Label {
+    height: 1;
+    width: 1fr;
 }
 
 ListView > ListItem.--highlight {

@@ -2,69 +2,49 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from textual.widgets import Label, ListItem
 
 from ..domain.models import Anime
 from .format import progress_bar
-
-
-def _lit(text: str) -> str:
-    """Escape a string so Textual renders it literally inside a markup label.
-
-    Titles come from AniList/providers and routinely contain square brackets —
-    a "[Mini]" batch, "[Oshi no Ko]" — which Textual's markup parser would
-    otherwise eat as a style tag, making the text vanish. Escaping the opening
-    bracket (after any backslash) keeps it visible.
-    """
-    return text.replace("\\", "\\\\").replace("[", r"\[")
+from .rows import Columns, Row, _lit, render
 
 
 class AnimeItem(ListItem):
-    """A ListItem that remembers which Anime (and optional resume episode) it is."""
+    """A grid row that remembers which Anime (and optional resume episode) it is.
+
+    The row is stored as semantic cells rather than a finished string so it can
+    be re-laid-out when the terminal is resized, and its countdown ticked in
+    place, without rebuilding the list — rebuilding would throw away the user's
+    selection every minute.
+    """
 
     def __init__(
         self,
         anime: Anime,
+        row: Row,
+        cols: Columns,
         *,
-        subtitle: str = "",
         resume_episode: float | None = None,
-        dim: bool = False,
-        progress: float | None = None,
-        badge: str = "",
     ) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
-        self._dim = dim
-        self._progress = progress
-        self._badge = badge
-        self._label = Label(self._compose_label(subtitle))
+        self._row = row
+        self._cols = cols
+        self._label = Label(render(row, cols))
         super().__init__(self._label)
 
-    def _compose_label(self, subtitle: str) -> str:
-        label = _lit(self.anime.title.preferred)
-        # Seasons of one franchise read almost identically in a list ("…Master
-        # Swordsman" directly above "…Master Swordsman II"), and picking the wrong
-        # one means watching last year's season by mistake. A year badge tells
-        # them apart at a glance.
-        if self._badge:
-            # Parenthesised: a bare year tacked onto a title reads as part of it
-            # ("…Master Swordsman 2025"), which defeats the whole point.
-            label = f"{label} [grey54]({_lit(self._badge)})[/grey54]"
-        if subtitle:
-            label = f"{label}  [dim]{_lit(subtitle)}[/dim]"
-        # A small bar mirrors the detail screen for a show you're partway through.
-        if self._progress is not None and not self._dim:
-            label = f"{label}  {progress_bar(self._progress, 5, color='cyan')}"
-        # A whole-row dim marks a show you're caught up on (waiting for the next
-        # episode) — greyed out so the titles you *can* watch stand out.
-        if self._dim:
-            label = f"[dim]{label}[/dim]"
-        return label
+    def relayout(self, cols: Columns) -> None:
+        """Re-render at new column widths after a terminal resize."""
+        self._cols = cols
+        self._label.update(render(self._row, cols))
 
-    def set_subtitle(self, subtitle: str) -> None:
-        """Update the row's subtitle in place — used to tick airing countdowns
-        without rebuilding (and disrupting selection in) the list."""
-        self._label.update(self._compose_label(subtitle))
+    def set_status(self, status: str, status_cells: int | None = None) -> None:
+        """Update only the status cell — used to tick airing countdowns without
+        rebuilding (and so disrupting selection in) the list."""
+        self._row = replace(self._row, status=status, status_cells=status_cells)
+        self._label.update(render(self._row, self._cols))
 
 
 class EpisodeItem(ListItem):

@@ -12,6 +12,7 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListView, LoadingIndicator
 
+from ..rows import Row, columns_for
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -66,11 +67,18 @@ class MyListScreen(Screen):
             )
             lv = ListView()
             await body.mount(lv)
+            cols = columns_for(self.size.width or 100)
             for e in rows:
                 total = e.anime.episode_count
                 prog = f"{e.progress}/{total}" if total else f"{e.progress}"
-                score = f" · ★{e.score:g}" if e.score else ""
-                lv.append(AnimeItem(e.anime, subtitle=f"{prog}{score}"))
+                lv.append(AnimeItem(
+                    e.anime,
+                    Row(title=e.anime.title.preferred,
+                        position=prog,
+                        status=f"[yellow]★ {e.score:g}[/yellow]" if e.score else "",
+                        status_cells=len(f"★ {e.score:g}") if e.score else 0),
+                    cols,
+                ))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item

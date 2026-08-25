@@ -8,7 +8,8 @@ from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title
 from anime_sh.tui.coverart import render_cover
 from anime_sh.domain.models import WatchProgress
 from anime_sh.tui.format import (
-    continue_row,
+    browse_cells,
+    continue_cells,
     countdown,
     episode_air_label,
     home_subtitle,
@@ -105,37 +106,89 @@ def _prog(episode, pos, dur=1400, completed=False):
                          updated_at=_NOW, completed=completed)
 
 
-def test_continue_row_resume_in_progress_episode():
+def test_continue_cells_resume_puts_the_percentage_beside_a_bar():
+    """Mid-episode is the one state where the row answers "how far in", so it
+    gets the bar. The episode number stays in the position column with every
+    other row's, or the column stops being scannable."""
     a = _anime(status=Status.RELEASING, episode_count=12)
-    assert continue_row(a, _prog(4.0, 700), _NOW) == ("Ep 4 · 50%", False, 4.0)
+    row, resume = continue_cells(a, _prog(4.0, 700), _NOW)
+    assert row.position == "Ep 4"
+    assert "50%" in row.status and "━" in row.status
+    assert row.dim is False and resume == 4.0
 
 
-def test_continue_row_up_next_when_more_available():
-    # Finished ep 3 of a 12-ep finished show → next one's already out. The total
-    # is spelled out: "Ep 4" alone reads the same as an airing show's awaited
-    # next episode, which is how a finished season gets mistaken for one you're
-    # waiting on.
+def test_continue_cells_ready_row_says_the_episode_is_waiting():
+    # Finished ep 3 of a 12-ep finished show → the next one is already out. The
+    # total is spelled out because "Ep 4" alone reads the same as an airing
+    # show's awaited episode, which is how a finished season gets mistaken for
+    # one you are waiting on.
     a = _anime(status=Status.FINISHED, episode_count=12)
-    assert continue_row(a, _prog(3.0, 1400, completed=True), _NOW) == (
-        "up next · Ep 4 of 12", False, 4.0)
+    row, resume = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
+    assert row.position == "Ep 4/12"
+    assert row.status == "new episode"
+    assert row.dim is False and resume == 4.0
 
 
-def test_continue_row_up_next_without_a_known_total():
+def test_continue_cells_ready_row_without_a_known_total():
     a = _anime(status=Status.FINISHED, episode_count=None)
-    assert continue_row(a, _prog(3.0, 1400, completed=True), _NOW) == (
-        "up next · Ep 4", False, 4.0)
+    row, _ = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
+    assert row.position == "Ep 4" and row.status == "new episode"
 
 
-def test_continue_row_caught_up_airing_is_dimmed_with_countdown():
+def test_continue_cells_waiting_row_is_dimmed_and_shows_only_the_countdown():
+    """The grid names the episode in its own column, so the status cell carries
+    the countdown alone — repeating "Ep 6" inside it would push the countdown
+    out of a column sized for the countdown."""
     a = _anime(status=Status.RELEASING, next_airing_episode=6,
                next_airing_at=_NOW + timedelta(days=2, hours=3))
-    sub, dim, resume = continue_row(a, _prog(5.0, 1400, completed=True), _NOW)
-    assert sub == "caught up · Ep 6 in 2d 3h" and dim is True and resume == 6.0
+    row, resume = continue_cells(a, _prog(5.0, 1400, completed=True), _NOW)
+    assert row.position == "Ep 6"
+    assert row.status == "in 2d 3h"
+    assert row.dim is True and resume == 6.0
 
 
-def test_continue_row_dropped_when_finished_and_fully_watched():
+def test_continue_cells_dropped_when_finished_and_fully_watched():
     a = _anime(status=Status.FINISHED, episode_count=12)
-    assert continue_row(a, _prog(12.0, 1400, completed=True), _NOW) is None
+    assert continue_cells(a, _prog(12.0, 1400, completed=True), _NOW) is None
+
+
+def test_continue_rows_order_resume_then_ready_then_waiting():
+    """Reading order is the whole argument for this list. The episode you are
+    part-way through is the likeliest thing you opened the app to do, so it
+    leads; shows you cannot act on at all sink to the bottom.
+
+    Ordering by recency instead put a half-watched episode below three shows
+    that merely had a new episode out.
+    """
+    resume = _anime(status=Status.RELEASING, episode_count=12)
+    ready = _anime(status=Status.FINISHED, episode_count=12)
+    waiting = _anime(status=Status.RELEASING, next_airing_episode=6,
+                     next_airing_at=_NOW + timedelta(days=2))
+
+    rows = [
+        continue_cells(ready, _prog(3.0, 1400, completed=True), _NOW)[0],
+        continue_cells(waiting, _prog(5.0, 1400, completed=True), _NOW)[0],
+        continue_cells(resume, _prog(4.0, 700), _NOW)[0],
+    ]
+    rows.sort(key=lambda r: r.rank)
+    assert [r.status for r in rows][0].endswith("50%")
+    assert rows[1].status == "new episode"
+    assert rows[2].dim is True
+
+
+def test_browse_cells_airing_splits_count_from_countdown():
+    a = _anime(status=Status.RELEASING, episode_count=12, next_airing_episode=3,
+               next_airing_at=_NOW + timedelta(days=4, hours=6))
+    row = browse_cells(a, _NOW)
+    assert row.position == "2/12"
+    assert row.status == "Ep 3 in 4d 6h"
+
+
+def test_browse_cells_finished_show_falls_back_to_year():
+    a = _anime(status=Status.FINISHED, episode_count=12, year=2026)
+    row = browse_cells(a, _NOW)
+    assert row.position == "12 eps"
+    assert "2026" in row.status
 
 
 def test_episode_air_label_projects_weekly_from_next_airing():
