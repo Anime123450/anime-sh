@@ -5,6 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from ..domain.models import Anime, WatchProgress
+from .rows import Row
+
+# The Continue-Watching bar shares a column with text statuses, so it stays
+# short enough to leave room for the percentage beside it.
+_RESUME_BAR = 7
+
+# Continue Watching reads top-down as "what can I do right now": the episode you
+# are part-way through, then episodes waiting unwatched, then shows you are
+# caught up on and cannot act on at all.
+RANK_RESUME, RANK_READY, RANK_WAITING = 0, 1, 2
 
 
 def countdown(target: datetime, now: datetime | None = None) -> str:
@@ -66,40 +76,104 @@ def waiting_subtitle(
     )
 
 
-def continue_row(
+def continue_cells(
     anime: Anime, progress: WatchProgress, now: datetime | None = None
-) -> tuple[str, bool, float] | None:
-    """Render one Continue-Watching entry as ``(subtitle, dim, resume_episode)``,
-    or None to drop it because the show is finished and fully watched.
+) -> tuple[Row, float] | None:
+    """One Continue-Watching row as ``(Row, resume_episode)``, or None to drop it
+    because the show is finished and you have watched all of it.
 
-    The four states, in order of check:
+    The four states, in order of check, each with its own glyph and colour so the
+    list can be read by shape before it is read by word:
 
-    * **Resume** — you're partway through the furthest episode: show the percent
-      and resume that episode.
-    * **Done** — the series has finished airing and you've watched the last
-      episode: drop it (nothing left to continue).
-    * **Caught up** — a still-airing show whose latest aired episode you've
-      finished: greyed, with a live countdown to the next episode.
-    * **Up next** — you finished an episode and another is already available:
-      point at the next one."""
+    * **Resume** (``▸`` cyan) — partway through an episode: the episode number
+      and how far in.
+    * **Done** — finished airing and fully watched: dropped, nothing to continue.
+    * **Waiting** (``○`` dim) — a still-airing show whose latest aired episode
+      you have finished: a live countdown to the next one, dimmed because you
+      cannot act on it.
+    * **Ready** (``●`` green) — an aired episode is sitting there unwatched.
+
+    Ready is the state the screen exists to surface, so it is the only one drawn
+    in the accent colour at full brightness.
+    """
     ep = progress.episode
     if not progress.completed and progress.position_s > 0 and progress.duration_s > 0:
         pct = round(progress.fraction * 100)
-        return (f"Ep {ep:g} · {pct}%", False, ep)
+        bar = progress_bar(progress.fraction, _RESUME_BAR, color="cyan")
+        tail = f"{pct}%"
+        return (
+            Row(
+                title=anime.title.preferred,
+                glyph="[cyan]▸[/cyan]",
+                position=f"Ep {ep:g}",
+                status=f"{bar}  {tail}",
+                status_cells=_RESUME_BAR + 2 + len(tail),
+                rank=RANK_RESUME,
+            ),
+            ep,
+        )
+
     nxt = ep + 1
     if not anime.is_airing and anime.episode_count and ep >= anime.episode_count:
         return None
+
     waiting = waiting_subtitle(anime, ep, now)
     if waiting is not None:
-        return (waiting, True, nxt)
-    # Say how many episodes exist when we know. "up next · Ep 5" next to another
-    # season's "caught up · Ep 5 in 5d" is genuinely ambiguous — both read as "the
-    # next episode is 5" — whereas "Ep 5 of 12" makes it obvious this one is a
-    # finished season you are partway through, not a release you are waiting on.
+        # "caught up · Ep 6 in 2d 3h" — the grid already says which episode in
+        # its own column, so the row only needs the countdown.
+        _, _, when = waiting.partition(f"Ep {anime.next_airing_episode} ")
+        return (
+            Row(
+                title=anime.title.preferred,
+                glyph="○",
+                position=f"Ep {anime.next_airing_episode:g}",
+                status=when or "caught up",
+                dim=True,
+                rank=RANK_WAITING,
+            ),
+            nxt,
+        )
+
     total = anime.episode_count
-    if total:
-        return (f"up next · Ep {nxt:g} of {total}", False, nxt)
-    return (f"up next · Ep {nxt:g}", False, nxt)
+    # "Ep 5 of 12" next to another season's "Ep 5" is genuinely ambiguous — both
+    # read as "the next episode is 5". Spelling out the total is what makes this
+    # one legible as a finished season you are partway through.
+    position = f"Ep {nxt:g}/{total}" if total else f"Ep {nxt:g}"
+    return (
+        Row(
+            title=anime.title.preferred,
+            glyph="[green]●[/green]",
+            position=position,
+            status="new episode",
+            rank=RANK_READY,
+        ),
+        nxt,
+    )
+
+
+def browse_cells(anime: Anime, now: datetime | None = None) -> Row:
+    """A row for the browse lists — seasonal, trending, search results.
+
+    These are shows you are not tracking, so there is no watch state to mark.
+    What earns the columns instead is *how much exists* and *when the next one
+    lands*, which is what the eye is actually looking for when scanning a season.
+    """
+    if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
+        aired = max(anime.next_airing_episode - 1, 0)
+        total = anime.episode_count
+        return Row(
+            title=anime.title.preferred,
+            position=f"{aired}/{total}" if total else f"{aired} eps",
+            status=f"Ep {anime.next_airing_episode} {countdown(anime.next_airing_at, now)}",
+        )
+    eps = anime.episode_count
+    position = ("1 ep" if eps == 1 else f"{eps} eps") if eps else ""
+    return Row(
+        title=anime.title.preferred,
+        position=position,
+        status=f"[dim]{anime.year}[/dim]" if anime.year else "",
+        status_cells=len(str(anime.year)) if anime.year else 0,
+    )
 
 
 def progress_bar(

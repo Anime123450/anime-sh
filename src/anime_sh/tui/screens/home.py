@@ -12,7 +12,8 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
 from ...domain.models import Season
-from ..format import continue_row, home_subtitle
+from ..format import browse_cells, continue_cells
+from ..rows import Columns, columns_for
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -46,8 +47,25 @@ class HomeScreen(Screen):
             yield ListView(id="results")
         yield Footer()
 
+    @property
+    def _cols(self) -> Columns:
+        """Column widths for the current terminal. Before the first layout the
+        screen reports width 0, so fall back to a sane measure rather than
+        collapsing every row to its minimum."""
+        return columns_for(self.size.width or 100)
+
+    def on_resize(self) -> None:
+        """Re-lay-out in place. Rebuilding the lists would be simpler and would
+        also drop the user's selection every time they dragged a window edge."""
+        cols = self._cols
+        for lv in self.query(ListView):
+            for item in lv.children:
+                if isinstance(item, AnimeItem):
+                    item.relayout(cols)
+
     def on_mount(self) -> None:
         self._debounce = None
+        self._continue_ids: set[int] = set()
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
@@ -90,7 +108,8 @@ class HomeScreen(Screen):
                 continue
             for item in lv.children:
                 if isinstance(item, AnimeItem) and item.anime.is_airing:
-                    item.set_subtitle(home_subtitle(item.anime))
+                    fresh = browse_cells(item.anime)
+                    item.set_status(fresh.status, fresh.status_cells)
 
     # -- AniList sync ------------------------------------------------------- #
     @work(exclusive=True, group="autosync")
@@ -141,17 +160,11 @@ class HomeScreen(Screen):
         rows = []
         for it in items:
             anime = fresh.get(it.anime.id.anilist) or it.anime
-            built = continue_row(anime, it.progress)
+            built = continue_cells(anime, it.progress)
             if built is None:
                 continue  # finished and fully watched — nothing to continue
-            subtitle, dim, resume = built
-            # A mid-episode row carries its watch fraction for the little bar.
-            p = it.progress
-            frac = (p.fraction if not p.completed and p.position_s > 0
-                    and p.duration_s > 0 else None)
-            rows.append((anime, subtitle, dim, resume, frac))
-
-        rows = [(*r, "") for r in rows]
+            row, resume = built
+            rows.append((anime, row, resume))
 
         lv = self.query_one("#continue", ListView)
         sec = self.query_one("#sec-continue")
@@ -160,15 +173,41 @@ class HomeScreen(Screen):
             sec.display = False
             lv.display = False
             return
-        # Shows you can actually watch float to the top; the ones you're caught
-        # up on (waiting for the next episode) sink to the bottom, greyed.
-        rows.sort(key=lambda r: r[2])
+        # Ordered by how ready each row is to be acted on: the episode you are
+        # part-way through first, then unwatched episodes waiting, then the shows
+        # you are caught up on, dimmed at the bottom.
+        rows.sort(key=lambda r: r[1].rank)
         sec.display = True
         lv.display = True
-        for anime, subtitle, dim, resume, frac, badge in rows:
-            lv.append(AnimeItem(anime, subtitle=subtitle, resume_episode=resume,
-                                dim=dim, progress=frac, badge=badge))
+        cols = self._cols
+        for anime, row, resume in rows:
+            lv.append(AnimeItem(anime, row, cols, resume_episode=resume))
         self._set_section("#sec-continue", "Continue Watching", len(rows))
+
+        # A show you are already watching does not need to be advertised again
+        # further down the page. Seasonal listed four of these twice, with
+        # different metadata each time, which read as two different shows.
+        self._continue_ids = {a.id.anilist for a, _, _ in rows}
+        self._hide_seasonal_duplicates()
+
+    def _hide_seasonal_duplicates(self) -> None:
+        """Hide seasonal rows for shows already in Continue Watching.
+
+        Deliberately hides rather than rebuilds: both lists are filled by
+        independent workers, and clearing one from the other's worker is a
+        check-then-act across an await. Setting ``display`` touches nothing the
+        other worker owns.
+        """
+        try:
+            lv = self.query_one("#seasonal", ListView)
+        except Exception:
+            return
+        shown = 0
+        for item in lv.children:
+            if isinstance(item, AnimeItem):
+                item.display = item.anime.id.anilist not in self._continue_ids
+                shown += item.display
+        self._set_section("#sec-seasonal", "Airing This Season", shown)
 
     async def _fresh_airing(self, items) -> dict:
         """Map anilist id → freshly-fetched Anime (with airing schedule) for the
@@ -202,9 +241,9 @@ class HomeScreen(Screen):
             return
         self.query_one("#sec-favorites").display = True
         lv.display = True
+        cols = self._cols
         for fav in items:
-            meta = " · ".join(str(x) for x in (fav.anime.format.value, fav.anime.year) if x)
-            lv.append(AnimeItem(fav.anime, subtitle=meta))
+            lv.append(AnimeItem(fav.anime, browse_cells(fav.anime), cols))
         self._set_section("#sec-favorites", "Favorites", len(items))
 
     @work(exclusive=True, group="seasonal")
@@ -223,9 +262,13 @@ class HomeScreen(Screen):
         far = datetime.max.replace(tzinfo=timezone.utc)
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
         await lv.clear()
+        cols = self._cols
         for a in animes[:20]:
-            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
-        self._set_section("#sec-seasonal", "Airing This Season", min(len(animes), 20))
+            lv.append(AnimeItem(a, browse_cells(a), cols))
+        # Counts the rows that survive de-duplication, not the fetch limit. The
+        # header used to read "20" for both this and Continue Watching because
+        # both had simply hit their cap — a number that looked like data.
+        self._hide_seasonal_duplicates()
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
@@ -239,8 +282,9 @@ class HomeScreen(Screen):
         finally:
             lv.loading = False
         await lv.clear()
+        cols = self._cols
         for a in animes:
-            lv.append(AnimeItem(a, subtitle=home_subtitle(a)))
+            lv.append(AnimeItem(a, browse_cells(a), cols))
         self._set_section("#sec-trending", "Trending", len(animes))
 
     # -- search ------------------------------------------------------------- #
@@ -271,8 +315,9 @@ class HomeScreen(Screen):
             return
         lv = self.query_one("#results", ListView)
         await lv.clear()
+        cols = self._cols
         for r in results:
-            lv.append(AnimeItem(r.anime, subtitle=home_subtitle(r.anime)))
+            lv.append(AnimeItem(r.anime, browse_cells(r.anime), cols))
         self._toggle_results(True)
         if results:
             lv.index = 0

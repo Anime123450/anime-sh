@@ -2,6 +2,48 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.44] — 2026-08-26
+
+### Changed
+
+- **The home screen is a grid.** Rows used to be a title glued to its metadata
+  with two spaces, so where "which episode am I on" appeared depended entirely
+  on how long the title was. With titles running from "BLACK TORCH" to "Rich
+  Girl Caretaker: I'm Secretly the Caregiver of the Most Popular Girl in This
+  Rich Kid School", the answer landed in a different column on every line and
+  finding it meant reading each row to its end.
+
+  Every row now has fixed columns — state, title, episode, status — so the eye
+  travels down one column instead of across forty lines:
+
+  ```
+  ▸  The King's Avatar        Ep 2       ━━━━━──  68%
+  ●  The Ogre's Bride         Ep 8/12    new episode
+  ○  Slime Season 4           Ep 20      in 4d 0h
+  ```
+
+  Widths come from the terminal, not from constants: the layout drops its least
+  load-bearing column rather than wrapping in a narrow shell, and caps its
+  measure rather than sprawling across a 200-column one. Titles are measured in
+  terminal cells, so a Japanese title stays aligned with everything else.
+
+- **Continue Watching is ordered by what you can act on.** The episode you are
+  part-way through leads, then episodes waiting unwatched, then shows you are
+  caught up on — dimmed, at the bottom. A half-watched episode previously sat
+  below three shows that merely had a new episode out.
+
+- **State reads as shape before it reads as words.** `▸` resume, `●` an episode
+  waiting, `○` caught up and nothing to do.
+
+### Fixed
+
+- **A show you are already watching no longer appears twice.** Four titles were
+  listed in both Continue Watching and Airing This Season, with different
+  metadata in each, which read as two different shows.
+
+- **Section counts are real counts.** Both headers read "20" because both had
+  simply hit their fetch limit — a number that looked like data.
+
 ## [0.2.43] — 2026-08-24
 
 ### Fixed
