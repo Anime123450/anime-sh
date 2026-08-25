@@ -11,9 +11,9 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
 
-from ...domain.models import Season
+from ...domain.models import Season, Status
 from ..format import browse_cells, continue_cells
-from ..rows import Columns, columns_for
+from ..rows import Columns, columns_for, title_cells
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -28,6 +28,25 @@ def _current_season() -> tuple[Season, int]:
     if m in (6, 7, 8):
         return Season.SUMMER, today.year
     return Season.FALL, today.year
+
+
+def _schedule_is_stale(anime, now: datetime) -> bool:
+    """Whether ``anime``'s cached airing schedule could have changed since it was
+    stored, and so is worth a network round trip.
+
+    Skips only what is *positively known* to be settled. ``Status`` defaults to
+    ``UNKNOWN``, and a row saved bare — on playback, say — carries that default;
+    reading it as "finished, nothing can change" would pin the row to a schedule
+    it never had and offer an unreleased episode as though it were waiting for
+    you, which is the bug the cached schedule exists to prevent.
+    """
+    if anime.is_airing:
+        # A cached next episode still in the future is everything the row needs:
+        # the countdown ticks locally, so there is nothing to fetch.
+        return anime.next_airing_at is None or anime.next_airing_at <= now
+    if anime.status in (Status.FINISHED, Status.CANCELLED):
+        return False  # the schedule is final and will not change again
+    return True  # UNKNOWN, NOT_YET_RELEASED, HIATUS — we genuinely do not know
 
 
 class HomeScreen(Screen):
@@ -54,14 +73,21 @@ class HomeScreen(Screen):
         collapsing every row to its minimum."""
         return columns_for(self.size.width or 100)
 
+    def _cols_for(self, rows) -> Columns:
+        """Columns sized to the widest title *this* list actually holds."""
+        widest = max((title_cells(r) for r in rows), default=None)
+        return columns_for(self.size.width or 100, widest)
+
     def on_resize(self) -> None:
         """Re-lay-out in place. Rebuilding the lists would be simpler and would
         also drop the user's selection every time they dragged a window edge."""
-        cols = self._cols
         for lv in self.query(ListView):
-            for item in lv.children:
-                if isinstance(item, AnimeItem):
-                    item.relayout(cols)
+            items = [i for i in lv.children if isinstance(i, AnimeItem)]
+            if not items:
+                continue
+            cols = self._cols_for([i._row for i in items])
+            for item in items:
+                item.relayout(cols)
 
     def on_mount(self) -> None:
         self._debounce = None
@@ -179,7 +205,7 @@ class HomeScreen(Screen):
         rows.sort(key=lambda r: r[1].rank)
         sec.display = True
         lv.display = True
-        cols = self._cols
+        cols = self._cols_for([r for _, r, _ in rows])
         for anime, row, resume in rows:
             lv.append(AnimeItem(anime, row, cols, resume_episode=resume))
         self._set_section("#sec-continue", "Continue Watching", len(rows))
@@ -210,20 +236,46 @@ class HomeScreen(Screen):
         self._set_section("#sec-seasonal", "Airing This Season", shown)
 
     async def _fresh_airing(self, items) -> dict:
-        """Map anilist id → freshly-fetched Anime (with airing schedule) for the
-        continue-watching shows. Best-effort: a source without ``get`` or any
-        fetch failure just leaves that show on its cached row."""
+        """Map anilist id → freshly-fetched Anime for the rows whose airing
+        schedule could actually have changed.
+
+        This used to fetch *every* Continue-Watching row at once — twenty
+        concurrent AniList queries on launch, on top of seasonal, trending and
+        the AniList sync. AniList rate-limits well below that, so a normal launch
+        earned a 429, and because the limiter is shared the next thing you typed
+        failed too: "Search failed: rate limited — try again in about 41s".
+
+        Almost none of those requests could return anything new:
+
+        * a show that has finished airing has no schedule left to change;
+        * a show whose cached next episode is still in the future already has
+          everything the row needs — the countdown ticks locally, no network.
+
+        What remains is the handful whose next episode has aired since the row
+        was cached, and those go out a few at a time rather than all at once.
+        """
         get = getattr(self.app.services.metadata, "get", None)
         if get is None:
             return {}
 
-        async def one(anime):
-            try:
-                return await get(anime.id)
-            except Exception:
-                return None
+        now = datetime.now(timezone.utc)
+        stale = [it.anime for it in items if _schedule_is_stale(it.anime, now)]
+        if not stale:
+            return {}
 
-        results = await asyncio.gather(*(one(it.anime) for it in items))
+        # AniList's budget is shared with seasonal, trending and sync, all of
+        # which are in flight right now. A small gate keeps this from being the
+        # thing that exhausts it.
+        gate = asyncio.Semaphore(4)
+
+        async def one(anime):
+            async with gate:
+                try:
+                    return await get(anime.id)
+                except Exception:
+                    return None
+
+        results = await asyncio.gather(*(one(a) for a in stale))
         return {a.id.anilist: a for a in results if a is not None}
 
     @work(exclusive=True, group="favorites")
@@ -241,9 +293,10 @@ class HomeScreen(Screen):
             return
         self.query_one("#sec-favorites").display = True
         lv.display = True
-        cols = self._cols
-        for fav in items:
-            lv.append(AnimeItem(fav.anime, browse_cells(fav.anime), cols))
+        built = [(fav.anime, browse_cells(fav.anime)) for fav in items]
+        cols = self._cols_for([r for _, r in built])
+        for anime, row in built:
+            lv.append(AnimeItem(anime, row, cols))
         self._set_section("#sec-favorites", "Favorites", len(items))
 
     @work(exclusive=True, group="seasonal")
@@ -262,9 +315,10 @@ class HomeScreen(Screen):
         far = datetime.max.replace(tzinfo=timezone.utc)
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
         await lv.clear()
-        cols = self._cols
-        for a in animes[:20]:
-            lv.append(AnimeItem(a, browse_cells(a), cols))
+        built = [(a, browse_cells(a)) for a in animes[:20]]
+        cols = self._cols_for([r for _, r in built])
+        for a, row in built:
+            lv.append(AnimeItem(a, row, cols))
         # Counts the rows that survive de-duplication, not the fetch limit. The
         # header used to read "20" for both this and Continue Watching because
         # both had simply hit their cap — a number that looked like data.
@@ -282,9 +336,10 @@ class HomeScreen(Screen):
         finally:
             lv.loading = False
         await lv.clear()
-        cols = self._cols
-        for a in animes:
-            lv.append(AnimeItem(a, browse_cells(a), cols))
+        built = [(a, browse_cells(a)) for a in animes]
+        cols = self._cols_for([r for _, r in built])
+        for a, row in built:
+            lv.append(AnimeItem(a, row, cols))
         self._set_section("#sec-trending", "Trending", len(animes))
 
     # -- search ------------------------------------------------------------- #
@@ -315,9 +370,10 @@ class HomeScreen(Screen):
             return
         lv = self.query_one("#results", ListView)
         await lv.clear()
-        cols = self._cols
-        for r in results:
-            lv.append(AnimeItem(r.anime, browse_cells(r.anime), cols))
+        built = [(r.anime, browse_cells(r.anime)) for r in results]
+        cols = self._cols_for([row for _, row in built])
+        for anime, row in built:
+            lv.append(AnimeItem(anime, row, cols))
         self._toggle_results(True)
         if results:
             lv.index = 0
