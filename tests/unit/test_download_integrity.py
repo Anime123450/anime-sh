@@ -17,12 +17,15 @@ discovered to be truncated.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import shutil
 import subprocess
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -50,6 +53,17 @@ def _make_segment(path: Path) -> None:
         [FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
          "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10", "-t", "2",
          "-c:v", "mpeg2video", "-f", "mpegts", str(path)],
+        check=True, capture_output=True, timeout=60,
+    )
+
+
+def _run_ffmpeg_testsrc(path: Path, seconds: int = 3) -> None:
+    """A small, genuinely valid MP4 — the control sample for "nothing is wrong
+    with this file", used where a test needs a good download to survive."""
+    subprocess.run(
+        [FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc=size=64x48:rate=10", "-t", str(seconds),
+         "-c:v", "mpeg2video", str(path)],
         check=True, capture_output=True, timeout=60,
     )
 
@@ -141,7 +155,9 @@ async def test_an_intact_download_still_succeeds(tmp_path, serve):
     await FfmpegDownloader().download(_stream(f"{serve}/play.m3u8"), dest)
 
     assert dest.is_file()
-    streams, duration = probe_media(shutil.which("ffprobe"), dest)
+    probed = await probe_media(shutil.which("ffprobe"), dest)
+    assert probed is not None
+    streams, duration = probed
     assert streams >= 1
     assert duration == pytest.approx(6.0, abs=0.5)
 
@@ -193,16 +209,81 @@ async def test_an_error_page_muxed_as_video_is_rejected(tmp_path, serve):
 # The probe helper
 # --------------------------------------------------------------------------- #
 @needs_ffmpeg
-def test_probe_reports_zero_for_a_file_that_is_not_media(tmp_path):
+async def test_probe_reports_zero_for_a_file_that_is_not_media(tmp_path):
     """Unreadable, unparseable and empty all have to answer "not playable"
     rather than raising, because the caller uses the answer to decide whether to
     keep the file."""
     junk = tmp_path / "junk.mp4"
     junk.write_bytes(b"not an mp4")
-    assert probe_media(shutil.which("ffprobe"), junk) == (0, 0.0)
-    assert probe_media(shutil.which("ffprobe"), tmp_path / "missing.mp4") == (0, 0.0)
+    assert await probe_media(shutil.which("ffprobe"), junk) == (0, 0.0)
+    assert await probe_media(shutil.which("ffprobe"), tmp_path / "missing.mp4") == (0, 0.0)
 
 
-def test_probe_survives_a_missing_ffprobe(tmp_path):
-    """ffprobe ships with ffmpeg, but a download must not explode if it is gone."""
-    assert probe_media("definitely-not-a-real-binary", tmp_path / "x.mp4") == (0, 0.0)
+async def test_a_prober_that_cannot_run_is_not_a_verdict_on_the_file(tmp_path):
+    """The distinction this asserts is the difference between a bug report and a
+    deleted episode.
+
+    `(0, 0.0)` means "ffprobe looked and found no video", and the caller deletes
+    the file on it. A prober that will not start has found nothing at all, so it
+    must answer None instead. This previously returned (0, 0.0) for both, and a
+    verified-good 3-second file was destroyed by a prober that merely misbehaved.
+    """
+    assert await probe_media("definitely-not-a-real-binary", tmp_path / "x.mp4") is None
+
+
+@needs_ffmpeg
+async def test_a_good_download_survives_a_broken_prober(tmp_path):
+    """The regression test for the deletion bug, at the level that actually
+    deletes: _verify, not probe_media.
+
+    `cmd`/`sh` stands in for the real failure mode -- an ffprobe that exists and
+    runs but is not the program we think it is, so its output cannot be parsed.
+    Nothing is wrong with the file, and the file must still be there afterwards.
+    """
+    good = tmp_path / "good.mp4"
+    _run_ffmpeg_testsrc(good, seconds=3)
+    assert good.is_file()
+
+    not_ffprobe = shutil.which("cmd") or shutil.which("sh")
+    assert not_ffprobe, "need some present-but-wrong binary to stand in"
+
+    with mock.patch(
+        "anime_sh.infra.downloader.ffmpeg._ffprobe_for", return_value=not_ffprobe
+    ):
+        await FfmpegDownloader()._verify(
+            shutil.which("ffmpeg"), good, lost_segments=0
+        )
+
+    assert good.is_file(), "a good download was deleted because the prober failed"
+
+
+class _BlockingCall(BaseException):
+    """Deliberately a BaseException, not an Exception.
+
+    The bug being guarded against sat behind a bare `except Exception`, so a
+    sentinel derived from Exception would have been swallowed by the very code
+    under test and the guard would have passed against the bug. Inheriting from
+    BaseException is what makes the failure visible.
+    """
+
+
+@needs_ffmpeg
+async def test_verification_never_makes_a_blocking_subprocess_call(tmp_path):
+    """Verification runs inside `async def download`. A synchronous probe there
+    freezes every other task on the loop — in the TUI, the whole interface,
+    for up to the 30 s probe timeout.
+
+    This asserts the mechanism (nothing in this path calls `subprocess.run`)
+    rather than timing it. A timing assertion was written first and **did not
+    work**: the probe of a small local file finishes in tens of milliseconds, so
+    the blocking version passed a 500 ms threshold comfortably. The 1178 ms
+    stall that originally exposed the bug was a cold first invocation and does
+    not reproduce.
+    """
+    good = tmp_path / "good.mp4"
+    _run_ffmpeg_testsrc(good, seconds=3)
+
+    with mock.patch("subprocess.run", side_effect=_BlockingCall):
+        await FfmpegDownloader()._verify(FFMPEG, good, lost_segments=0)
+
+    assert good.is_file()

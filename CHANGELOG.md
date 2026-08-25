@@ -55,6 +55,12 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   a file with no playable stream, or zero duration, is discarded with an error
   saying the host most likely returned an error page instead of the stream.
 
+  A file is only ever deleted on a *positive* finding of damage. If `ffprobe`
+  itself cannot be run — missing, broken, or too slow to answer — that is a
+  verdict about `ffprobe`, not about your download, and the file is kept. The
+  first version of this check did not draw that line, and a verified-good file
+  was destroyed in testing by a prober that merely misbehaved.
+
 ## [0.2.41] — 2026-08-24
 
 ### Fixed
