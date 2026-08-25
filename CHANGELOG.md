@@ -37,6 +37,26 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **Launching no longer rate-limits itself.** The home screen fired one AniList
+  query per Continue-Watching row — twenty at once — on top of seasonal,
+  trending and the AniList sync. AniList rate-limits well below that, so a
+  normal launch earned a 429, and because the limiter is shared the next thing
+  you typed failed too: *"Search failed: AniList is rate-limiting requests: rate
+  limited — try again in about 41s"*, twice, stacked over the list.
+
+  Almost none of those requests could return anything new. A show that has
+  finished airing has no schedule left to change, and a show whose next episode
+  is still in the future already has everything the row needs — the countdown
+  ticks locally. Only rows whose next episode has aired since they were cached
+  are refreshed, a few at a time. A real library that previously made twenty
+  requests on launch now makes **none**.
+
+- **A repeated error no longer stacks a second toast** over the rows behind it.
+
+- **`anime` no longer says the same thing twice** in a rate-limit message. It
+  read "AniList is rate-limiting requests: rate limited — try again in about
+  41s".
+
 - **A show you are already watching no longer appears twice.** Four titles were
   listed in both Continue Watching and Airing This Season, with different
   metadata in each, which read as two different shows.

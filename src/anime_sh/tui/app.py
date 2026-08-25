@@ -10,6 +10,7 @@ concrete infra adapter; only app services and domain ports.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic
 from typing import Awaitable, Callable
 
 from textual.app import App
@@ -58,10 +59,25 @@ class AnimeShApp(App):
         Binding("escape", "back", "Back", show=False),
     ]
 
+    # A repeated failure is one fact, not two. A rate limit hit by the seasonal
+    # load and again by whatever you typed next stacked two identical toasts over
+    # the list, hiding the rows behind an error you had already read.
+    _REPEAT_TOAST_WINDOW_S = 8.0
+
     def __init__(self, services: TuiServices, *, theme: str = "tokyo-night") -> None:
         super().__init__()
         self.services = services
         self._wanted_theme = theme
+        self._recent_toast: tuple[str, float] = ("", 0.0)
+
+    def notify(self, message: str, **kwargs):  # type: ignore[override]
+        """Drop a toast identical to one still on screen from moments ago."""
+        last, when = self._recent_toast
+        now = monotonic()
+        if message == last and now - when < self._REPEAT_TOAST_WINDOW_S:
+            return None
+        self._recent_toast = (message, now)
+        return super().notify(message, **kwargs)
 
     def get_default_screen(self) -> Screen:
         # HomeScreen is the base screen, so it's active as soon as the app runs.

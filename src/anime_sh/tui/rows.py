@@ -63,8 +63,23 @@ class Columns:
         return w
 
 
-def columns_for(screen_width: int) -> Columns:
+def title_cells(row: "Row") -> int:
+    """How many cells this row's title wants, badge included."""
+    want = cell_len(row.title)
+    if row.badge:
+        want += cell_len(f" ({row.badge})")
+    return want
+
+
+def columns_for(screen_width: int, content_title: int | None = None) -> Columns:
     """Resolve column widths for a terminal ``screen_width`` cells wide.
+
+    ``content_title`` is the widest title the list actually holds. Given it, the
+    title column shrinks to fit rather than reserving room for a title nobody
+    has: a list of "BLACK TORCH" and "Tomb Raider King" left two thirds of the
+    row empty before the episode column began, and the eye had to cross all of
+    it. The column never shrinks below ``TITLE_MIN``, so the grid keeps its shape
+    when one list happens to hold only short names.
 
     Drops the least load-bearing column first. Status ("can I watch this now")
     outranks position ("which episode"), because a row you cannot act on is not
@@ -75,6 +90,8 @@ def columns_for(screen_width: int) -> Columns:
 
     title = content - fixed - (GAP + POSITION_W) - (GAP + STATUS_W)
     if title >= TITLE_MIN:
+        if content_title is not None:
+            title = max(TITLE_MIN, min(title, content_title))
         return Columns(title=title, position=POSITION_W, status=STATUS_W)
 
     # Too tight for both: keep status, drop the episode position.
