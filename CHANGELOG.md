@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.46] — 2026-08-26
+
+### Changed
+
+- **The CLI starts in a third of the time.** `anime version` took ~665 ms
+  because `cli/main.py` imported the container, the config schema, `asyncio`
+  and `importlib.metadata` at module level — the entire application constructed
+  before it could print one line. A command that prints a version string, or
+  the shell asking for tab-completions, paid for httpx and pydantic every time.
+
+  | | before | after |
+  |---|---|---|
+  | `anime version` | 665 ms | **245 ms** |
+  | `anime --help` | ~700 ms | **303 ms** |
+
+  Commands that do real work import what they need when they need it, so they
+  are no slower — the cost moved rather than grew. What remains at startup is
+  typer and rich, which having a CLI at all costs.
+
 ## [0.2.45] — 2026-08-26
 
 ### Fixed
