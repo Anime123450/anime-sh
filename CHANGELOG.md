@@ -2,6 +2,41 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.45] — 2026-08-26
+
+### Fixed
+
+- **One rate limit no longer disables fuzzy search for the rest of the session.**
+  Typing `fri` for *Frieren* or `onepiece` for *One Piece* matches against a
+  local popularity index, built on first need from ten AniList catalog pages
+  fetched at once. AniList rate-limits below ten concurrent requests, so a
+  failure there was the normal outcome, not an exceptional one — and two
+  separate pieces of code treated it as permanent:
+
+  - one failed page threw away the nine that had succeeded, discarding 450
+    usable titles because the tenth was refused;
+  - the caller then stored that failure as *"there is no index"*, and the
+    fast-path check returned it unconditionally ever after, so no retry was
+    ever attempted.
+
+  Together, a single bad minute silently switched off fuzzy search until the app
+  was restarted, with nothing shown to say so. Pages that arrive are now kept
+  (they are popularity-ordered, so what survives is the part that matters most),
+  a partial catalog is used for the session without being cached for the day,
+  and a failed build is retried rather than remembered as an answer.
+
+- **Importing the domain layer no longer builds the entire CLI.** `anime_sh`'s
+  package `__init__` imported the CLI eagerly, and that module runs on any
+  access to the package — so reading a dataclass out of `anime_sh.domain.models`
+  loaded typer, pydantic, rich and httpx: 531 modules and 672 ms. It is 85
+  modules and 62 ms now. `import-linter` could not catch this, because the
+  declared import lived in `__init__.py` rather than in `domain/`, so all three
+  architecture contracts passed while the runtime disagreed. A test now asserts
+  the layering in a subprocess, where `sys.modules` is still honest.
+
+  This does not speed up `anime <command>`, which loads the CLI either way;
+  startup cost there is still open.
+
 ## [0.2.44] — 2026-08-26
 
 ### Changed

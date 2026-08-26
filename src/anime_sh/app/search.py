@@ -38,6 +38,7 @@ import asyncio
 import math
 import re
 import unicodedata
+from time import monotonic
 from difflib import SequenceMatcher
 
 from ..domain.models import Anime, AnimeId, SearchResult
@@ -77,6 +78,12 @@ _INDEX_SIZE = 500
 # Prefix / substring / squashed-equality matches all score well above this; the
 # floor mainly admits close typo matches and rejects incidental fuzz.
 _INDEX_MATCH_THRESHOLD = 0.5
+
+# How long to wait before rebuilding the popularity index after a failed
+# attempt. Long enough to sit out an AniList rate limit (they clear in about a
+# minute), short enough that a user who hit one does not spend their session
+# without fuzzy search.
+_INDEX_RETRY_AFTER_S = 90.0
 
 
 def _fold(s: str) -> str:
@@ -273,6 +280,9 @@ class SearchService:
         self._metadata = metadata
         self._index: list[Anime] | None = None
         self._index_lock = asyncio.Lock()
+        # When the last index build failed, so a transient failure is retried
+        # instead of becoming the answer forever. See _catalog.
+        self._index_failed_at: float | None = None
 
     async def search(self, query: str, *, limit: int = 20) -> list[SearchResult]:
         animes = await self._smart_search(query, limit=limit)
@@ -319,17 +329,47 @@ class SearchService:
 
     async def _catalog(self) -> list[Anime]:
         """The local popularity index, built once (per process) on first need.
-        Best-effort: any failure yields an empty index so search still works."""
+
+        Best-effort, but "we could not build it just now" is not the same fact as
+        "there is no index". Storing the failure as ``[]`` made one transient
+        rate limit — the normal outcome when ten catalog pages go out at once —
+        permanently disable fuzzy search for the rest of the process: the
+        ``is not None`` check above short-circuits every later attempt, so no
+        retry ever happened and only restarting the app fixed it.
+
+        A failure is remembered with a timestamp instead, which retries later
+        without hammering AniList in the meantime.
+        """
         if self._index is not None:
             return self._index
         popular = getattr(self._metadata, "popular", None)
         if popular is None:
-            self._index = []
+            self._index = []  # a genuine, permanent absence — cache it
             return self._index
+        if self._recently_failed():
+            return []
         async with self._index_lock:
-            if self._index is None:
-                try:
-                    self._index = await popular(limit=_INDEX_SIZE)
-                except Exception:
-                    self._index = []
+            # Re-check under the lock: another search may have built it while
+            # this one waited, and a second may have just failed.
+            if self._index is not None:
+                return self._index
+            if self._recently_failed():
+                return []
+            try:
+                self._index = await popular(limit=_INDEX_SIZE)
+                self._index_failed_at = None
+            except Exception:
+                self._index_failed_at = monotonic()
+                return []
         return self._index
+
+    def _recently_failed(self) -> bool:
+        """Whether the last index build failed too recently to be worth retrying.
+
+        Without the cooldown, every keystroke that AniList answers with nothing
+        would re-fire ten catalog pages at a service that is already refusing
+        us — turning a degraded search into a self-sustaining rate limit.
+        """
+        if self._index_failed_at is None:
+            return False
+        return monotonic() - self._index_failed_at < _INDEX_RETRY_AFTER_S
