@@ -7,7 +7,6 @@ Bare ``anime`` on a terminal launches the TUI; piped/non-tty, it prints help.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import random as rng
@@ -18,14 +17,59 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .. import __version__
-from ..config import load_config
-from ..config.loader import config_path
+# Only what building the Typer app actually needs is imported eagerly. Typer
+# resolves parameter annotations when it decorates a command, so the domain
+# types below have to be real objects here — they are also the cheap ones, since
+# `domain` depends on nothing.
 from ..domain.errors import AnimeShError
 from ..domain.models import Audio, Season, WatchProgress
-from ..infra import registry
-from .container import build_container
-from .doctor import run_doctor
+
+# Everything heavier is deferred. `anime --help`, `anime version` and shell
+# tab-completion used to pay for the whole application to be constructed before
+# printing a line: pydantic through the config schema (93 ms), httpx through the
+# container (91 ms), asyncio (81 ms) and importlib.metadata (27 ms) — imports
+# that a command which prints a version string never touches.
+#
+# These are ordinary functions rather than a lazy-import trick on purpose. They
+# keep the module-level names the call sites already use, so nothing else in
+# this 1500-line file changes, and `monkeypatch.setattr(cli_main,
+# "build_container", ...)` in the tests keeps working exactly as before.
+
+
+def _run(coro):
+    """Run a coroutine to completion.
+
+    The single place `asyncio` is needed in this module, which is what lets the
+    import be deferred at all — every command that does real work pays for it,
+    and `version`/`--help` do not.
+    """
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def _version() -> str:
+    from .. import __version__
+
+    return __version__
+
+
+def load_config(*args, **kwargs):
+    from ..config import load_config as _load_config
+
+    return _load_config(*args, **kwargs)
+
+
+def config_path(*args, **kwargs):
+    from ..config.loader import config_path as _config_path
+
+    return _config_path(*args, **kwargs)
+
+
+def build_container(*args, **kwargs):
+    from .container import build_container as _build_container
+
+    return _build_container(*args, **kwargs)
 
 app = typer.Typer(
     name="anime",
@@ -122,7 +166,7 @@ def _command_suggestion(word: str, known: set[str]) -> str | None:
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"anime-sh {__version__}")
+        typer.echo(f"anime-sh {_version()}")
         raise typer.Exit()
 
 
@@ -171,7 +215,7 @@ def _launch_tui() -> None:
         tracker=c.tracker,
         sync=c.sync,
     )
-    asyncio.run(run_tui(services, theme=config.ui.theme))
+    _run(run_tui(services, theme=config.ui.theme))
 
 
 # --------------------------------------------------------------------------- #
@@ -180,12 +224,14 @@ def _launch_tui() -> None:
 @app.command()
 def version() -> None:
     """Print the anime-sh version."""
-    typer.echo(f"anime-sh {__version__}")
+    typer.echo(f"anime-sh {_version()}")
 
 
 @app.command()
 def doctor() -> None:
     """Check the environment: player, ffmpeg, config, database, plugins."""
+    from .doctor import run_doctor
+
     raise typer.Exit(code=run_doctor())
 
 
@@ -242,6 +288,8 @@ def config_set(
 
 @providers_app.command("ls")
 def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
+    from ..infra import registry
+
     providers = registry.load_providers()
     if as_json:
         json.dump([{"name": p.name, "priority": getattr(p, "priority", 0)} for p in providers], sys.stdout)
@@ -257,19 +305,19 @@ def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
 @providers_app.command("health")
 def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
     """Show each provider's circuit-breaker status (persisted across runs)."""
-    asyncio.run(_providers_health(as_json))
+    _run(_providers_health(as_json))
 
 
 @cache_app.command("clear")
 def cache_clear() -> None:
     """Wipe all cached metadata. Safe — only ever touches cache.db."""
-    asyncio.run(_cache_op(clear=True))
+    _run(_cache_op(clear=True))
 
 
 @cache_app.command("purge")
 def cache_purge() -> None:
     """Drop only the expired cache entries."""
-    asyncio.run(_cache_op(clear=False))
+    _run(_cache_op(clear=False))
 
 
 async def _cache_op(*, clear: bool) -> None:
@@ -301,7 +349,7 @@ def search(
     With filters and no title it browses, e.g.
     `anime search --genre action --year 2024 --sort score`.
     """
-    asyncio.run(_search(query, genre, year, fmt, status, sort, limit, as_json))
+    _run(_search(query, genre, year, fmt, status, sort, limit, as_json))
 
 
 @app.command()
@@ -310,7 +358,7 @@ def trending(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show trending anime from AniList."""
-    asyncio.run(_trending(limit, as_json))
+    _run(_trending(limit, as_json))
 
 
 @app.command()
@@ -320,7 +368,7 @@ def seasonal(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show a season's anime (defaults to the current season)."""
-    asyncio.run(_seasonal(season, year, as_json))
+    _run(_seasonal(season, year, as_json))
 
 
 @app.command()
@@ -329,7 +377,7 @@ def calendar(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show the upcoming airing schedule."""
-    asyncio.run(_calendar(days, as_json))
+    _run(_calendar(days, as_json))
 
 
 @app.command()
@@ -337,7 +385,7 @@ def random(
     play: bool = typer.Option(False, "--play", help="Play episode 1 of the pick."),
 ) -> None:
     """Surprise me — pick a random anime from what's trending."""
-    asyncio.run(_random(play))
+    _run(_random(play))
 
 
 @app.command()
@@ -351,7 +399,7 @@ def play(
     ),
 ) -> None:
     """Search for a title, pick the best match, and play an episode."""
-    asyncio.run(_play(query, episode, dub, quality, resolve_only))
+    _run(_play(query, episode, dub, quality, resolve_only))
 
 
 @app.command(name="continue")
@@ -360,7 +408,7 @@ def continue_watching(
     limit: int = typer.Option(20, "-n", "--limit"),
 ) -> None:
     """Show episodes you've started but not finished."""
-    asyncio.run(_continue(limit, as_json))
+    _run(_continue(limit, as_json))
 
 
 @app.command()
@@ -369,7 +417,7 @@ def resume(
     quality: str = typer.Option(None, "-q", "--quality"),
 ) -> None:
     """Resume the most recently watched unfinished episode."""
-    asyncio.run(_resume(dub, quality))
+    _run(_resume(dub, quality))
 
 
 @app.command()
@@ -378,7 +426,7 @@ def history(
     limit: int = typer.Option(50, "-n", "--limit"),
 ) -> None:
     """Show your watch history."""
-    asyncio.run(_history(limit, as_json))
+    _run(_history(limit, as_json))
 
 
 @app.command()
@@ -388,7 +436,7 @@ def sources(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """List every provider entry that matches a title (the source picker)."""
-    asyncio.run(_sources(query, dub, as_json))
+    _run(_sources(query, dub, as_json))
 
 
 # --------------------------------------------------------------------------- #
@@ -416,13 +464,13 @@ def auth_login(
     https://anilist.co/api/v2/oauth/pin). Then run this with --client-id (and
     --secret to paste a short code instead of a raw token).
     """
-    asyncio.run(_auth_login(client_id, secret, token, no_browser))
+    _run(_auth_login(client_id, secret, token, no_browser))
 
 
 @auth_app.command("status")
 def auth_status() -> None:
     """Show whether an AniList account is linked (and who)."""
-    asyncio.run(_auth_status())
+    _run(_auth_status())
 
 
 @auth_app.command("logout")
@@ -439,13 +487,13 @@ def auth_logout() -> None:
 @sync_app.command("push")
 def sync_push() -> None:
     """Push all local watch progress up to AniList."""
-    asyncio.run(_sync("push"))
+    _run(_sync("push"))
 
 
 @sync_app.command("pull")
 def sync_pull() -> None:
     """Import your AniList list into the local library."""
-    asyncio.run(_sync("pull"))
+    _run(_sync("pull"))
 
 
 @app.command()
@@ -461,13 +509,13 @@ def download(
     Batches skip episodes already on disk, so re-running resumes where it left
     off, and one failed episode never aborts the rest.
     """
-    asyncio.run(_download(query, episode, dub, quality))
+    _run(_download(query, episode, dub, quality))
 
 
 @app.command()
 def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
     """List downloads."""
-    asyncio.run(_downloads(as_json))
+    _run(_downloads(as_json))
 
 
 @app.command()
@@ -476,7 +524,7 @@ def next(
     as_json: bool = typer.Option(False, "--json", help="Show the sequel; don't play."),
 ) -> None:
     """Find and play the next season (sequel) of a show."""
-    asyncio.run(_next(query, as_json))
+    _run(_next(query, as_json))
 
 
 @app.command()
@@ -486,7 +534,7 @@ def recommend(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Suggest shows for people who liked a title (AniList recommendations)."""
-    asyncio.run(_recommend(query, limit, as_json))
+    _run(_recommend(query, limit, as_json))
 
 
 @app.command()
@@ -495,7 +543,7 @@ def related(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """List prequels, sequels, side stories and movies tied to a show."""
-    asyncio.run(_related(query, as_json))
+    _run(_related(query, as_json))
 
 
 @app.command(name="list")
@@ -507,7 +555,7 @@ def list_cmd(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show your AniList list (all statuses, or one). Needs `anime auth login`."""
-    asyncio.run(_list(status, as_json))
+    _run(_list(status, as_json))
 
 
 @app.command()
@@ -516,7 +564,7 @@ def rate(
     score: float = typer.Argument(..., help="Score 0–10."),
 ) -> None:
     """Set a show's score on AniList (matched against your list)."""
-    asyncio.run(_rate_or_status(query, score=score))
+    _run(_rate_or_status(query, score=score))
 
 
 @app.command()
@@ -525,19 +573,19 @@ def status(
     new_status: str = typer.Argument(..., help="watching|planning|completed|paused|dropped|rewatching"),
 ) -> None:
     """Move a show to a different list status on AniList."""
-    asyncio.run(_rate_or_status(query, new_status=new_status))
+    _run(_rate_or_status(query, new_status=new_status))
 
 
 @app.command()
 def unmark(query: str = typer.Argument(..., help="Title to clear progress for.")) -> None:
     """Clear all local watch progress for a show (undo a mark / forget it)."""
-    asyncio.run(_unmark(query))
+    _run(_unmark(query))
 
 
 @app.command()
 def stats(as_json: bool = typer.Option(False, "--json")) -> None:
     """Summarize your watch history: episodes, hours, top providers & genres."""
-    asyncio.run(_stats(as_json))
+    _run(_stats(as_json))
 
 
 @app.command()
@@ -552,25 +600,25 @@ def mark(
     """Mark progress without playing — catch up to an episode you watched
     elsewhere. Sets episodes 1..N complete locally and, if AniList is linked,
     pushes your progress there too."""
-    asyncio.run(_mark(query, episode, single, as_json))
+    _run(_mark(query, episode, single, as_json))
 
 
 @favorite_app.command("add")
 def favorite_add(query: str = typer.Argument(..., help="Title to favorite.")) -> None:
     """Add the best match for a title to favorites."""
-    asyncio.run(_favorite_add(query))
+    _run(_favorite_add(query))
 
 
 @favorite_app.command("rm")
 def favorite_rm(query: str = typer.Argument(..., help="Title to remove.")) -> None:
     """Remove a favorite by title."""
-    asyncio.run(_favorite_rm(query))
+    _run(_favorite_rm(query))
 
 
 @favorite_app.command("ls")
 def favorite_ls(as_json: bool = typer.Option(False, "--json")) -> None:
     """List favorites."""
-    asyncio.run(_favorite_ls(as_json))
+    _run(_favorite_ls(as_json))
 
 
 # --------------------------------------------------------------------------- #

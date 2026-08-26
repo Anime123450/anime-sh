@@ -436,9 +436,23 @@ wrote it.
 
 Not implemented; listed so they are not rediscovered from scratch.
 
-1. **Startup cost.** `anime version` takes ~505 ms because the CLI imports the
-   whole container eagerly. Lazy per-command imports would fix it. Noticeable
-   for scripting and shell completion.
+1. ~~**Startup cost.**~~ **Done (0.2.46.)** `anime version` was ~665 ms because
+   `cli/main.py` imported the container, the config schema, `asyncio` and
+   `importlib.metadata` at module level — the whole application constructed
+   before printing one line. All 32 command bodies now reach `asyncio` through a
+   single `_run` helper, and the rest are function-local imports behind
+   same-named module-level shims, so no call site changed and the tests that
+   monkeypatch `build_container` still work. **665 ms → 245 ms**, and importing
+   `anime_sh.cli.main` went 406 ms → 167 ms; what is left is typer and rich,
+   which declaring a Typer app costs unavoidably.
+
+   Two lessons worth keeping. The refactor briefly made `_run` call *itself*,
+   and **the entire suite stayed green** — every CLI test called the inner
+   coroutine directly and none entered a command through Typer, so the wrapper
+   had no coverage at all. `tests/unit/test_cli_commands_end_to_end.py` closes
+   that. And the guard against regression is a subprocess assertion on
+   `sys.modules`, because in-process it is worthless: by the time any other test
+   has run, everything is imported already.
 2. **Sequels without a season marker.** `Attack on Titan: Final Season` and
    subtitle-only sequels (`JoJo: Stone Ocean`) are invisible to §1.1's title
    parsing. AniList `relations` data would resolve them properly.

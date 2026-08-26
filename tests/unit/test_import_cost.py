@@ -80,3 +80,44 @@ def test_the_public_names_still_resolve():
                          text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ok"
+
+
+def test_building_the_cli_does_not_build_the_application():
+    """`anime version`, `anime --help` and shell tab-completion should not pay
+    for the whole application to be constructed before printing a line.
+
+    Importing `anime_sh.cli.main` used to cost 406 ms and pull in pydantic
+    (through the config schema), httpx (through the container), asyncio and
+    importlib.metadata — none of which a command printing a version string
+    touches. It is 167 ms now, and `anime version` went 665 ms -> 241 ms.
+
+    typer and rich are deliberately absent from this assertion: the Typer app is
+    *declared* at module level, so those are the price of having a CLI at all.
+    """
+    pulled = _import_in_subprocess("anime_sh.cli.main")
+    assert not (pulled - {"typer", "rich"}), (
+        f"importing the CLI loaded {sorted(pulled - {'typer', 'rich'})} — "
+        f"a module-level import crept back into cli/main.py"
+    )
+
+
+def test_the_heavy_machinery_is_reachable_when_a_command_wants_it():
+    """The other half of the contract: deferred must mean *deferred*, not gone.
+    A typo in one of the function-local imports would only surface at runtime,
+    so resolve each of them here."""
+    code = textwrap.dedent("""
+        from anime_sh.cli import main
+        import sys
+        # Each of these performs its deferred import on call.
+        assert callable(main.load_config)
+        assert callable(main.build_container)
+        assert callable(main.config_path)
+        assert isinstance(main._version(), str) and main._version()
+        main.load_config()
+        assert "anime_sh.config" in sys.modules, "load_config did not import config"
+        print("ok")
+    """)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "ok"
