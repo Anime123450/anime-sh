@@ -397,9 +397,17 @@ def play(
     resolve_only: bool = typer.Option(
         False, "--json", help="Resolve the stream and print it as JSON; do not launch."
     ),
+    stream: bool = typer.Option(
+        False, "--stream",
+        help="Stream from a provider even if the episode is already downloaded.",
+    ),
 ) -> None:
-    """Search for a title, pick the best match, and play an episode."""
-    _run(_play(query, episode, dub, quality, resolve_only))
+    """Search for a title, pick the best match, and play an episode.
+
+    An episode you have already downloaded plays from disk, which needs no
+    network and no provider. Pass --stream to fetch it anyway.
+    """
+    _run(_play(query, episode, dub, quality, resolve_only, stream))
 
 
 @app.command(name="continue")
@@ -1058,10 +1066,12 @@ async def _random(play: bool) -> None:
         await c.aclose()
 
 
-async def _play(query, episode, dub, quality, resolve_only) -> None:
+async def _play(query, episode, dub, quality, resolve_only, stream=False) -> None:
     config = load_config()
     if quality:
         config.playback.quality = quality
+    if stream:
+        config.playback.prefer_downloads = False
     c = build_container(config)
     audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
     try:
@@ -1071,7 +1081,18 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
             raise typer.Exit(code=1)
         err.print(f"[cyan]▶[/] {anime.title.preferred} — Episode {episode:g} ({audio.value.lower()})")
 
-        if not resolve_only:
+        # An episode already on disk needs no provider, and asking anyway is
+        # what would break this on a train: `available_episodes` fans out over
+        # the network purely to print a status line, and with no connection it
+        # fails before the local file is ever reached.
+        have_local = (
+            config.playback.prefer_downloads
+            and c.download.local_path(anime, episode) is not None
+        )
+        if have_local:
+            err.print("[dim]Playing your download — no provider needed.[/]")
+
+        if not resolve_only and not have_local:
             # Status lines from playback ("Episode 5/12 — trying HD-1…",
             # "Next episode: 6/12", "Skipped intro") land on stderr.
             c.playback.set_on_event(lambda msg: err.print(f"[dim]{msg}[/]"))
@@ -1085,9 +1106,17 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
                 if episode not in available:
                     err.print(f"[yellow]Episode {episode:g} isn't available (yet).[/]")
                     raise typer.Exit(code=1)
+        elif have_local and not resolve_only:
+            c.playback.set_on_event(lambda msg: err.print(f"[dim]{msg}[/]"))
 
         if resolve_only:
-            resolved = await c.playback.resolve(anime, episode, audio=audio)
+            # allow_local, because this reports what `anime play` *would* do.
+            # Without it the JSON names a CDN while playing the same episode
+            # would read it off the disk — the flag would be describing a
+            # different command than the one it belongs to.
+            resolved = await c.playback.resolve(
+                anime, episode, audio=audio, allow_local=True
+            )
             json.dump(
                 {
                     "anime": _anime_dict(anime),
@@ -1103,7 +1132,8 @@ async def _play(query, episode, dub, quality, resolve_only) -> None:
             )
             sys.stdout.write("\n")
         else:
-            err.print("[dim]Searching providers and resolving stream…[/]")
+            if not have_local:
+                err.print("[dim]Searching providers and resolving stream…[/]")
             await c.playback.play_and_track(anime, episode, audio=audio)
     except AnimeShError as e:
         err.print(f"[red]{e}[/]")
@@ -1421,8 +1451,10 @@ async def _download(query, episode, dub, quality) -> None:
         err.print(f"[cyan]⬇[/] {anime.title.preferred} — Episode(s) {span}")
         saved = skipped = failed = 0
         for n in numbers:
-            dest = c.download.destination(anime, n)
-            if dest.exists():
+            # Same authority playback uses, so the two can never disagree
+            # about whether you already have an episode.
+            dest = c.download.local_path(anime, n)
+            if dest is not None:
                 console.print(f"[dim]• Episode {n:g} already downloaded, skipping.[/]")
                 skipped += 1
                 continue

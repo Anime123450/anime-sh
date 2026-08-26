@@ -22,6 +22,10 @@ class PlaybackConfig(BaseModel):
     auto_next: bool = True
     skip_intro: bool = True
     skip_outro: bool = False
+    # Play an episode you have already downloaded from disk instead of fetching
+    # it again. `anime play --stream` turns this off for one run, which is what
+    # you want when the local copy is suspect.
+    prefer_downloads: bool = True
 
 
 class ProvidersConfig(BaseModel):

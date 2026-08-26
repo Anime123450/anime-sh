@@ -2,6 +2,37 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.47] — 2026-08-26
+
+### Added
+
+- **Episodes you have downloaded now play from disk.** Downloads were
+  write-only: you could fetch an episode and anime-sh would still stream it
+  from the internet the next time you asked for it — slower, dependent on a CDN
+  that may since have died, and impossible without a connection.
+
+  `anime play` now prefers a copy you already have. No provider fan-out, no
+  resolver, no network: it says *"Playing your download — no provider needed"*
+  and starts. Verified with HTTP and HTTPS pointed at a dead port — it plays.
+  (The title lookup still reads AniList, so a show whose metadata was never
+  cached will not resolve offline; anything you have played before will.)
+
+  Progress, resume position, intro skipping, auto-next and AniList sync all
+  behave exactly as they do when streaming, because the local file is
+  introduced as an ordinary stream candidate that simply happens to be first.
+  Watch history records it as `downloads` rather than crediting whichever
+  provider originally fetched it.
+
+  Files count whether or not anime-sh has a record of them. `anime download`
+  skips an episode it finds on disk without writing a database row, and
+  anything downloaded before this release has no row either, so a lookup keyed
+  only on the downloads table would have missed nearly every file anyone
+  actually has.
+
+- **`anime play --stream`** fetches from a provider even when a local copy
+  exists — for when the file on disk is the suspect. `playback.prefer_downloads`
+  in the config turns the whole behaviour off.
+
 ## [0.2.46] — 2026-08-26
 
 ### Changed

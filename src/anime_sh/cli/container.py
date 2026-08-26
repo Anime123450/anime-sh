@@ -140,6 +140,7 @@ def build_container(config: Config | None = None) -> Container:
     token = load_token()
     tracker = AniListTracker(token) if token else None
 
+    download_store = SqliteDownloadStore(user_db)
     playback = PlaybackService(
         providers=provider_manager,
         resolvers=resolvers,
@@ -152,6 +153,8 @@ def build_container(config: Config | None = None) -> Container:
         stream_proxy=stream_proxy,
         probe=stream_probe,
         skip_source=skip_source,
+        downloads=download_store,
+        prefer_local=config.playback.prefer_downloads,
         tracker=tracker,
     )
     sync = SyncService(library, tracker)
@@ -159,11 +162,15 @@ def build_container(config: Config | None = None) -> Container:
     download = DownloadService(
         playback=playback,
         downloader=FfmpegDownloader(),
-        store=SqliteDownloadStore(user_db),
+        store=download_store,
         library=library,
         download_dir=config.downloads.dir,
         stream_proxy=stream_proxy,
     )
+    # Closing the loop the other way: playback prefers an episode already on
+    # disk, and DownloadService is what knows where that would be. It has to
+    # happen here because DownloadService is built from playback.
+    playback.set_local_source(download.local_path)
 
     return Container(
         config=config,

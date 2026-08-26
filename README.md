@@ -228,6 +228,8 @@ anime list --status watching  # your AniList list (also planning/completed…)
 # Downloads
 anime download "Frieren" -e 1-12  # save a range to disk (ffmpeg); resumes, skips done
 anime download "Frieren" -e 1,3,5 # or a list;  also: anime downloads
+anime play "Frieren" -e 1          # plays your download if you have it — no network
+anime play "Frieren" -e 1 --stream # ignore the local copy and fetch it anyway
 
 # Housekeeping
 anime doctor                  # player, ffmpeg, config, database, plugins

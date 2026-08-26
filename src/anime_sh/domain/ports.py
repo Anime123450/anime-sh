@@ -259,6 +259,13 @@ class DownloadStore(Protocol):
 
     async def list(self, *, limit: int = 50) -> list["DownloadItem"]: ...
 
+    async def local_episode(
+        self, anime_id: AnimeId, episode: float
+    ) -> str | None: ...
+    """Path to a finished download of this episode that is still on disk, or
+    None. Playback asks before touching the network, so an episode you already
+    have plays from disk instead of being fetched again."""
+
 
 class PlaybackEvent(Protocol):
     """Emitted by a PlaybackHandle. Concrete kinds live in infra/players."""
