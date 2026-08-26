@@ -45,6 +45,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
+      # Before the sync, which rewrites uv.lock as a side effect and would hide
+      # the drift this is looking for. A version bump updates pyproject.toml but
+      # not the lock, so the lock kept an older version of this project recorded
+      # in it and the next person to run `uv sync` got a dirty tree they did not
+      # cause. Twice that was noticed only while tagging a release.
+      - name: Lockfile is in sync with pyproject
+        run: uv lock --check
       - name: Sync
         run: uv sync --extra dev --extra tui
       - name: Unit, contract and TUI tests
