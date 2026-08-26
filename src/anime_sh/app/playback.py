@@ -36,12 +36,14 @@ from ..domain.models import (
     Anime,
     Audio,
     Episode,
+    ProviderRef,
     SourceOption,
     Stream,
     StreamCandidate,
+    StreamKind,
     WatchProgress,
 )
-from ..domain.ports import Library, Player, Resolver, Tracker
+from ..domain.ports import DownloadStore, Library, Player, Resolver, Tracker
 from ..domain.ranking import pick_stream
 from .providers import ProviderManager
 
@@ -59,6 +61,10 @@ _RESOLVE_TIMEOUT_S = 10.0
 # How many of a provider's candidate hosts to resolve at once. Racing them means
 # one slow/dead embed no longer blocks the hosts behind it in line.
 _RESOLVE_CONCURRENCY = 4
+# Recorded as the "provider" for an episode played off the disk, so history and
+# `anime stats` can tell the two apart rather than crediting whichever provider
+# happened to fetch it originally.
+_LOCAL_PROVIDER = "downloads"
 
 log = logging.getLogger(__name__)
 
@@ -90,10 +96,19 @@ class PlaybackService:
         stream_proxy=None,
         probe=None,
         skip_source=None,
+        downloads: "DownloadStore | None" = None,
+        prefer_local: bool = True,
         tracker: "Tracker | None" = None,
         on_event: "Callable[[str], None] | None" = None,
     ) -> None:
         self._providers = providers
+        self._downloads = downloads
+        # An episode already on this disk beats anything on the internet. Off
+        # only when the caller explicitly asked to stream (`anime play --stream`)
+        # -- usually because the local copy is suspect.
+        self._prefer_local = prefer_local
+        # Set by the composition root via set_local_source.
+        self._local_path = None
         self._resolvers = resolvers
         self._player = player
         self._library = library
@@ -114,22 +129,35 @@ class PlaybackService:
         # Optional UI hook for status lines ("Skipped intro", "Next episode…").
         self._notify = on_event or (lambda _msg: None)
 
+    def set_local_source(self, local_path: "Callable[[Anime, float], object] | None") -> None:
+        """Late-bind "where is this episode on disk", which DownloadService owns.
+
+        Late because DownloadService is built *from* this service, so the wiring
+        cannot run in the other direction at construction time — the same reason
+        `set_on_event` exists.
+        """
+        self._local_path = local_path
+
     def set_on_event(self, on_event: "Callable[[str], None] | None") -> None:
         """Late-bind the status hook — the CLI/TUI attach after construction."""
         self._notify = on_event or (lambda _msg: None)
 
     async def resolve(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB,
-        source: "SourceOption | None" = None,
+        source: "SourceOption | None" = None, allow_local: bool = False,
     ) -> ResolvedPlayback:
         """Resolve the first playable stream for an episode (for --json /
         downloads). ``play`` uses the full candidate stream, trying each until
-        one actually plays."""
+        one actually plays.
+
+        ``allow_local`` defaults to False because the download path calls this:
+        handing it a local file would make ffmpeg read and write the same path.
+        """
         progress = await self._library.get_progress(anime.id, episode_number)
         resume_s = progress.position_s if progress and not progress.completed else 0
         refs = [source.ref()] if source else None
         async for episode, stream, _provider, _host in self._candidate_streams(
-            anime, episode_number, audio, refs
+            anime, episode_number, audio, refs, allow_local=allow_local
         ):
             return ResolvedPlayback(episode, stream, resume_s)
         raise NoStreamsFound(
@@ -142,7 +170,8 @@ class PlaybackService:
         return await self._providers.list_sources(anime, audio)
 
     async def _candidate_streams(
-        self, anime: Anime, episode_number: float, audio: Audio, refs=None
+        self, anime: Anime, episode_number: float, audio: Audio, refs=None,
+        *, allow_local: bool = False,
     ):
         """Yield ``(episode, stream, provider, host)`` for every host that
         resolves to a live stream. Uses the given provider refs (a chosen
@@ -154,6 +183,27 @@ class PlaybackService:
         consumer sees best-first while a slow/dead host no longer blocks the ones
         behind it. Providers themselves stay lazy: a later provider is only
         touched if the earlier ones yield nothing playable."""
+        # A finished download is the best candidate there is: no provider
+        # fan-out, no resolver, no CDN that might be dead by now -- and it works
+        # with no network at all. Downloads were write-only before this: you
+        # could fetch an episode and anime-sh would still stream it from the
+        # internet the next time you asked for it.
+        #
+        # `allow_local` is opt-in rather than opt-out, and that is a safety
+        # property, not a style choice. The *download* path resolves a stream
+        # through here too, and dest is the very file this would hand back: with
+        # local candidates on by default, re-downloading an episode you already
+        # had pointed ffmpeg at its own output, which `-y` truncates before
+        # reading. Downloading a file you already have would have destroyed it.
+        # Only playback opts in.
+        #
+        # Skipped when the caller pinned a source, because choosing a provider
+        # from the picker is an explicit request for *that* provider.
+        if allow_local and refs is None and self._prefer_local:
+            local = await self._local_candidate(anime, episode_number, audio)
+            if local is not None:
+                yield local
+
         if refs is None:
             refs = await self._providers.resolve_sources(anime, audio)
         if not refs:
@@ -166,6 +216,50 @@ class PlaybackService:
             candidates = await self._providers.candidates_for(episode)
             async for stream, host in self._resolve_candidates(candidates):
                 yield episode, stream, ref.provider, host
+
+    async def _local_candidate(self, anime: Anime, episode_number: float,
+                               audio: Audio):
+        """``(episode, stream, provider, host)`` for a downloaded copy of this
+        episode, or None when there isn't one on disk.
+
+        Shaped exactly like a resolved provider stream on purpose: the play loop,
+        progress tracking, intro skipping and auto-next then need no idea that
+        this one came from the filesystem.
+        """
+        path = None
+        # The recorded path first: a download may have been written somewhere
+        # the current naming rule would not put it.
+        if self._downloads is not None:
+            try:
+                path = await self._downloads.local_episode(anime.id, episode_number)
+            except Exception as e:
+                # Never let a bookkeeping failure cost you the episode --
+                # streaming still works, and that is the path this is trying to
+                # save, not replace.
+                log.debug("local download lookup failed: %s", e)
+        # Then where the downloader would put it today. This is what the
+        # download command itself checks, and it is the only one that finds
+        # episodes fetched before any of this was recorded -- a `downloads` row
+        # is not required to own a file.
+        if path is None and self._local_path is not None:
+            try:
+                found = self._local_path(anime, episode_number)
+                path = str(found) if found else None
+            except Exception as e:
+                log.debug("local path lookup failed: %s", e)
+        if path is None:
+            return None
+
+        ref = ProviderRef(
+            provider=_LOCAL_PROVIDER, anime_key=str(anime.id.anilist), audio=audio
+        )
+        episode = Episode(
+            anime_id=anime.id, number=episode_number,
+            provider_ref=ref, episode_key=path,
+        )
+        # MP4 is what the downloader writes; mpv opens a plain path either way.
+        stream = Stream(url=path, kind=StreamKind.MP4)
+        return episode, stream, _LOCAL_PROVIDER, "your download"
 
     async def _resolve_candidates(self, candidates: list[StreamCandidate]):
         """Resolve a provider's candidate hosts concurrently (bounded), yielding
@@ -260,7 +354,9 @@ class PlaybackService:
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ):
         """Resolve then launch the player. Returns a PlaybackHandle."""
-        resolved = await self.resolve(anime, episode_number, audio=audio)
+        resolved = await self.resolve(
+            anime, episode_number, audio=audio, allow_local=True
+        )
         title = _window_title(anime, episode_number)
         return await self._player.play(
             resolved.stream, title=title, start_s=resolved.resume_s
@@ -304,7 +400,7 @@ class PlaybackService:
         refs = [source.ref()] if source else None
         tried = 0
         async for episode, stream, provider, host in self._candidate_streams(
-            anime, episode_number, audio, refs
+            anime, episode_number, audio, refs, allow_local=True
         ):
             tried += 1
             self._notify(f"Episode {_ep_label(anime, episode_number)} — trying {host}…")

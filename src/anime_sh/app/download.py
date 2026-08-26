@@ -42,6 +42,17 @@ class DownloadService:
         show = _safe(anime.title.preferred)
         return self._dir / show / f"{show} - E{episode:g}.mp4"
 
+    def local_path(self, anime: Anime, episode: float) -> Path | None:
+        """Where this episode already sits on disk, or None.
+
+        The single authority for "do I have this one?". The download command
+        skips on it and playback prefers it, and those two answering differently
+        is how you get an episode that download calls finished and playback goes
+        to the network for.
+        """
+        dest = self.destination(anime, episode)
+        return dest if dest.is_file() else None
+
     async def download(
         self, anime: Anime, episode: float, *, audio: Audio = Audio.SUB,
         on_line: Callable[[str], None] | None = None,

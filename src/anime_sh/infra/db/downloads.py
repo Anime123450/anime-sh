@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ...domain.models import AnimeId, DownloadItem, DownloadStatus
 from .database import Database
@@ -41,6 +42,28 @@ class SqliteDownloadStore:
                 "UPDATE downloads SET status=? WHERE id=?", (status.value, download_id)
             )
         await conn.commit()
+
+    async def local_episode(self, anime_id: AnimeId, episode: float) -> str | None:
+        """The newest finished download of this episode that is still on disk.
+
+        A row marked done is not proof the file exists: downloads folders get
+        tidied, drives get unplugged, and a stale row that sent the player at a
+        missing path would look like a broken episode rather than a missing
+        file. The row is a claim; the stat is the evidence.
+        """
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT path FROM downloads "
+            "WHERE anilist_id=? AND episode=? AND status=? AND path IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (anime_id.anilist, episode, DownloadStatus.DONE.value),
+        )
+        row = await cur.fetchone()
+        if row is None or not row["path"]:
+            return None
+        # One stat, on a path the user's own machine just wrote. Deliberately
+        # not moved to a thread: the hop would cost more than the syscall.
+        return row["path"] if Path(row["path"]).is_file() else None
 
     async def list(self, *, limit: int = 50) -> list[DownloadItem]:
         conn = await self._db.connect()

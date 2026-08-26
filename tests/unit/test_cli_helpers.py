@@ -148,6 +148,12 @@ class _FakeDownloadSvc:
     def destination(self, anime, episode):
         return _FakePath(episode in self._existing, f"/dl/E{episode:g}.mp4")
 
+    def local_path(self, anime, episode):
+        # Mirrors the real service: the one answer to "do I already have this?",
+        # shared by the download skip and by playback preferring a local file.
+        dest = self.destination(anime, episode)
+        return dest if episode in self._existing else None
+
     async def download(self, anime, episode, *, audio):
         if episode in self._fail_on:
             raise NoStreamsFound(f"ep {episode:g} boom")
