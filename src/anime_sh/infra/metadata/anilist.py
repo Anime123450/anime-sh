@@ -258,17 +258,28 @@ class AniListMetadata:
         return data["data"]
 
     async def _cached(
-        self, key: str, ttl: timedelta, produce: Callable[[], Awaitable[Any]]
+        self,
+        key: str,
+        ttl: timedelta,
+        produce: Callable[[], Awaitable[Any]],
+        *,
+        cache_if: Callable[[Any], bool] | None = None,
     ) -> Any:
         """Return ``produce()``'s JSON-native result, served from cache.db when a
         fresh entry exists. A ``None`` result is never cached. No cache wired →
-        ``produce`` runs every time (the pre-cache behaviour)."""
+        ``produce`` runs every time (the pre-cache behaviour).
+
+        ``cache_if`` lets a caller serve a degraded result without committing it
+        to disk for the whole TTL — a half-fetched catalog is worth using for
+        this session, and not worth being stuck with for a day.
+        """
         if self._cache is not None:
             hit = await self._cache.get(key)
             if hit is not None:
                 return hit
         value = await produce()
-        if self._cache is not None and value is not None:
+        worth_keeping = cache_if is None or cache_if(value)
+        if self._cache is not None and value is not None and worth_keeping:
             await self._cache.set(key, value, ttl=ttl)
         return value
 
@@ -409,20 +420,43 @@ class AniListMetadata:
         round-trip's worth of latency."""
         per = 50
         pages = max(1, -(-limit // per))  # ceil(limit / per)
+        complete = True
 
         async def produce():
+            nonlocal complete
+            # One page failing must not discard the nine that worked. Ten pages
+            # go out at once and AniList rate-limits below that, so losing one
+            # was routine — and it threw away 450 usable titles, which then got
+            # cached by the caller as "there is no index" for the rest of the
+            # process. The pages are popularity-ordered, so what survives is the
+            # part that matters most.
             results = await asyncio.gather(
                 *(
                     self._query(_POPULAR_Q, {"page": p, "perPage": per})
                     for p in range(1, pages + 1)
-                )
+                ),
+                return_exceptions=True,
             )
             media: list[dict] = []
+            failures = 0
             for data in results:
+                if isinstance(data, BaseException):
+                    failures += 1
+                    continue
                 media.extend(data["Page"]["media"])
+            if not media:
+                # Every page failed — that is a real failure, not a thin answer,
+                # and the caller needs to know so it can retry later.
+                first = next((r for r in results if isinstance(r, BaseException)), None)
+                raise first or MetadataError("AniList returned no popular titles")
+            complete = failures == 0
             return media[:limit]
 
-        media = await self._cached(f"popular:{limit}", _TTL_POPULAR, produce)
+        media = await self._cached(
+            f"popular:{limit}", _TTL_POPULAR, produce,
+            # Use a partial catalog now; don't be stuck with it for a day.
+            cache_if=lambda _media: complete,
+        )
         return _anime_list(media)
 
     async def seasonal(self, season: Season, year: int) -> list[Anime]:
