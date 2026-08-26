@@ -172,6 +172,15 @@ class Library(Protocol):
 
     async def get_anime(self, anime_id: AnimeId) -> "Anime | None": ...
 
+    async def find_anime_by_title(
+        self, query: str, *, limit: int = 10
+    ) -> list["Anime"]: ...
+    """Shows already saved locally whose title matches, best first.
+
+    The offline answer to "which show did you mean". Every show you have played
+    or downloaded is in here, so it can name a title with no network at all.
+    """
+
     # history
     async def add_history(
         self, anime_id: AnimeId, episode: float, *, provider: str | None,

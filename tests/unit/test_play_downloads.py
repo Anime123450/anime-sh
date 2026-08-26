@@ -210,3 +210,56 @@ def test_the_path_comparison_is_the_one_the_filesystem_uses(episode_file):
     assert os.path.normcase(str(episode_file)) == os.path.normcase(
         str(episode_file).upper()
     ) or os.name != "nt"
+
+
+# --- naming the show with no network --------------------------------------- #
+
+class _OfflineSearch:
+    """AniList, unreachable."""
+
+    async def best_match(self, query):
+        from anime_sh.domain.errors import MetadataError
+
+        raise MetadataError("AniList request failed: All connection attempts failed")
+
+
+class _LocalLibrary:
+    def __init__(self, shows=()):
+        self.shows = list(shows)
+
+    async def find_anime_by_title(self, query, *, limit=10):
+        return self.shows
+
+
+class _Container:
+    def __init__(self, search, library):
+        self.search = search
+        self.library = library
+
+
+async def test_a_show_you_have_can_be_named_without_anilist():
+    """Playing a downloaded episode needs no network — except that identifying
+    the title did, so a file sitting on your disk was unplayable on a train
+    purely because nobody could look its name up.
+
+    Verified end to end against the real profile with HTTP and HTTPS pointed at
+    a dead port: the local library named the show and the episode played.
+    """
+    from anime_sh.cli.main import _identify
+
+    found = await _identify(_Container(_OfflineSearch(), _LocalLibrary([_anime()])),
+                            "bocchi")
+
+    assert found is not None
+    assert found.title.preferred == "BOCCHI THE ROCK!"
+
+
+async def test_an_unreachable_anilist_still_errors_for_a_show_you_do_not_have():
+    """The fallback is "look on this machine first", not "swallow the outage".
+    A title you have never touched has to surface the real network error rather
+    than a vague no-such-anime."""
+    from anime_sh.cli.main import _identify
+    from anime_sh.domain.errors import MetadataError
+
+    with pytest.raises(MetadataError):
+        await _identify(_Container(_OfflineSearch(), _LocalLibrary([])), "never seen")

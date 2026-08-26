@@ -2,6 +2,34 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.48] — 2026-08-26
+
+### Added
+
+- **Offline playback actually works offline now.** 0.2.47 let a downloaded
+  episode play from disk without touching a provider — but naming the show
+  still went to AniList, so an episode sitting on your drive was unplayable on
+  a train purely because nobody could look its title up.
+
+  When AniList cannot be reached, `anime play` falls back to the shows already
+  saved on this machine. That is exactly the right set: every show you have
+  played or downloaded is in there, which is the same set that could have a
+  file waiting.
+
+  ```
+  AniList is unreachable (transport error: All connection attempts failed)
+  Using your local library: BOCCHI THE ROCK!
+  ▶ BOCCHI THE ROCK! — Episode 1 (sub)
+  Playing your download — no provider needed.
+  ```
+
+  Verified with HTTP and HTTPS pointed at a dead port, against a real library
+  and a real download, with the resume position preserved.
+
+  A title you have never touched still reports the real network error rather
+  than a vague "no anime found" — the fallback looks on your machine first, it
+  does not swallow the outage.
+
 ## [0.2.47] — 2026-08-26
 
 ### Added

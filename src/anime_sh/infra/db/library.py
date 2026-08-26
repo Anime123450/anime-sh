@@ -264,6 +264,32 @@ class SqliteLibrary:
         return items
 
     # -- metadata cache ----------------------------------------------------- #
+    async def find_anime_by_title(self, query: str, *, limit: int = 10):
+        """Locally saved shows whose title contains ``query``, best first.
+
+        Deliberately a plain substring match rather than the fuzzy ranking the
+        online search uses: this runs when AniList is unreachable, over the few
+        hundred shows you have actually touched, and a wrong-but-confident match
+        offline is worse than no match. Ordered shortest title first, so
+        "Bocchi the Rock!" beats "Bocchi the Rock! Recap" for the same query.
+        """
+        needle = (query or "").strip().lower()
+        if not needle:
+            return []
+        conn = await self._db.connect()
+        like = f"%{needle}%"
+        cur = await conn.execute(
+            f"SELECT {_ANIME_COLS} FROM anime a "
+            "WHERE lower(a.title_romaji) LIKE ? OR lower(a.title_english) LIKE ? "
+            "   OR lower(a.title_native) LIKE ? "
+            "ORDER BY length(COALESCE(a.title_english, a.title_romaji, '')) ASC "
+            "LIMIT ?",
+            (like, like, like, limit),
+        )
+        rows = await cur.fetchall()
+        found = [_anime_from_row(row) for row in rows]
+        return [a for a in found if a is not None]
+
     async def save_anime(self, anime: Anime) -> None:
         if anime.id.anilist is None:
             return

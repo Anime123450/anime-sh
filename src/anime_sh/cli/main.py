@@ -1066,6 +1066,27 @@ async def _random(play: bool) -> None:
         await c.aclose()
 
 
+async def _identify(c, query: str):
+    """Name the show the user asked for, falling back to what is already on this
+    machine when AniList cannot be reached.
+
+    Playing a downloaded episode needs no network — except that identifying the
+    title did, so an episode sitting on your disk was unplayable on a train
+    purely because nobody could look its name up. Every show you have played or
+    downloaded is in the local library, which is exactly the set that could have
+    a file waiting.
+    """
+    try:
+        return await c.search.best_match(query)
+    except AnimeShError as e:
+        local = await c.library.find_anime_by_title(query)
+        if not local:
+            raise
+        err.print(f"[yellow]AniList is unreachable[/] [dim]({e})[/]")
+        err.print(f"[dim]Using your local library: {local[0].title.preferred}[/]")
+        return local[0]
+
+
 async def _play(query, episode, dub, quality, resolve_only, stream=False) -> None:
     config = load_config()
     if quality:
@@ -1075,7 +1096,7 @@ async def _play(query, episode, dub, quality, resolve_only, stream=False) -> Non
     c = build_container(config)
     audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
     try:
-        anime = await c.search.best_match(query)
+        anime = await _identify(c, query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
