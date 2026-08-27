@@ -10,30 +10,64 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..domain.models import Anime, Audio, DownloadStatus
 from ..domain.ports import DownloadStore, Downloader, Library
-from .playback import PlaybackService
+if TYPE_CHECKING:  # `from __future__ import annotations` keeps these as strings
+    # Import-only-for-typing on purpose. PlaybackService is no longer touched at
+    # runtime here (the factory is discriminated by `callable`), and importing it
+    # eagerly pulled the whole resolve chain in just to *list* downloads.
+    from .playback import PlaybackService
 
 
 class DownloadService:
     def __init__(
         self,
         *,
-        playback: PlaybackService,
+        playback: PlaybackService | Callable[[], PlaybackService],
         downloader: Downloader,
         store: DownloadStore,
         library: Library,
         download_dir: str = "~/Videos/anime",
         stream_proxy=None,
     ) -> None:
-        self._playback = playback
+        # Either the service itself, or a zero-argument factory for it. Only
+        # `download()` needs playback; `history()` reads the store alone. Taking
+        # a factory lets `anime downloads` list what you have without building
+        # the resolve chain, a player and a plugin scan it will never call.
+        self._playback_source = playback
         self._downloader = downloader
         self._store = store
         self._library = library
         self._dir = Path(download_dir).expanduser()
-        self._stream_proxy = stream_proxy
+        # Same reasoning as `playback`: the proxy is only consulted while a
+        # download is actually running, and building one eagerly dragged the
+        # HTTP stack into `anime downloads`.
+        self._stream_proxy_source = stream_proxy
+
+    @property
+    def _stream_proxy(self):
+        source = self._stream_proxy_source
+        if callable(source):
+            source = source()
+            self._stream_proxy_source = source
+        return source
+
+    @property
+    def _playback(self) -> PlaybackService:
+        """The playback service, resolving a factory on first use.
+
+        Discriminates on `callable`, not `isinstance(source, PlaybackService)`:
+        this layer talks to ports and is handed duck-typed doubles in tests, so
+        an isinstance check rejects a perfectly good stand-in. A service object
+        is not callable; a factory is.
+        """
+        source = self._playback_source
+        if callable(source):
+            source = source()
+            self._playback_source = source  # resolve once, then reuse
+        return source
 
     def available(self) -> bool:
         return self._downloader.available()

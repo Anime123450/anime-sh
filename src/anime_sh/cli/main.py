@@ -288,18 +288,87 @@ def config_set(
 
 @providers_app.command("ls")
 def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List installed providers, and say which ones are switched off.
+
+    This ignored `providers.disabled` in config, so it presented a provider as
+    though it were in use when nothing would ever call it. Disabled ones are
+    still listed — hiding them turns "why is anizone never used?" into a
+    mystery — but they are marked, and `--json` carries the flag too.
+    """
     from ..infra import registry
 
+    disabled = set(load_config().providers.disabled)
+    # Loaded unfiltered on purpose, so a disabled plugin can still be *named*;
+    # the flag is what says whether it is actually in play.
     providers = registry.load_providers()
+    rows = [
+        {"name": p.name, "priority": getattr(p, "priority", 0),
+         "enabled": p.name not in disabled}
+        for p in providers
+    ]
     if as_json:
-        json.dump([{"name": p.name, "priority": getattr(p, "priority", 0)} for p in providers], sys.stdout)
+        json.dump(rows, sys.stdout)
         sys.stdout.write("\n")
         return
-    if not providers:
+    if not rows:
         typer.echo("no providers installed")
         return
-    for p in providers:
-        typer.echo(f"{p.name}\tpriority={getattr(p, 'priority', 0)}")
+    for r in rows:
+        mark = "" if r["enabled"] else "\t(disabled in config)"
+        typer.echo(f"{r['name']}\tpriority={r['priority']}{mark}")
+    if not any(r["enabled"] for r in rows):
+        err.print(
+            "[yellow]Every provider is disabled — nothing can be played.[/]\n"
+            "Re-enable one with [cyan]anime providers enable <name>[/]"
+        )
+
+
+def _set_provider_enabled(name: str, *, enabled: bool) -> None:
+    """Add or remove one provider from `providers.disabled`.
+
+    Doing this through `config set` means restating the whole list by hand, and
+    getting it wrong silently switches off a provider you meant to keep. The
+    name is checked against what is actually installed, because a typo would
+    otherwise be written to the config file and do nothing for ever.
+    """
+    from ..config import set_config_value
+    from ..infra import registry
+
+    installed = {p.name for p in registry.load_providers()}
+    if name not in installed:
+        err.print(f"[red]No provider named[/] [b]{name}[/].")
+        err.print(f"[dim]Installed:[/] {', '.join(sorted(installed)) or 'none'}")
+        raise typer.Exit(code=1)
+
+    disabled = set(load_config().providers.disabled)
+    if enabled:
+        disabled.discard(name)
+    else:
+        disabled.add(name)
+
+    if not enabled and installed <= disabled:
+        err.print(f"[red]{name} is the last provider left[/] — disabling it "
+                  f"would leave nothing able to find episodes.")
+        raise typer.Exit(code=1)
+
+    # `_coerce` parses a list field from a comma-separated string; an empty
+    # string is the empty list.
+    set_config_value("providers.disabled", ",".join(sorted(disabled)))
+    word = "Enabled" if enabled else "Disabled"
+    console.print(f"[green]{word}[/] [b]{name}[/]. "
+                  f"[dim]Active now: {', '.join(sorted(installed - disabled))}[/]")
+
+
+@providers_app.command("enable")
+def providers_enable(name: str = typer.Argument(..., help="Provider name.")) -> None:
+    """Start using a provider again (removes it from providers.disabled)."""
+    _set_provider_enabled(name, enabled=True)
+
+
+@providers_app.command("disable")
+def providers_disable(name: str = typer.Argument(..., help="Provider name.")) -> None:
+    """Stop using a provider without uninstalling it."""
+    _set_provider_enabled(name, enabled=False)
 
 
 @providers_app.command("health")
