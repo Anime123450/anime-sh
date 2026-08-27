@@ -12,7 +12,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-from ..config import load_config
+from ..config import Config, load_config
 from ..config.loader import config_path
 from ..config.paths import cache_db_path, user_db_path
 from ..infra import registry
@@ -51,20 +51,41 @@ def _check_config() -> Check:
         return Check("config", False, str(e))
 
 
-def _check_plugins() -> list[Check]:
-    providers = registry.load_providers()
-    resolvers = registry.load_resolvers()
+def _plugin_detail(active: list, disabled: list[str], kind: str) -> str:
+    """One line describing what will actually be used, and why anything missing
+    is missing."""
+    names = ", ".join(sorted(p.name for p in active))
+    off = ", ".join(sorted(disabled))
+    if names and off:
+        return f"{names}  ({off} disabled in config)"
+    if names:
+        return names
+    if off:
+        return f"none active — {off} disabled in config"
+    return f"none installed — anime-sh cannot {kind} without one"
+
+
+def _check_plugins(cfg: Config | None) -> list[Check]:
+    """What the app will *actually* load, not what happens to be installed.
+
+    This used to call `load_providers()` with no arguments, ignoring the
+    `disabled` lists in config — so it reported a provider as loaded that the
+    app would never use, which is precisely the question this command exists to
+    answer for a bug report. Disabled plugins are now named rather than silently
+    dropped, because "why is anizone not being used" is exactly the thing
+    someone runs doctor to find out.
+    """
+    disabled_p = list(cfg.providers.disabled) if cfg else []
+    disabled_r = list(cfg.resolvers.disabled) if cfg else []
+    providers = registry.load_providers(disabled=disabled_p)
+    resolvers = registry.load_resolvers(disabled=disabled_r)
     return [
-        Check(
-            "providers",
-            True,
-            ", ".join(p.name for p in providers) or "none installed",
-        ),
-        Check(
-            "resolvers",
-            True,
-            ", ".join(r.name for r in resolvers) or "none installed",
-        ),
+        # No provider means nothing can ever be played — a broken install, not a
+        # cosmetic detail, so it fails rather than reporting "healthy".
+        Check("providers", bool(providers),
+              _plugin_detail(providers, disabled_p, "find episodes")),
+        Check("resolvers", bool(resolvers),
+              _plugin_detail(resolvers, disabled_r, "turn a source into a stream")),
     ]
 
 
@@ -101,14 +122,14 @@ def run_doctor() -> int:
         _check_player(player_name),
         _check_ffmpeg(),
         asyncio.run(_check_databases()),
-        *_check_plugins(),
+        *_check_plugins(cfg),
     ]
 
     # Rendering stays dependency-light so doctor works even if rich is missing.
     critical_ok = True
     for c in checks:
         mark = "OK  " if c.ok else "FAIL"
-        if not c.ok and c.name in {"config", "database"}:
+        if not c.ok and c.name in {"config", "database", "providers", "resolvers"}:
             critical_ok = False
         print(f"  [{mark}] {c.name}: {c.detail}", file=sys.stderr)
 

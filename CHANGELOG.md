@@ -2,6 +2,52 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.49] — 2026-08-26
+
+### Fixed
+
+- **`doctor` and `providers ls` no longer report a provider you switched off as
+  though it were in use.** Both read the installed plugins and ignored
+  `providers.disabled` in your config, so with `disabled = ["anizone"]` doctor
+  printed `providers: anizone, anikoto` — naming a provider that nothing would
+  ever call. That is the exact question `doctor` exists to answer for a bug
+  report, and it answered it wrongly.
+
+  Disabled plugins are still *listed*, because hiding them turns "why is anizone
+  never used?" into a mystery, but they are now marked as disabled.
+
+- **`doctor` no longer reports a healthy install when nothing can play.** With
+  every provider disabled or none installed, it printed "anime-sh core looks
+  healthy" and exited 0. Providers and resolvers are now critical checks: no
+  active provider means no episode can ever be found, which is precisely the
+  situation the command is for.
+
+### Added
+
+- **`anime providers enable <name>` and `anime providers disable <name>`.**
+  Switching a provider off previously meant restating the whole list by hand
+  (`anime config set providers.disabled "a,b"`), where a slip silently disables
+  one you meant to keep. The name is checked against what is actually installed,
+  so a typo is refused rather than written to the config to do nothing for ever,
+  and disabling your last provider is refused outright.
+
+### Changed
+
+- **Commands only build what they use.** Every command constructed the entire
+  object graph first — an HTTP client, a plugin scan, an mpv lookup, an AniList
+  tracker — so `anime continue`, which reads two SQLite tables, paid for all of
+  it. Measured by modules loaded, on a fixed machine:
+
+  | | before | after |
+  |---|---|---|
+  | `continue`, `stats`, `history` | 588 | 335 |
+  | `downloads` | 588 | 341 |
+  | `search`, `trending` | 588 | 469 |
+  | `play` | 588 | 580 |
+
+  `play` is unchanged on purpose: it genuinely needs all of it. `httpx` is no
+  longer imported at all for the library and download-listing commands.
+
 ## [0.2.48] — 2026-08-26
 
 ### Added
