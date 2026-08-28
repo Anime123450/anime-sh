@@ -237,8 +237,12 @@ anime --version
 anime config get              # dump settings;  config get playback.quality
 anime config set playback.quality 1080p   # also: audio dub, ui.theme nord …
 anime config path | validate
-anime providers ls
-anime cache clear             # wipe the disposable metadata cache (or: cache purge)
+anime providers ls            # installed providers, and which are switched off
+anime providers disable anizone   # stop using one without uninstalling it
+anime providers enable anizone
+anime cache info              # how much is cached, how much of it is stale
+anime cache prune             # drop only the expired entries — always safe
+anime cache clear             # wipe the whole cache (asks first; -y to skip)
 ```
 
 Add `--json` to `search`, `trending`, `play`, `continue`, `history`, and
@@ -267,8 +271,9 @@ soft English subs, so it plays where Cloudflare-gated sites can't.
 
 **Offline-friendly.** Your library (progress, history, favorites) lives in its
 own `anime.db`, separate from a disposable `cache.db` of AniList responses.
-Recently-seen pages still render with no network, and `anime cache clear` is
-always safe — nothing user-owned lives in the cache.
+Recently-seen pages still render with no network, and nothing user-owned lives
+in the cache — `anime cache prune` drops what has expired, and `anime cache
+clear` empties it entirely and hands the disk space back.
 
 ---
 

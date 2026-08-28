@@ -75,4 +75,52 @@ class KvCache:
         conn = await self._db.connect()
         cur = await conn.execute("DELETE FROM kv_cache")
         await conn.commit()
-        return cur.rowcount
+        removed = cur.rowcount
+        # DELETE leaves the freed pages inside the file, so a 1.5 MB cache stays
+        # 1.5 MB after being emptied. Reclaiming disk is the usual reason for
+        # running this, and a report of "cleared" next to an unchanged file size
+        # reads like it did not work. Housekeeping only: a VACUUM that fails
+        # (locked by another process, no room for the temp copy) must not turn a
+        # successful clear into an error.
+        with contextlib.suppress(Exception):
+            await conn.execute("VACUUM")
+            await conn.commit()
+            # VACUUM rewrites the main file but leaves the write-ahead log where
+            # it is, so in WAL mode the freed space simply moves to cache.db-wal
+            # and the total on disk does not budge. Truncating the log is what
+            # actually returns it.
+            await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            await conn.commit()
+        return removed
+
+    async def reclaimable_bytes(self) -> int:
+        """Space the cache file is holding that nothing is using.
+
+        Pruning frees pages inside the file without shrinking it — and it must
+        stay that way, because pruning also runs as housekeeping after ordinary
+        writes, where a VACUUM would be absurd. That leaves "3 entries, 1.5 MB"
+        on screen, which looks broken until you can see that most of it is free
+        space waiting for a `cache clear`.
+        """
+        conn = await self._db.connect()
+        try:
+            free = await (await conn.execute("PRAGMA freelist_count")).fetchone()
+            size = await (await conn.execute("PRAGMA page_size")).fetchone()
+        except Exception:
+            return 0
+        return int(free[0]) * int(size[0]) if free and size else 0
+
+    async def stats(self) -> tuple[int, int]:
+        """``(total_entries, expired_entries)``.
+
+        Lets a caller say what clearing would actually cost before doing it —
+        "1204 entries, 900 already stale" is something you can decide on, where a
+        bare "are you sure?" is a guess.
+        """
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(expires_at < ?), 0) FROM kv_cache",
+            (_now().isoformat(),),
+        )
+        row = await cur.fetchone()
+        return (row[0], row[1]) if row else (0, 0)

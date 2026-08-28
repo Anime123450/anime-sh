@@ -13,6 +13,7 @@ import random as rng
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import typer
@@ -385,16 +386,97 @@ def providers_health(as_json: bool = typer.Option(False, "--json")) -> None:
     _run(_providers_health(as_json))
 
 
-@cache_app.command("clear")
-def cache_clear() -> None:
-    """Wipe all cached metadata. Safe — only ever touches cache.db."""
-    _run(_cache_op(clear=True))
+# "clear" and "purge" are synonyms in English, and nothing in either name says
+# which one throws away data you are still using. Rather than swap the meanings
+# around — which would silently change what an existing `cache clear` in someone's
+# script does — the safe operation gets an unambiguous name, the destructive one
+# says what it is about to do and asks, and `cache info` lets you decide first.
+@cache_app.command("info")
+def cache_info(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Show how much metadata is cached, and how much of it is stale."""
+    _run(_cache_info(as_json))
 
 
-@cache_app.command("purge")
-def cache_purge() -> None:
-    """Drop only the expired cache entries."""
+@cache_app.command("prune")
+def cache_prune() -> None:
+    """Drop cache entries that have expired. Nothing you are still using."""
     _run(_cache_op(clear=False))
+
+
+@cache_app.command("purge", hidden=True)
+def cache_purge() -> None:
+    """Deprecated alias for `cache prune`."""
+    err.print("[dim]`cache purge` is now [/][cyan]cache prune[/][dim].[/]")
+    _run(_cache_op(clear=False))
+
+
+@cache_app.command("clear")
+def cache_clear(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
+) -> None:
+    """Wipe every cached entry, stale or not.
+
+    Only ever touches cache.db — your watch history and progress live in a
+    separate database and are never affected.
+    """
+    _run(_cache_clear(yes))
+
+
+async def _cache_info(as_json: bool) -> None:
+    from ..config.paths import cache_db_path
+
+    c = build_container()
+    try:
+        total, expired = await c.cache.stats()
+        reclaimable = await c.cache.reclaimable_bytes()
+    finally:
+        await c.aclose()
+    # Reuse the downloads helper: the same question ("is this file there, and how
+    # big"), and the same need to answer rather than raise on an odd path.
+    size = _download_on_disk(SimpleNamespace(path=str(cache_db_path()))).size
+    if as_json:
+        json.dump({"entries": total, "expired": expired, "size_bytes": size,
+                   "reclaimable_bytes": reclaimable,
+                   "path": str(cache_db_path())}, sys.stdout)
+        sys.stdout.write("\n")
+        return
+    line = (f"[bold]{total}[/] cached entr{'y' if total == 1 else 'ies'} "
+            f"([yellow]{expired}[/] stale) · {_human_size(size)}")
+    if reclaimable:
+        line += f" [dim]({_human_size(reclaimable)} reclaimable)[/]"
+    console.print(line)
+    console.print(f"[dim]{cache_db_path()}[/]")
+    if expired:
+        console.print("[dim]Drop the stale ones with [/][cyan]anime cache prune[/]")
+    elif reclaimable > size / 2:
+        console.print("[dim]Most of that file is free space — "
+                      "[/][cyan]anime cache clear[/][dim] reclaims it.[/]")
+
+
+async def _cache_clear(yes: bool) -> None:
+    c = build_container()
+    try:
+        total, expired = await c.cache.stats()
+        if not total:
+            console.print("[dim]Cache is already empty.[/]")
+            return
+        if not yes:
+            fresh = total - expired
+            console.print(
+                f"This drops all [bold]{total}[/] cached entries — "
+                f"[bold]{fresh}[/] of them still current."
+            )
+            console.print("[dim]Nothing is lost permanently; it is re-fetched on "
+                          "demand, so the only cost is slower lookups for a while. "
+                          "Watch history and progress are in a different database "
+                          "and are untouched.[/]")
+            if not typer.confirm("Clear the whole cache?"):
+                console.print("[dim]Left alone.[/]")
+                return
+        n = await c.cache.clear()
+    finally:
+        await c.aclose()
+    console.print(f"[green]Cleared[/] {n} cache entr{'y' if n == 1 else 'ies'}.")
 
 
 async def _cache_op(*, clear: bool) -> None:
@@ -403,7 +485,7 @@ async def _cache_op(*, clear: bool) -> None:
         n = await c.cache.clear() if clear else await c.cache.purge_expired()
     finally:
         await c.aclose()
-    verb = "Cleared" if clear else "Purged"
+    verb = "Cleared" if clear else "Pruned"
     console.print(f"[green]{verb}[/] {n} cache entr{'y' if n == 1 else 'ies'}.")
 
 

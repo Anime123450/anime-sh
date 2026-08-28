@@ -2,6 +2,36 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.52] — 2026-08-28
+
+### Added
+
+- **`anime cache info`** — how many entries are cached, how many have gone
+  stale, what the file costs on disk, and how much of that is free space waiting
+  to be reclaimed. "3 entries, 1.5 MB" looks broken until you can see that 1.4 MB
+  of it is empty.
+
+- **`anime cache prune`**, the new name for `cache purge`: drop the entries that
+  have expired, and nothing you are still using. `cache purge` still works and
+  points at the new name.
+
+### Changed
+
+- **`anime cache clear` says what it is about to throw away, and asks.** `clear`
+  and `purge` are synonyms in English, and neither name said which one discarded
+  data you were still using. Rather than swap their meanings — which would
+  silently change what an existing `cache clear` does in someone's script — the
+  safe operation got an unambiguous name and the destructive one now reports
+  how many entries are still current before doing anything. `--yes` skips the
+  prompt.
+
+- **Clearing the cache gives the disk space back.** `DELETE` leaves the freed
+  pages inside the SQLite file, and in WAL mode a `VACUUM` alone just moves them
+  into `cache.db-wal`, so an emptied 1.5 MB cache stayed 1.5 MB — reporting
+  "cleared" beside an unchanged file size. Pruning deliberately still does not
+  do this: it also runs as housekeeping after ordinary cache writes, where a
+  VACUUM would be absurd.
+
 ## [0.2.51] — 2026-08-27
 
 ### Fixed
