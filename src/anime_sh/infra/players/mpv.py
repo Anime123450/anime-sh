@@ -217,6 +217,23 @@ def _resolve_binary(binary: str) -> str | None:
     return found
 
 
+# Buffering defaults for streamed HLS. mpv was given none of these, so it ran on
+# its default `--demuxer-readahead-secs=1` — one second of lookahead for a stream
+# that arrives in multi-second segments, each of which may pass through the local
+# de-obfuscating proxy first. Any hiccup upstream became a visible stall on a
+# connection with bandwidth to spare.
+#
+# These are *defaults*: `player.args` from config is appended after them, and mpv
+# takes the last occurrence of an option, so anything set there still wins.
+_BUFFER_ARGS = (
+    "--cache=yes",
+    "--cache-secs=120",
+    "--demuxer-readahead-secs=20",
+    "--demuxer-max-bytes=400MiB",
+    "--demuxer-max-back-bytes=100MiB",
+)
+
+
 class MpvPlayer:
     name = "mpv"
 
@@ -246,6 +263,7 @@ class MpvPlayer:
             "--keep-open=no",
             "--idle=no",
             "--user-agent=" + (stream.headers.get("User-Agent") or _DEFAULT_UA),
+            *_BUFFER_ARGS,
         ]
         referer = stream.headers.get("Referer") or stream.headers.get("referer")
         if referer:
