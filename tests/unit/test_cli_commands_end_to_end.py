@@ -116,3 +116,39 @@ def test_help_still_lists_the_commands():
     assert result.exit_code == 0
     for command in ("play", "search", "download", "trending", "providers"):
         assert command in result.output, f"{command} vanished from --help"
+
+
+def test_a_config_value_starting_with_dashes_is_not_parsed_as_a_flag(tmp_path, monkeypatch):
+    """`player.args` is the one setting whose values always begin with `--`, and
+    setting it was impossible without knowing a shell trick.
+
+    `anime config set player.args "--cache=yes"` failed with
+    `No such option: --cache`, because Typer parsed the *value* as an option of
+    anime-sh's own. The workaround was `config set -- player.args "..."`, which
+    is not something anyone would guess. This drives the command through Typer,
+    because calling the function directly bypasses exactly the parsing that was
+    broken.
+    """
+    cfg = tmp_path / "config.toml"
+    monkeypatch.setattr("anime_sh.config.loader.config_path", lambda: cfg)
+
+    result = runner.invoke(
+        app, ["config", "set", "player.args", "--cache=yes,--demuxer-readahead-secs=20"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No such option" not in result.output
+    written = cfg.read_text(encoding="utf-8")
+    assert "--cache=yes" in written
+    assert "--demuxer-readahead-secs=20" in written
+
+
+def test_the_double_dash_escape_still_works(tmp_path, monkeypatch):
+    """People who learned the workaround must not be broken by the fix."""
+    cfg = tmp_path / "config.toml"
+    monkeypatch.setattr("anime_sh.config.loader.config_path", lambda: cfg)
+
+    result = runner.invoke(app, ["config", "set", "--", "player.args", "--cache=yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "--cache=yes" in cfg.read_text(encoding="utf-8")

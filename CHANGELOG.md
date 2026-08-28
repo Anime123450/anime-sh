@@ -2,6 +2,28 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.51] — 2026-08-27
+
+### Fixed
+
+- **`anime config set` no longer refuses a value that starts with `--`.**
+  `anime config set player.args "--cache=yes"` failed with
+  `No such option: --cache`, because the *value* was parsed as an option of
+  anime-sh's own. `player.args` is the one setting whose values always begin
+  with `--`, so the most likely use of the command was the broken one. The
+  `anime config set -- player.args "..."` escape still works; it is simply no
+  longer required.
+
+### Changed
+
+- **`anime downloads` now describes the disk, not just the database.** The
+  download table is written when an episode is fetched and never revisited, so
+  an episode you deleted to free space was still listed as `done` — exactly when
+  you are trying to work out where your disk went. Each row now shows its file
+  size, a deleted file reads `gone from disk` instead of `done`, and the listing
+  ends with how many files are actually present and what they add up to.
+  `--json` gains `on_disk` and `size_bytes`.
+
 ## [0.2.50] — 2026-08-27
 
 ### Fixed

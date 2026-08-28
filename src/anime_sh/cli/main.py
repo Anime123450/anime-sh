@@ -12,6 +12,8 @@ import json
 import random as rng
 import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import NamedTuple
 
 import typer
 from rich.console import Console
@@ -266,7 +268,13 @@ def config_get(key: str = typer.Argument(None, help="section.field (omit to dump
     typer.echo(data[section][field] if field else data[section])
 
 
-@config_app.command("set")
+# `ignore_unknown_options` so a value that begins with `--` is taken as the value
+# rather than parsed as a flag of anime-sh's own. Without it,
+# `anime config set player.args "--cache=yes"` failed with "No such option:
+# --cache" — and `player.args` is the one setting whose values *always* start
+# with `--`, so the single most likely use of this command was the broken one.
+# The `--` escape still works; it is just no longer required.
+@config_app.command("set", context_settings={"ignore_unknown_options": True})
 def config_set(
     key: str = typer.Argument(..., help="section.field, e.g. playback.quality"),
     value: str = typer.Argument(..., help="new value (comma-separate lists)"),
@@ -1571,12 +1579,50 @@ async def _download(query, episode, dub, quality) -> None:
         raise typer.Exit(code=2)
 
 
+class _OnDisk(NamedTuple):
+    exists: bool
+    size: int
+
+
+def _download_on_disk(item) -> _OnDisk:
+    """Whether this download's file is still there, and how big it is.
+
+    Best-effort: an unreadable path (a disconnected drive, a permissions change)
+    answers "not there" rather than raising, because this is a listing and a
+    stat failure is not worth losing the whole table over.
+    """
+    if not item.path:
+        return _OnDisk(False, 0)
+    try:
+        stat = Path(item.path).stat()
+    except (OSError, ValueError):
+        # ValueError, not only OSError: a path with an embedded NUL raises that
+        # instead, and one unstat-able row must not take down the whole table.
+        return _OnDisk(False, 0)
+    return _OnDisk(True, stat.st_size)
+
+
+def _human_size(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"  # pragma: no cover - unreachable, loop returns first
+
+
 async def _downloads(as_json: bool) -> None:
     c = build_container()
     try:
         items = await c.download.history()
     finally:
         await c.aclose()
+    # The database records what was downloaded; the disk is what you can actually
+    # watch. Delete an episode to free space and this listed it as "done" for
+    # ever, which is the opposite of useful when you are trying to work out where
+    # your disk went.
+    disk = [_download_on_disk(it) for it in items]
+
     if as_json:
         json.dump(
             [
@@ -1587,29 +1633,47 @@ async def _downloads(as_json: bool) -> None:
                     "status": it.status.value,
                     "path": it.path,
                     "created_at": it.created_at.isoformat(),
+                    "on_disk": d.exists,
+                    "size_bytes": d.size,
                 }
-                for it in items
+                for it, d in zip(items, disk)
             ],
             sys.stdout,
         )
         sys.stdout.write("\n")
         return
     if not items:
-        console.print("[dim]No downloads yet.[/]")
+        console.print("[dim]No downloads yet.[/] Try [cyan]anime download <title>[/].")
         return
     colors = {"done": "green", "downloading": "yellow", "failed": "red", "queued": "dim"}
     table = Table(title="Downloads", title_justify="left", header_style="bold cyan")
     table.add_column("Title", style="bold")
     table.add_column("Ep", justify="right")
     table.add_column("Status")
+    table.add_column("Size", justify="right")
     table.add_column("Path", style="dim")
-    for it in items:
+    for it, d in zip(items, disk):
+        status = it.status.value
+        if status == "done" and not d.exists:
+            # Not a failure — you deleted it — but it is not something you can
+            # watch, and saying "done" implies it is.
+            shown = "[yellow]gone from disk[/]"
+        else:
+            shown = f"[{colors.get(status, 'white')}]{status}[/]"
         table.add_row(
-            it.anime.title.preferred, f"{it.episode:g}",
-            f"[{colors.get(it.status.value, 'white')}]{it.status.value}[/]",
-            it.path or "—",
+            it.anime.title.preferred, f"{it.episode:g}", shown,
+            _human_size(d.size) if d.exists else "—", it.path or "—",
         )
     console.print(table)
+
+    on_disk = [d for d in disk if d.exists]
+    total = sum(d.size for d in on_disk)
+    missing = sum(1 for it, d in zip(items, disk)
+                  if it.status.value == "done" and not d.exists)
+    summary = f"{len(on_disk)} file(s) on disk · {_human_size(total)}"
+    if missing:
+        summary += f" · {missing} recorded but gone"
+    console.print(f"[dim]{summary}[/]")
 
 
 async def _providers_health(as_json: bool) -> None:
