@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView
@@ -50,6 +51,16 @@ def _schedule_is_stale(anime, now: datetime) -> bool:
 
 
 class HomeScreen(Screen):
+    # Escape is bound app-wide to "go back", which on the base screen has nothing
+    # to pop and so did nothing at all — leaving no way out of a search except
+    # selecting the box and deleting it by hand.
+    BINDINGS = [Binding("escape", "clear_search", "Clear search", show=False)]
+
+    def action_clear_search(self) -> None:
+        box = self.query_one("#search", Input)
+        if box.value:
+            box.value = ""  # Input.Changed puts the browse sections back
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Input(placeholder="Search anime…  (press / to focus)", id="search")
@@ -64,6 +75,10 @@ class HomeScreen(Screen):
             yield ListView(id="trending")
             yield Label("Results", classes="section", id="sec-results")
             yield ListView(id="results")
+            # Searching hides the browse sections, so a query that matches
+            # nothing left the whole screen blank under a "Results" heading with
+            # no indication of what had happened. This is what fills that space.
+            yield Label("", id="results-empty")
         yield Footer()
 
     @property
@@ -95,6 +110,7 @@ class HomeScreen(Screen):
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
+        self.query_one("#results-empty").display = False
         self._load_continue()
         self._load_favorites()
         self._load_seasonal()
@@ -375,8 +391,30 @@ class HomeScreen(Screen):
         for anime, row in built:
             lv.append(AnimeItem(anime, row, cols))
         self._toggle_results(True)
+        self._show_no_matches(None if results else query)
         if results:
             lv.index = 0
+
+    def _show_no_matches(self, query: str | None) -> None:
+        """Say so when a search found nothing, instead of showing bare space.
+
+        AniList's search is strict about word boundaries, so a near-miss really
+        does come back empty — and since searching hides the browse sections,
+        the result was an empty screen under a "Results" heading that gave no
+        clue whether it was still loading, broken, or simply had no answer.
+        """
+        label = self.query_one("#results-empty", Label)
+        if query is None:
+            label.display = False
+            return
+        shown = query if len(query) <= 40 else query[:39] + "…"
+        label.update(
+            f"  [b]No matches for[/] [i]{shown}[/]\n"
+            f"  [dim]Try fewer words, or a different spelling — partial titles "
+            f"like [/][cyan]fri[/][dim] work.\n"
+            f"  Press [/][cyan]esc[/][dim] to clear the search.[/]"
+        )
+        label.display = True
 
     # -- navigation --------------------------------------------------------- #
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -392,6 +430,10 @@ class HomeScreen(Screen):
     def _toggle_results(self, on: bool) -> None:
         self.query_one("#sec-results").display = on
         self.query_one("#results").display = on
+        if not on:
+            # Clearing the box brings the browse sections back; the no-matches
+            # notice must not outlive the search that produced it.
+            self._show_no_matches(None)
         self._show_home_sections(not on)
 
     def _show_home_sections(self, on: bool) -> None:

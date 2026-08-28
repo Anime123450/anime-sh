@@ -2,6 +2,21 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.53] — 2026-08-28
+
+### Fixed
+
+- **A search that matches nothing now says so.** Searching hides Continue
+  Watching, This Season and Trending to make room for results, so a query
+  AniList could not match left the whole screen blank under a "Results" heading
+  — with no way to tell whether it was still loading, had broken, or simply had
+  no answer. AniList's search is strict about word boundaries, so this was not a
+  rare state. It now names what was searched for and suggests what to try.
+
+- **`esc` closes a search.** It was bound app-wide to "go back", which on the
+  home screen has nothing to pop and so did nothing at all — the only way out of
+  a search was to select the box and delete it by hand.
+
 ## [0.2.52] — 2026-08-28
 
 ### Added
