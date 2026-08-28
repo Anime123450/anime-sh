@@ -17,6 +17,16 @@ on:
 permissions:
   contents: read
 
+# GitHub delivered one tag push as two identical events on v0.2.54 — same sha,
+# same second, two run ids. Both runs published, racing each other into PyPI, and
+# the second then lost the GitHub Release step to "a release with the same tag
+# name already exists", turning a release that had worked perfectly into a red X.
+# Queueing on the tag makes a duplicate wait rather than race, and the release
+# step below is idempotent so the one that waits ends up a no-op.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -74,6 +84,13 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A version can only be uploaded to PyPI once, so a duplicate event or
+          # a re-run has nothing useful to do and should not fail the release for
+          # it. This says "already there" rather than erroring; it cannot mask a
+          # real problem, because a *different* build of the same version is
+          # rejected by PyPI either way.
+          skip-existing: true
 
   github-release:
     # Runs after PyPI so the release page never advertises a version you cannot
@@ -94,8 +111,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "anime-sh ${GITHUB_REF_NAME#v}" \
-            --notes-file RELEASE_NOTES.md \
-            dist/*
+          set -euo pipefail
+          # Idempotent on purpose: a re-run, or a duplicate event from GitHub,
+          # must not fail a release that has already published correctly.
+          # Creating and filling in are separate steps so an attempt interrupted
+          # between them — release made, assets not yet attached — still finishes.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; updating it instead."
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "anime-sh ${GITHUB_REF_NAME#v}" \
+              --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "anime-sh ${GITHUB_REF_NAME#v}" \
+              --notes-file RELEASE_NOTES.md
+          fi
+          # --clobber so a re-run replaces the artifacts rather than erroring on
+          # ones that are already attached.
+          gh release upload "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --clobber
