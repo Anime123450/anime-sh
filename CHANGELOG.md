@@ -2,6 +2,31 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.50] — 2026-08-27
+
+### Fixed
+
+- **Playback no longer stalls on a connection with bandwidth to spare.** Three
+  causes, all on the path every anikoto episode takes:
+
+  - **mpv was given no buffering settings at all**, so it ran on its default
+    `--demuxer-readahead-secs=1`. One second of lookahead, for a stream arriving
+    in multi-second segments, means any upstream hiccup is a visible stall.
+    anime-sh now starts mpv with 20 s of readahead and a 120 s cache. Anything in
+    `player.args` is still applied afterwards and still wins.
+
+  - **The de-obfuscating proxy downloaded each segment whole before sending a
+    single byte.** Every anikoto segment arrives PNG-disguised and has to pass
+    through it, so this added a full segment's download to every segment's
+    latency. Stripping the decoy header only needs the first ~96 KB, so the rest
+    is now relayed as it arrives. A response the proxy cannot frame — no
+    `Content-Length` — still falls back to the old buffered path rather than
+    guessing a length.
+
+  - **The proxy spoke HTTP/1.0**, which closes the socket after every response,
+    so mpv paid a fresh TCP handshake for every segment of the episode. It is
+    HTTP/1.1 with keep-alive now.
+
 ## [0.2.49] — 2026-08-26
 
 ### Fixed

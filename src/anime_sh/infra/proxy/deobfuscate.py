@@ -40,6 +40,13 @@ _OBFUSCATED_HOSTS = ("nekostream", "mewstream", "lostproject", "kotocdn")
 _TS_PACKET = 188
 _TS_SYNC = 0x47
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+# Enough of a segment to locate the decoy prefix — the scan below reaches 64 KiB,
+# plus room for the two-packet confirmation — without holding the whole segment.
+_HEAD_BYTES = 96 * 1024
+_STREAM_CHUNK = 64 * 1024
+
 
 def _find_ts_offset(data: bytes, scan: int = 65536) -> int:
     """Offset of the first MPEG-TS packet (0x47 sync repeating every 188 bytes),
@@ -76,7 +83,7 @@ def strip_media_prefix(data: bytes) -> bytes:
 
     Idempotent: clean TS (offset 0) and non-TS payloads are returned unchanged.
     """
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
+    if data[:8] == _PNG_MAGIC:
         off = _find_ts_offset(data)
         return data[off:] if off > 0 else data
     # Not a PNG wrapper — leave it alone (already clean, or fMP4 we don't touch).
@@ -130,6 +137,12 @@ class DeobfuscatingProxy:
             proxy = self
 
             class Handler(BaseHTTPRequestHandler):
+                # HTTP/1.0 — the default — closes the socket after every
+                # response, so mpv paid a fresh TCP handshake for every segment
+                # of the episode. Every response path here sets Content-Length,
+                # which is what makes keep-alive safe to turn on.
+                protocol_version = "HTTP/1.1"
+
                 def log_message(self, *a):  # silence access log
                     pass
 
@@ -166,8 +179,25 @@ class DeobfuscatingProxy:
         except Exception:
             req.send_error(400)
             return
+        headers = {"Referer": referer} if referer else None
+
+        # Playlists and subtitles are small and have to be read whole — one is
+        # rewritten, the other sniffed. A media segment is neither: it is the
+        # thing being watched, and buffering all of it before sending a byte
+        # added a full segment of latency to every segment, which is what turned
+        # a fast connection into a stalling one.
+        if kind not in ("sub", "pl"):
+            try:
+                if self._stream_segment(req, real, headers):
+                    return
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return  # mpv seeked or stopped; nothing to report
+            except Exception as e:
+                log.debug("streaming %s failed, falling back to buffered: %s",
+                          real[:60], e)
+
         try:
-            resp = self._client.get(real, headers={"Referer": referer} if referer else None)
+            resp = self._client.get(real, headers=headers)
             body = resp.content
         except Exception as e:
             log.debug("proxy fetch failed for %s: %s", real[:60], e)
@@ -184,6 +214,57 @@ class DeobfuscatingProxy:
             self._respond(req, payload.encode(), "application/vnd.apple.mpegurl")
         else:
             self._respond(req, strip_media_prefix(body), "video/mp2t")
+
+    def _stream_segment(self, req, url: str, headers: dict | None) -> bool:
+        """Relay a media segment as it arrives, stripping the decoy prefix.
+
+        Returns True when the response was fully served here, False to let the
+        caller fall back to the buffered path. Falling back rather than guessing
+        is deliberate: every early return below is a case where the *framing*
+        would be uncertain, and a wrong Content-Length on a keep-alive connection
+        desynchronises every request after it.
+
+        Only the first ~96 KB has to be in hand to find the prefix — the decoy
+        header is a couple of hundred bytes — so the rest goes straight out as it
+        comes in, instead of the whole segment being downloaded before mpv sees a
+        byte of it.
+        """
+        with self._client.stream("GET", url, headers=headers) as resp:
+            if resp.status_code != 200:
+                return False
+            declared = resp.headers.get("Content-Length")
+            if declared is None:
+                return False  # cannot frame it; buffered path knows the length
+            try:
+                upstream_len = int(declared)
+            except ValueError:
+                return False
+
+            chunks = resp.iter_bytes(_STREAM_CHUNK)
+            head = b""
+            for chunk in chunks:
+                head += chunk
+                if len(head) >= _HEAD_BYTES:
+                    break
+
+            # A variant playlist can arrive on a URL we expected to be a segment;
+            # it needs rewriting, which is the buffered path's job.
+            if head.lstrip()[:7] == b"#EXTM3U":
+                return False
+
+            offset = _find_ts_offset(head) if head[:8] == _PNG_MAGIC else 0
+            length = upstream_len - offset
+            if length < 0:
+                return False
+
+            req.send_response(200)
+            req.send_header("Content-Type", "video/mp2t")
+            req.send_header("Content-Length", str(length))
+            req.end_headers()
+            req.wfile.write(head[offset:])
+            for chunk in chunks:
+                req.wfile.write(chunk)
+            return True
 
     def _rewrite_playlist(self, text: str, base_url: str, referer: str) -> str:
         base = base_url.rsplit("/", 1)[0]
