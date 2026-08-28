@@ -32,7 +32,7 @@ from ..domain.models import (
     StreamCandidate,
 )
 from ..domain.ports import HealthStore, Provider
-from ..domain.titles import season_number
+from ..domain.titles import season_number, subtitle_conflict
 
 log = logging.getLogger(__name__)
 
@@ -201,11 +201,25 @@ class ProviderManager:
         identical to its prequel's — so without this the best "match" for one
         season is regularly the other one.
         """
-        wanted = max(
-            season_number(t)
-            for t in (anime.title.english, anime.title.romaji, anime.title.preferred)
-        )
-        return [o for o in options if season_number(o.title) == wanted]
+        titles = [
+            t for t in
+            (anime.title.english, anime.title.romaji, anime.title.preferred) if t
+        ]
+        # `max`, not "whichever variant matches": a sequel is often numbered in
+        # only one of its titles, and taking the highest keeps that marker rather
+        # than letting the unmarked variant wave the wrong season through.
+        wanted = max((season_number(t) for t in titles), default=1)
+        return [
+            o for o in options
+            if season_number(o.title) == wanted
+            # A sequel marked by subtitle instead of a number — "…: Final
+            # Season", "…: Stone Ocean" — carries its prequel's season number,
+            # so the number alone lets it straight through. Conflicting with any
+            # known title variant rules an option out; `_best_ref` falls back to
+            # the unfiltered list when that leaves nothing, so tightening here
+            # cannot cost us a match.
+            and not any(subtitle_conflict(t, o.title) for t in titles)
+        ]
 
     async def _best_ref(
         self, provider: Provider, anime: Anime, audio: Audio
