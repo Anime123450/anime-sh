@@ -75,3 +75,67 @@ async def test_falls_back_rather_than_leaving_a_show_unplayable():
     mgr = ProviderManager([OnlyOtherSeason()], match_timeout_s=5)
     opts = await mgr.list_sources(_show("Bumpkin to Swordsman"), Audio.SUB)
     assert [o.anime_key for o in opts] == ["s3"]
+
+
+class SubtitledSequelProvider(SeasonySearchProvider):
+    """The §9.2 case: a sequel marked by subtitle rather than by number.
+
+    "Attack on Titan: Final Season", "JoJo's Bizarre Adventure: Stone Ocean" and
+    "Demon Slayer: Entertainment District Arc" all read as season 1 — exactly
+    like their prequels — so the season-number filter let them through and the
+    sequel, ranked first, was picked as the source for its own prequel.
+    """
+
+    async def find_sources(self, anime, audio):
+        return [
+            SourceOption("fake", "final", "Attack on Titan: Final Season", 16, audio, 0.99),
+            SourceOption("fake", "s1", "Attack on Titan", 25, audio, 0.90),
+        ]
+
+
+async def test_a_sequel_named_by_subtitle_is_not_a_source_for_its_prequel():
+    mgr = ProviderManager([SubtitledSequelProvider()], match_timeout_s=5)
+
+    refs = await mgr.resolve_sources(_show("Attack on Titan"), Audio.SUB)
+    assert [r.anime_key for r in refs] == ["s1"], "the prequel got the sequel's entry"
+
+    opts = await mgr.list_sources(_show("Attack on Titan"), Audio.SUB)
+    assert [o.anime_key for o in opts] == ["s1"]
+
+
+async def test_the_subtitled_sequel_still_finds_its_own_entry():
+    """The filter has to cut both ways, or it has just moved the bug."""
+    mgr = ProviderManager([SubtitledSequelProvider()], match_timeout_s=5)
+
+    refs = await mgr.resolve_sources(_show("Attack on Titan: Final Season"), Audio.SUB)
+    assert [r.anime_key for r in refs] == ["final"]
+
+
+async def test_a_differently_worded_title_is_still_accepted():
+    """The romaji title shares no words with the english one. Treating "differs"
+    as "different entry" would reject every legitimate romaji match — a far
+    wider bug than the one being fixed."""
+
+    class RomajiOnly(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            return [SourceOption("fake", "jp", "Shingeki no Kyojin", 25, audio, 0.9)]
+
+    mgr = ProviderManager([RomajiOnly()], match_timeout_s=5)
+    opts = await mgr.list_sources(
+        Anime(id=AnimeId(anilist=1),
+              title=Title(romaji="Shingeki no Kyojin", english="Attack on Titan")),
+        Audio.SUB,
+    )
+    assert [o.anime_key for o in opts] == ["jp"]
+
+
+async def test_a_release_tag_is_not_a_subtitle():
+    """"(Dub)" describes the release, not the work."""
+
+    class Dubbed(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            return [SourceOption("fake", "dub", "Attack on Titan (Dub)", 25, audio, 0.9)]
+
+    mgr = ProviderManager([Dubbed()], match_timeout_s=5)
+    opts = await mgr.list_sources(_show("Attack on Titan"), Audio.SUB)
+    assert [o.anime_key for o in opts] == ["dub"]

@@ -2,6 +2,31 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.54] — 2026-08-28
+
+### Fixed
+
+- **A sequel named by subtitle is no longer offered as a source for its
+  prequel.** Season matching read the number out of a title, so
+  "Attack on Titan Season 2" was correctly told apart from "Attack on Titan" —
+  but "Attack on Titan: **Final Season**" was not, because it carries no number
+  and read as season 1, exactly like the show it continues. The same held for
+  "JoJo's Bizarre Adventure: Stone Ocean", "Demon Slayer: Entertainment District
+  Arc" and "Made in Abyss: The Golden City of the Devouring Sun" — four of seven
+  real cases checked.
+
+  Since providers rank a sequel's near-identical title first, the wrong season
+  could be picked automatically: you watched one season while your progress was
+  written against another. This is the identity-spine failure described in
+  §1.1 of the engineering standards, reached by a route the original fix did not
+  cover.
+
+  Titles that merely differ in *wording* — "Attack on Titan" against "Shingeki
+  no Kyojin", or a "(Dub)" tag — are deliberately still accepted. Only a title
+  whose words are a strict superset of the other's counts as a different entry,
+  because rejecting the rest would throw away legitimate matches to fix a
+  narrower problem.
+
 ## [0.2.53] — 2026-08-28
 
 ### Fixed
