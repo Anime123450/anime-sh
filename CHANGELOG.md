@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.56] — 2026-08-29
+
+### Added
+
+- **A "Coming Up" rail on wide terminals.** Rows cap themselves at a readable
+  measure, so on a 190-column window the list stopped around column 96 and the
+  right-hand half of the screen was empty. That space now shows the one thing the
+  rows cannot: episodes of the shows you are watching that **have not aired yet**,
+  grouped by the day they land, in local time, dimmed so they never compete with
+  the list you actually act on.
+
+  It appears at 120 columns and widens at 160 — below that the rows alone fill
+  the window and a rail would be taking space from them, so a small terminal is
+  exactly as it was.
+
+  Built entirely from show data Continue Watching has already loaded: **it makes
+  no requests of its own**, and it ticks with the same one-minute timer that
+  updates the countdowns.
+
 ## [0.2.55] — 2026-08-29
 
 ### Fixed

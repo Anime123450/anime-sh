@@ -9,6 +9,25 @@ Screen {
 
 #body {
     padding: 0 2;
+    width: 1fr;
+}
+
+/* Region C — the context rail. Width is set from the screen width in
+   `_size_rail` rather than here, because the boundary it depends on (120
+   columns) is not something CSS can ask about. A single-line left border is the
+   whole separation: this is elevation level 1, a panel beside the content, not
+   a window floating over it, so it gets no box and no shadow. */
+#rail {
+    width: 34;
+    padding: 0 2;
+    border-left: solid $panel;
+}
+
+/* The rail is the thing you glance at, so it never competes with the rows for
+   attention: its heading uses the same accent as the others but the body stays
+   dim, and the whole region is a step back from the content beside it. */
+#rail-body {
+    color: $text-muted;
 }
 
 /* More space above a heading than below it, so a section reads as a lid on the
