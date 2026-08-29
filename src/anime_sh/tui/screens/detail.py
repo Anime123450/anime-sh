@@ -448,7 +448,7 @@ class DetailScreen(Screen):
         # confirm it's the right show.
         alt = a.title.romaji if a.title.english and a.title.romaji else None
         if alt and alt != a.title.preferred:
-            lines.append(f"[dim italic]{alt}[/dim italic]")
+            lines.append(f"[dim]{alt}[/dim]")
         lines.append(f"[dim]{meta_line(a)}[/dim]")
         nxt = next_episode_line(a)
         if nxt:

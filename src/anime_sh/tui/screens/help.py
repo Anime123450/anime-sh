@@ -9,17 +9,24 @@ from textual.widgets import Static
 
 _HELP = """[b]anime-sh — keys[/b]
 
-  [cyan]/[/cyan]        focus search
-  [cyan]l[/cyan]        my AniList list
-  [cyan]Enter[/cyan]    open / play the highlighted item
-  [cyan]↑ ↓[/cyan]      move within a list
-  [cyan]Esc[/cyan]      back / close
-  [cyan]?[/cyan]        this help
-  [cyan]q[/cyan]        quit
+[b]Move[/b]
+  [cyan]↑ ↓[/cyan]  or  [cyan]j k[/cyan]     within a list
+  [cyan]g[/cyan]   [cyan]G[/cyan]            first / last row
+  [cyan]Tab[/cyan]              next section
+
+[b]Act[/b]
+  [cyan]Enter[/cyan]            open / play the highlighted item
+  [cyan]/[/cyan]                search
+  [cyan]Esc[/cyan]              clear the search, or go back
+  [cyan]l[/cyan]                my AniList list
+  [cyan]?[/cyan]                this help
+  [cyan]q[/cyan]                quit
 
 [dim]On the detail screen, Enter on an episode resolves and plays it;
 episodes not yet aired are dimmed. Pick a different source in the
-picker when a show is listed more than once.[/dim]
+picker when a show is listed more than once.
+
+Coming Up, on the right, appears on terminals 120 columns and wider.[/dim]
 
 [dim]Press any key to close.[/dim]"""
 
