@@ -8,13 +8,14 @@ from datetime import date, datetime, timezone
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label, ListView
+from textual.widgets import Footer, Header, Input, Label, ListView, Static
 
 from ...domain.models import Season, Status
 from ..format import browse_cells, continue_cells
 from ..rows import Columns, columns_for, title_cells
+from ..upcoming import render, schedule
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -137,21 +138,30 @@ class HomeScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Input(placeholder="Search anime…  (press / to focus)", id="search")
-        with VerticalScroll(id="body"):
-            yield Label("Continue Watching", classes="section", id="sec-continue")
-            yield ListView(id="continue")
-            yield Label("Favorites", classes="section", id="sec-favorites")
-            yield ListView(id="favorites")
-            yield Label("Airing This Season", classes="section", id="sec-seasonal")
-            yield ListView(id="seasonal")
-            yield Label("Trending", classes="section", id="sec-trending")
-            yield ListView(id="trending")
-            yield Label("Results", classes="section", id="sec-results")
-            yield ListView(id="results")
-            # Searching hides the browse sections, so a query that matches
-            # nothing left the whole screen blank under a "Results" heading with
-            # no indication of what had happened. This is what fills that space.
-            yield Label("", id="results-empty")
+        # Region B (the rows) and Region C (the context rail) side by side. The
+        # rows cap themselves at a readable measure, so on a wide terminal they
+        # stop around column 96 and leave most of the window empty; the rail is
+        # what that space is for. It is hidden below 120 columns — see
+        # `_size_rail` — so a small terminal is exactly as it was.
+        with Horizontal(id="columns"):
+            with VerticalScroll(id="body"):
+                yield Label("Continue Watching", classes="section", id="sec-continue")
+                yield ListView(id="continue")
+                yield Label("Favorites", classes="section", id="sec-favorites")
+                yield ListView(id="favorites")
+                yield Label("Airing This Season", classes="section", id="sec-seasonal")
+                yield ListView(id="seasonal")
+                yield Label("Trending", classes="section", id="sec-trending")
+                yield ListView(id="trending")
+                yield Label("Results", classes="section", id="sec-results")
+                yield ListView(id="results")
+                # Searching hides the browse sections, so a query that matches
+                # nothing left the whole screen blank under a "Results" heading with
+                # no indication of what had happened. This is what fills that space.
+                yield Label("", id="results-empty")
+            with VerticalScroll(id="rail"):
+                yield Label("Coming Up", classes="section", id="sec-rail")
+                yield Static("", id="rail-body")
         yield Footer()
 
     @property
@@ -166,7 +176,41 @@ class HomeScreen(Screen):
         widest = max((title_cells(r) for r in rows), default=None)
         return columns_for(self.size.width or 100, widest)
 
+    # Region C appears only when there is genuinely room for it. Below this the
+    # rows alone fill the window and a rail would be stealing from them; the
+    # monospace-design standard puts the same boundary at 120 columns, with the
+    # region expanding again on a "wide" (160+) terminal.
+    _RAIL_MIN_WIDTH = 120
+    _RAIL_WIDE_WIDTH = 160
+
+    def _size_rail(self) -> None:
+        """Show, hide and size the context rail for the current terminal."""
+        try:
+            rail = self.query_one("#rail")
+        except Exception:
+            return
+        width = self.size.width or 100
+        rail.display = width >= self._RAIL_MIN_WIDTH
+        if rail.display:
+            rail.styles.width = 42 if width >= self._RAIL_WIDE_WIDTH else 34
+            self._render_rail()
+
+    def _render_rail(self) -> None:
+        """Repaint the rail from the shows Continue Watching already loaded."""
+        try:
+            body = self.query_one("#rail-body", Static)
+            rail = self.query_one("#rail")
+        except Exception:
+            return
+        if not rail.display:
+            return
+        width = int(rail.styles.width.value) if rail.styles.width else 34
+        days = schedule(self._upcoming_source, datetime.now(timezone.utc))
+        body.update(render(days, width - 4))  # -4 for the rail's own padding
+        self.query_one("#sec-rail").display = True
+
     def on_resize(self) -> None:
+        self._size_rail()
         """Re-lay-out in place. Rebuilding the lists would be simpler and would
         also drop the user's selection every time they dragged a window edge."""
         for lv in self.query(ListView):
@@ -180,10 +224,12 @@ class HomeScreen(Screen):
     def on_mount(self) -> None:
         self._debounce = None
         self._continue_ids: set[int] = set()
+        self._upcoming_source: list = []
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
         self.query_one("#results-empty").display = False
+        self._size_rail()
         self._load_continue()
         self._load_favorites()
         self._load_seasonal()
@@ -221,6 +267,7 @@ class HomeScreen(Screen):
             self._load_favorites()
 
     def _tick_countdowns(self) -> None:
+        self._render_rail()
         for wid in ("#seasonal", "#trending", "#results"):
             try:
                 lv = self.query_one(wid, ListView)
@@ -308,6 +355,10 @@ class HomeScreen(Screen):
         # further down the page. Seasonal listed four of these twice, with
         # different metadata each time, which read as two different shows.
         self._continue_ids = {a.id.anilist for a, _, _ in rows}
+        # The rail is built from exactly these objects — no extra requests. See
+        # tui/upcoming.py for why that matters.
+        self._upcoming_source = [a for a, _, _ in rows]
+        self._render_rail()
         self._hide_seasonal_duplicates()
 
     def _hide_seasonal_duplicates(self) -> None:
