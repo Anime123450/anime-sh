@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.57] — 2026-08-29
+
+### Fixed
+
+- **The `?` cheat-sheet documents the keys the app actually has.** `j`, `k`, `g`
+  and `G` were added in 0.2.55 and appeared nowhere — not in the footer (kept out
+  deliberately, four motion entries would crowd out `q`, `/`, `l` and `?`) and not
+  in the help either, so the only way to find them was to read the source. The
+  sheet is now grouped into *Move* and *Act*, and a test refuses to let a bound
+  key go undocumented again — or the reverse, a documented key that isn't bound.
+
+### Changed
+
+- **Italic is no longer used anywhere in the interface.** It is not one of the
+  four text treatments the rest of the UI keeps to, and a fair number of
+  terminals render it as reverse video or drop it silently. The two places that
+  used it — an alternate title on the detail screen, and the search term in the
+  no-matches notice — are dim instead.
+
 ## [0.2.56] — 2026-08-29
 
 ### Added

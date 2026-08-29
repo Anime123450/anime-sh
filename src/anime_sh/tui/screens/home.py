@@ -538,7 +538,10 @@ class HomeScreen(Screen):
             return
         shown = query if len(query) <= 40 else query[:39] + "…"
         label.update(
-            f"  [b]No matches for[/] [i]{shown}[/]\n"
+            # Dim rather than italic: italic is not one of the four text
+            # treatments this UI uses, and a fair number of terminals render it
+            # as reverse video or drop it entirely.
+            f"  [b]No matches for[/][dim] {shown}[/dim]\n"
             f"  [dim]Try fewer words, or a different spelling — partial titles "
             f"like [/][cyan]fri[/][dim] work.\n"
             f"  Press [/][cyan]esc[/][dim] to clear the search.[/]"
