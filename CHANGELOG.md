@@ -2,6 +2,40 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.55] — 2026-08-29
+
+### Fixed
+
+- **The TUI opens with the keyboard on a list, not in the search box.** Arrow
+  keys did nothing on launch and no row was selected. `on_mount` did try to focus
+  a browse list, but at that point every list is still empty — focusing an empty
+  one does not stick, and the rows arrive later from workers that clear and
+  rebuild the list. The attempt sat in a bare `try/except`, so it failed
+  silently and the comment above it described behaviour the app did not have.
+
+  Focus is now taken once a section actually has rows, and settles on Continue
+  Watching rather than whichever worker returned first — sections finished
+  loading in a different order each launch, so the keyboard landed somewhere
+  different every time. Once you move, or start typing a search, nothing touches
+  focus again.
+
+- **The selected row is visible again.** Textual marks it with `-highlight`, one
+  dash; the stylesheet said `--highlight`, so the rule matched nothing and had
+  never styled anything. A dead CSS selector raises no error and renders no
+  complaint.
+
+### Added
+
+- **Vim motions in the TUI: `j` / `k` to move, `g` / `G` for top and bottom.**
+  Bound on the screen rather than globally, so typing a title containing those
+  letters into the search box still types them.
+
+- **The focused list is now distinguishable from the others.** Each list keeps
+  its own cursor so you do not lose your place moving between sections, but only
+  the focused one gets the full-strength bar and an accent stripe down its left
+  edge. The stripe is a shape, not just a colour, so the distinction survives a
+  monochrome terminal.
+
 ## [0.2.54] — 2026-08-28
 
 ### Fixed

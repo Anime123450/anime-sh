@@ -54,12 +54,85 @@ class HomeScreen(Screen):
     # Escape is bound app-wide to "go back", which on the base screen has nothing
     # to pop and so did nothing at all — leaving no way out of a search except
     # selecting the box and deleting it by hand.
-    BINDINGS = [Binding("escape", "clear_search", "Clear search", show=False)]
+    BINDINGS = [
+        Binding("escape", "clear_search", "Clear search", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("g", "cursor_top", "Top", show=False),
+        Binding("G", "cursor_bottom", "Bottom", show=False),
+    ]
 
     def action_clear_search(self) -> None:
         box = self.query_one("#search", Input)
         if box.value:
             box.value = ""  # Input.Changed puts the browse sections back
+
+    # Where the keyboard should land, best first. Continue Watching is what you
+    # opened the app for; Trending is the fallback when the library is empty.
+    _FOCUS_ORDER = ("#continue", "#favorites", "#seasonal", "#trending")
+
+    def _adopt_focus(self) -> None:
+        """Put the keyboard on the best list that has rows, once one does.
+
+        Called after each section renders rather than at mount, because at mount
+        every list is empty and focusing an empty one does nothing.
+
+        Sections finish loading in whatever order their workers happen to return,
+        so claiming the first one to arrive put focus somewhere different on
+        every launch. It settles on the best *available* list instead, and will
+        upgrade to a better one that arrives later — but only while the auto-
+        chosen list is still the focused widget. The moment you move, or type in
+        the search box, this stops touching focus at all.
+        """
+        if self.query_one("#search", Input).value:
+            return
+        if self._focus_claimed is not None and self.focused is not self._focus_claimed:
+            return  # you have moved since; leave it alone
+
+        for wid in self._FOCUS_ORDER:
+            try:
+                lv = self.query_one(wid, ListView)
+            except Exception:
+                continue
+            if not (lv.display and len(lv.children)):
+                continue
+            if lv is self._focus_claimed:
+                # Already the best available list — but Continue Watching paints
+                # twice (cached rows, then enriched), and rebuilding its items
+                # drops the cursor back to None. Without this the launch state
+                # has a focused list and no highlighted row in it.
+                if lv.index is None:
+                    lv.index = 0
+                return
+            lv.focus()
+            if lv.index is None:
+                lv.index = 0  # otherwise the first arrow press selects nothing
+            self._focus_claimed = lv
+            return
+
+    # -- vim motions -------------------------------------------------------- #
+    # `j`/`k` and `g`/`G` are the vocabulary a terminal user reaches for first,
+    # and cost nothing next to the arrow keys they sit beside. Bound on the
+    # screen rather than globally so typing "j" into the search box stays typing.
+    def _focused_list(self) -> ListView | None:
+        node = self.focused
+        return node if isinstance(node, ListView) else None
+
+    def action_cursor_down(self) -> None:
+        if (lv := self._focused_list()) is not None:
+            lv.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        if (lv := self._focused_list()) is not None:
+            lv.action_cursor_up()
+
+    def action_cursor_top(self) -> None:
+        if (lv := self._focused_list()) is not None and len(lv.children):
+            lv.index = 0
+
+    def action_cursor_bottom(self) -> None:
+        if (lv := self._focused_list()) is not None and len(lv.children):
+            lv.index = len(lv.children) - 1
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -121,11 +194,16 @@ class HomeScreen(Screen):
         # Tick the airing countdowns in place every minute (no network).
         self.set_interval(60, self._tick_countdowns)
         # Focus a browse list, not the search box (the placeholder says "press /
-        # to focus"). Keeps arrow-nav, Enter, and the global `?` working at once.
-        try:
-            self.query_one("#trending", ListView).focus()
-        except Exception:
-            pass
+        # to focus"). Keeps arrow-nav, Enter and the global `?` working at once.
+        #
+        # Deliberately *not* done here, which is what the previous version got
+        # wrong: at mount every list is still empty, focusing an empty ListView
+        # does not stick, and the rows arrive later from workers that clear and
+        # rebuild the list. The failure was silent — a bare try/except — so the
+        # app launched with focus on the search Input, where arrow keys did
+        # nothing to the lists and no row was ever selected. `_adopt_focus` runs
+        # once rows actually exist.
+        self._focus_claimed = None
 
     def on_screen_suspend(self) -> None:
         # A screen (detail, sources, …) was pushed over Home.
@@ -462,3 +540,7 @@ class HomeScreen(Screen):
             label.update(f"{base}  [dim]{count}[/dim]" if count else base)
         except Exception:
             pass
+        # Every section calls this once it has rendered its rows, which makes it
+        # the one place that reliably knows a list is populated — and therefore
+        # focusable. `_adopt_focus` is a no-op after the first success.
+        self._adopt_focus()
