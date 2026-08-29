@@ -268,3 +268,46 @@ def test_long_titles_that_share_a_prefix_get_different_names():
     assert _safe(base) == _safe(base)
     # Titles short enough to keep whole are untouched by the uniquifier.
     assert _safe("Frieren: Beyond Journey's End") == "Frieren Beyond Journey's End"
+
+
+# --- "is this on disk?" ------------------------------------------------------
+# The detail screen marks downloaded episodes, and asks playback rather than the
+# filesystem so the mark and the thing that actually plays cannot disagree —
+# those two answering differently is how you get an episode shown as available
+# offline that then goes to the network.
+
+def _playback_service():
+    from anime_sh.app.playback import PlaybackService
+
+    return PlaybackService.__new__(PlaybackService)
+
+
+def test_an_unbound_local_source_answers_no_rather_than_raising():
+    """The binding is late — DownloadService is built *from* playback — so there
+    is a window where it is not set, and a list must still render."""
+    svc = _playback_service()
+    svc._local_path = None
+    assert svc.is_downloaded(object(), 1.0) is False
+
+
+def test_a_present_file_answers_yes():
+    svc = _playback_service()
+    svc._local_path = lambda anime, n: "C:/anime/ep1.mp4"
+    assert svc.is_downloaded(object(), 1.0) is True
+
+
+def test_a_missing_file_answers_no():
+    svc = _playback_service()
+    svc._local_path = lambda anime, n: None
+    assert svc.is_downloaded(object(), 1.0) is False
+
+
+def test_a_raising_local_source_does_not_take_down_the_screen():
+    """An unreadable path — a disconnected drive, a permissions change — is a
+    decoration failing, not a reason to lose the episode list."""
+    def explode(anime, n):
+        raise OSError("the drive went away")
+
+    svc = _playback_service()
+    svc._local_path = explode
+    assert svc.is_downloaded(object(), 1.0) is False

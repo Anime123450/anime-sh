@@ -88,7 +88,13 @@ class DetailScreen(Screen):
     DEFAULT_CSS = """
     DetailScreen #detail-top { height: auto; }
     DetailScreen #detail-cover { width: 34; height: auto; padding: 0 2 0 0; }
-    DetailScreen #detail-meta { width: 1fr; height: auto; }
+    /* Capped rather than 1fr. The synopsis is the only prose in the app, and at
+       1fr it ran to 112 columns on a 150-column terminal — well past the 45–75
+       characters a line of prose is comfortably read at. The rows next door
+       already cap themselves at a measure for exactly this reason; this was the
+       one place that did not. The width it gives up is the price of the text
+       being readable. */
+    DetailScreen #detail-meta { width: 1fr; max-width: 80; height: auto; }
     DetailScreen #detail-progress { height: auto; padding: 1 0 0 0; }
     DetailScreen #detail-action { height: auto; padding: 0 0 1 0; }
     """
@@ -126,7 +132,7 @@ class DetailScreen(Screen):
     def _episode_columns(self) -> int:
         """How many episodes fit across, given the widest number in the series."""
         digits = len(f"{max(self._numbers, default=1):g}")
-        cell = 2 + digits + self._CELL_GAP
+        cell = 3 + digits + self._CELL_GAP
         usable = max(20, (self.size.width or 100) - 6)
         return max(1, min(12, usable // cell))
 
@@ -371,6 +377,16 @@ class DetailScreen(Screen):
         # Serialize the clear+append: without this, a concurrent render (play /
         # marks / episodes workers all call here) can interleave — one clears, the
         # other clears, both append — and the list ends up doubled.
+        # Which episodes are already on disk. Asked of the playback service so
+        # the mark and the thing that actually plays agree; a local read, so no
+        # network and nothing to await per episode.
+        playback = getattr(self.app.services, "playback", None)
+        downloaded = set()
+        if playback is not None and hasattr(playback, "is_downloaded"):
+            downloaded = {
+                n for n in numbers if playback.is_downloaded(self.anime, n)
+            }
+
         async with self._render_lock:
             lv = self.query_one("#episodes", EpisodeGrid)
             await lv.clear()
@@ -385,6 +401,7 @@ class DetailScreen(Screen):
                     EpisodeItem(
                         number,
                         width=len(f"{max(numbers, default=1):g}"),
+                        downloaded=number in downloaded,
                         watched=is_watched,
                         resume_s=1 if number == resume else 0,
                         progress_pct=pct,

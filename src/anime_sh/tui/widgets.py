@@ -86,12 +86,13 @@ class EpisodeItem(ListItem):
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
                  available: bool = True, progress_pct: int | None = None,
                  air_label: str | None = None, is_next: bool = False,
-                 width: int = 4) -> None:
+                 width: int = 4, downloaded: bool = False) -> None:
         self.number = number
         self.available = available
         self.watched = watched
         self.progress_pct = progress_pct
         self.is_next = is_next
+        self.downloaded = downloaded
         # The full sentence — "Episode 5 · not on this source", the progress bar,
         # the air countdown — is kept, but it no longer lives in the cell. A
         # variable-length label cannot tile into a grid, and a one-per-line list
@@ -101,27 +102,39 @@ class EpisodeItem(ListItem):
         self.detail = self._label(
             number, watched, resume_s, available, progress_pct, air_label, is_next
         )
+        if downloaded:
+            self.detail += "  [dim]· on disk[/dim]"
         super().__init__(Label(self._cell(
-            number, watched, resume_s, available, progress_pct, is_next, width
+            number, watched, resume_s, available, progress_pct, is_next, width,
+            downloaded,
         )))
 
     @staticmethod
-    def _cell(number, watched, resume_s, available, progress_pct, is_next, width):
-        """One uniform grid cell: a state glyph and the episode number.
+    def _cell(number, watched, resume_s, available, progress_pct, is_next, width,
+              downloaded=False):
+        """One uniform grid cell: a state glyph, the episode number, and a slot
+        saying whether it is on disk.
 
         Right-aligned to a common width so the columns line up whatever the
         series length — 9 and 1175 sit in the same grid without ragging it.
+
+        "On disk" is a second, independent fact about an episode: it can be
+        watched *and* downloaded, or unwatched and downloaded. It cannot share
+        the glyph, which already carries watch state, so it gets a trailing slot
+        of its own — a space when absent, so every cell stays the same width and
+        the grid keeps its columns.
         """
         n = f"{number:g}".rjust(width)
+        disk = "[dim]⤓[/dim]" if downloaded else " "
         if not available:
-            return f"[grey42]○ {n}[/grey42]"
+            return f"[grey42]○ {n}[/grey42]{disk}"
         if watched:
-            return f"[green]✓[/green] [dim]{n}[/dim]"
+            return f"[green]✓[/green] [dim]{n}[/dim]{disk}"
         if progress_pct or resume_s:
-            return f"[green]▸[/green] [b]{n}[/b]"
+            return f"[green]▸[/green] [b]{n}[/b]{disk}"
         if is_next:
-            return f"[cyan]▶ {n}[/cyan]"
-        return f"[grey54]○[/grey54] {n}"
+            return f"[cyan]▶ {n}[/cyan]{disk}"
+        return f"[grey54]○[/grey54] {n}{disk}"
 
     @staticmethod
     def _label(number, watched, resume_s, available, progress_pct, air_label, is_next):
