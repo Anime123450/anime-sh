@@ -257,6 +257,10 @@ def meta_line(anime: Anime) -> str:
         str(anime.year) if anime.year else None,
         anime.studio,
     ]
-    line = "  ·  ".join(b for b in bits if b)
+    # One space either side of the separator, matching the genres line directly
+    # beneath it. These read as one block of facts and were set differently —
+    # "TV  ·  Finished" sitting above "Adventure · Drama" — the sort of thing
+    # nobody consciously notices and everybody notices the absence of.
+    line = " · ".join(b for b in bits if b)
     badge = score_badge(anime.average_score)
     return f"{line}   {badge}" if badge else line

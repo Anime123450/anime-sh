@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from textual.widgets import Label, ListItem
+from textual.widgets import Label, ListItem, ListView
 
 from ..domain.models import Anime
 from .format import progress_bar
@@ -47,6 +47,37 @@ class AnimeItem(ListItem):
         self._label.update(render(self._row, self._cols))
 
 
+class EpisodeGrid(ListView):
+    """A ListView laid out as a grid, whose cursor moves like one.
+
+    A ListView cursor is linear, so Down goes to the next *item* — which, once
+    the items are tiled into columns, reads as moving one cell to the right.
+    Overriding the cursor actions here rather than binding Up/Down on the screen
+    is what actually works: the focused widget's own bindings are consulted
+    before the screen's, so a screen-level Down never fires while the list has
+    focus. (Verified the hard way — the screen binding moved the cursor by one.)
+
+    `columns` is set by whoever sizes the grid; 1 keeps this behaving exactly
+    like an ordinary list until then.
+    """
+
+    columns = 1
+
+    def _step(self, delta: int) -> None:
+        count = len(self.children)
+        if not count or self.index is None:
+            return
+        # Clamped, not wrapped: in a grid, wrapping throws the cursor corner to
+        # corner instead of moving it a step.
+        self.index = max(0, min(count - 1, self.index + delta))
+
+    def action_cursor_down(self) -> None:
+        self._step(self.columns)
+
+    def action_cursor_up(self) -> None:
+        self._step(-self.columns)
+
+
 class EpisodeItem(ListItem):
     """A ListItem for a single episode, styled by state: watched (✓, dim),
     in-progress (▸ + a mini progress bar), up-next (▶, highlighted), plain
@@ -54,15 +85,43 @@ class EpisodeItem(ListItem):
 
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
                  available: bool = True, progress_pct: int | None = None,
-                 air_label: str | None = None, is_next: bool = False) -> None:
+                 air_label: str | None = None, is_next: bool = False,
+                 width: int = 4) -> None:
         self.number = number
         self.available = available
         self.watched = watched
         self.progress_pct = progress_pct
         self.is_next = is_next
-        super().__init__(Label(self._label(
+        # The full sentence — "Episode 5 · not on this source", the progress bar,
+        # the air countdown — is kept, but it no longer lives in the cell. A
+        # variable-length label cannot tile into a grid, and a one-per-line list
+        # of 1175 ONE PIECE episodes is not something anyone can use. The cell
+        # carries state and number; the screen shows this line for whichever
+        # episode the cursor is on.
+        self.detail = self._label(
             number, watched, resume_s, available, progress_pct, air_label, is_next
+        )
+        super().__init__(Label(self._cell(
+            number, watched, resume_s, available, progress_pct, is_next, width
         )))
+
+    @staticmethod
+    def _cell(number, watched, resume_s, available, progress_pct, is_next, width):
+        """One uniform grid cell: a state glyph and the episode number.
+
+        Right-aligned to a common width so the columns line up whatever the
+        series length — 9 and 1175 sit in the same grid without ragging it.
+        """
+        n = f"{number:g}".rjust(width)
+        if not available:
+            return f"[grey42]○ {n}[/grey42]"
+        if watched:
+            return f"[green]✓[/green] [dim]{n}[/dim]"
+        if progress_pct or resume_s:
+            return f"[green]▸[/green] [b]{n}[/b]"
+        if is_next:
+            return f"[cyan]▶ {n}[/cyan]"
+        return f"[grey54]○[/grey54] {n}"
 
     @staticmethod
     def _label(number, watched, resume_s, available, progress_pct, air_label, is_next):

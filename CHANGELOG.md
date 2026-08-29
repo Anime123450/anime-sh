@@ -2,6 +2,30 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.58] — 2026-08-29
+
+### Changed
+
+- **Episodes are a grid.** The detail screen listed one episode per line — 28
+  stacked rows for Frieren on a 150-column terminal, and 1175 for ONE PIECE,
+  which is not a list anyone can use. A list of numbers is the one thing that
+  genuinely wants to tile, and tiling it turns 28 rows into three.
+
+  Each cell is a state glyph and the number, right-aligned to a common width so
+  9 and 1175 sit in the same grid without ragging the columns. The sentence that
+  used to live in the row — the air countdown, "not on this source", the
+  progress bar — moved to a line beneath the grid describing whichever episode
+  the cursor is on. Nothing was dropped to make room.
+
+- **The cursor moves like a grid.** Up and Down (and `j`/`k`) step a whole row;
+  Left and Right step a single episode. It clamps at the edges rather than
+  wrapping, which in a grid would throw the cursor corner to corner instead of
+  moving it a step.
+
+- **The facts line on the detail screen is spaced like the genres line below
+  it** — `TV · Finished · 28 eps` rather than `TV  ·  Finished  ·  28 eps`. They
+  read as one block and were set two different ways.
+
 ## [0.2.57] — 2026-08-29
 
 ### Fixed

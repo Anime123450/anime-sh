@@ -15,6 +15,7 @@ import asyncio
 
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, ListView, Static
@@ -33,7 +34,7 @@ from ..format import (
     next_episode_line,
     watch_summary,
 )
-from ..widgets import EpisodeItem
+from ..widgets import EpisodeGrid, EpisodeItem
 
 # Cover width in character cells. Kept modest so the poster is a tasteful accent
 # beside the metadata, not a wall of pixels — and smaller means denser, so it
@@ -42,10 +43,47 @@ _COVER_COLS = 32
 
 
 class DetailScreen(Screen):
+    # The episode list is a grid now, so the cursor has to move like one. A
+    # ListView cursor is linear: Down goes to the next *item*, which in a grid
+    # reads as one cell to the right. Up/Down step a whole row; Left/Right step a
+    # single episode.
+    #
+    # `h`/`l` are deliberately not bound — `l` opens My List app-wide, and
+    # quietly stealing it on one screen is worse than having no vim key for
+    # sideways movement.
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("n", "next_season", "Next season"),
+        Binding("j", "grid_down", "Down", show=False),
+        Binding("k", "grid_up", "Up", show=False),
+        Binding("right", "grid_next", "Next episode", show=False),
+        Binding("left", "grid_prev", "Previous episode", show=False),
     ]
+
+    def _move_episode(self, delta: int) -> None:
+        try:
+            lv = self.query_one("#episodes", EpisodeGrid)
+        except Exception:
+            return
+        count = len(lv.children)
+        if not count or lv.index is None:
+            return
+        # Clamped rather than wrapped: rolling from episode 28 back to 1 on a
+        # stray keypress is disorienting in a grid, where it throws the cursor
+        # corner to corner instead of moving it a step.
+        lv.index = max(0, min(count - 1, lv.index + delta))
+
+    def action_grid_down(self) -> None:
+        self._move_episode(self._episode_columns())
+
+    def action_grid_up(self) -> None:
+        self._move_episode(-self._episode_columns())
+
+    def action_grid_next(self) -> None:
+        self._move_episode(1)
+
+    def action_grid_prev(self) -> None:
+        self._move_episode(-1)
 
     DEFAULT_CSS = """
     DetailScreen #detail-top { height: auto; }
@@ -76,8 +114,43 @@ class DetailScreen(Screen):
                 yield Static(self._header_text(), id="detail-meta")
             yield Static("", id="detail-progress")
             yield Static("", id="detail-action")
-            yield ListView(id="episodes")
+            yield EpisodeGrid(id="episodes")
+            # What the cell cannot say. The grid carries state and number; this
+            # line carries the sentence for whichever episode the cursor is on.
+            yield Static("", id="episode-detail")
         yield Footer()
+
+    # A cell is glyph + space + number, plus one column of gutter either side.
+    _CELL_GAP = 3
+
+    def _episode_columns(self) -> int:
+        """How many episodes fit across, given the widest number in the series."""
+        digits = len(f"{max(self._numbers, default=1):g}")
+        cell = 2 + digits + self._CELL_GAP
+        usable = max(20, (self.size.width or 100) - 6)
+        return max(1, min(12, usable // cell))
+
+    def _size_episode_grid(self) -> None:
+        try:
+            lv = self.query_one("#episodes", EpisodeGrid)
+        except Exception:
+            return
+        columns = self._episode_columns()
+        lv.styles.layout = "grid"
+        lv.styles.grid_size_columns = columns
+        lv.columns = columns  # so its cursor steps a whole row, not one cell
+
+    def on_resize(self) -> None:
+        self._size_episode_grid()
+
+    def on_list_view_highlighted(self, event) -> None:
+        """Describe the highlighted episode underneath the grid."""
+        item = event.item
+        if isinstance(item, EpisodeItem):
+            try:
+                self.query_one("#episode-detail", Static).update(item.detail)
+            except Exception:
+                pass
 
     def on_mount(self) -> None:
         self.title = self.anime.title.preferred
@@ -299,7 +372,7 @@ class DetailScreen(Screen):
         # marks / episodes workers all call here) can interleave — one clears, the
         # other clears, both append — and the list ends up doubled.
         async with self._render_lock:
-            lv = self.query_one("#episodes", ListView)
+            lv = self.query_one("#episodes", EpisodeGrid)
             await lv.clear()
             select_index = 0
             for i, number in enumerate(numbers):
@@ -311,6 +384,7 @@ class DetailScreen(Screen):
                 lv.append(
                     EpisodeItem(
                         number,
+                        width=len(f"{max(numbers, default=1):g}"),
                         watched=is_watched,
                         resume_s=1 if number == resume else 0,
                         progress_pct=pct,
@@ -320,6 +394,9 @@ class DetailScreen(Screen):
                                  and number == next_number and avail),
                     )
                 )
+            # Size the grid only now: the column count depends on the widest
+            # episode number, which is not known until the rows exist.
+            self._size_episode_grid()
             lv.index = select_index
             lv.focus()
         self._refresh_action(next_number, partial, watched_through)
