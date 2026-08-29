@@ -138,6 +138,24 @@ class PlaybackService:
         """
         self._local_path = local_path
 
+    def is_downloaded(self, anime: "Anime", episode_number: float) -> bool:
+        """Whether this episode is already on disk.
+
+        Deliberately the same authority playback itself consults, so a screen
+        cannot mark an episode as available offline while playback disagrees —
+        those two answering differently is exactly how you get an episode shown
+        as downloaded that then goes to the network anyway.
+
+        Best-effort: no binding, or an unreadable path, answers "no" rather than
+        raising. This decorates a list; it does not decide anything.
+        """
+        if self._local_path is None:
+            return False
+        try:
+            return self._local_path(anime, episode_number) is not None
+        except Exception:
+            return False
+
     def set_on_event(self, on_event: "Callable[[str], None] | None") -> None:
         """Late-bind the status hook — the CLI/TUI attach after construction."""
         self._notify = on_event or (lambda _msg: None)

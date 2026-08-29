@@ -128,3 +128,44 @@ async def test_a_single_column_grid_behaves_like_an_ordinary_list():
         await pilot.pause()
         grid.action_cursor_down()
         assert grid.index == 1
+
+
+def test_a_downloaded_episode_is_marked_without_ragging_the_grid():
+    """"On disk" is a second, independent fact: an episode can be watched *and*
+    downloaded, or unwatched and downloaded, so it cannot share the glyph that
+    already carries watch state. It gets a trailing slot — a space when absent,
+    so every cell stays the same width and the columns stay columns.
+    """
+    plain = _plain(EpisodeItem._cell(1.0, False, 0, True, None, False, 4, False))
+    on_disk = _plain(EpisodeItem._cell(1.0, False, 0, True, None, False, 4, True))
+
+    assert len(plain) == len(on_disk), "the marker changed the cell width"
+    assert on_disk != plain, "a downloaded episode looks identical to one that isn't"
+
+
+def test_every_episode_state_can_also_be_marked_on_disk():
+    """Watched, in-progress, up-next and unavailable are all states an episode
+    can be in while still sitting on disk. A marker that only works for one of
+    them would be worse than none, because its absence would mean nothing."""
+    # `_cell` directly, not `item.children[0]`: a ListItem's children are not
+    # real until it is mounted, and reaching for them here raises IndexError.
+    # (watched, resume_s, available, progress_pct, is_next)
+    states = {
+        "watched": (True, 0, True, None, False),
+        "in progress": (False, 0, True, 40, False),
+        "up next": (False, 0, True, None, True),
+        "unavailable": (False, 0, False, None, False),
+        "plain": (False, 0, True, None, False),
+    }
+    for name, args in states.items():
+        bare = _plain(EpisodeItem._cell(3.0, *args, 4, False))
+        marked = _plain(EpisodeItem._cell(3.0, *args, 4, True))
+        assert marked != bare, f"no on-disk marker for {name}"
+        assert len(marked) == len(bare), f"width changed for {name}"
+
+
+def test_the_detail_line_says_it_in_words():
+    """The marker is a glyph in a 5-cell box; the line underneath is where it
+    gets said in a way that needs no legend."""
+    assert "on disk" in EpisodeItem(1.0, downloaded=True).detail
+    assert "on disk" not in EpisodeItem(1.0).detail

@@ -2,6 +2,29 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.59] — 2026-08-29
+
+### Added
+
+- **Episodes you already have are marked in the grid.** A small `⤓` beside the
+  number, and "· on disk" on the detail line beneath — so you can see at a
+  glance what is watchable with no network. It is asked of the playback service
+  rather than the filesystem, so the mark and the thing that actually plays
+  cannot disagree; a screen claiming an episode is available offline while
+  playback goes to the network would be worse than not marking it at all.
+
+  Being on disk is independent of having watched it, so it gets a slot of its
+  own rather than sharing the state glyph — and the slot is a space when empty,
+  so every cell stays the same width and the grid keeps its columns.
+
+### Changed
+
+- **The synopsis no longer runs to the full width of the terminal.** At 1fr it
+  reached 112 columns on a 150-column window, well past the 45–75 characters a
+  line of prose is comfortably read at. It is capped at 80 now — the rows beside
+  it have always capped themselves at a measure for the same reason, and this
+  was the one place that did not.
+
 ## [0.2.58] — 2026-08-29
 
 ### Changed
