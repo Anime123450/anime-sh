@@ -48,8 +48,24 @@ AnimeItem Label {
     width: 1fr;
 }
 
-ListView > ListItem.--highlight {
-    background: $primary 40%;
+/* The class is `-highlight`, one dash. Textual applies `-highlight`; this file
+   said `--highlight`, so the selection rule matched nothing and had never
+   styled anything — a dead CSS selector raises no error and renders no
+   complaint, it just quietly does nothing.
+
+   Which list the keyboard is actually driving has to be visible. Every list
+   keeps a highlighted row so you do not lose your place when moving between
+   sections, but only the focused one gets the full-strength bar and the accent
+   bar down its left edge — the unfocused ones fade to a hint. Colour is not
+   carrying this alone: the left border is a shape, so the distinction survives
+   a monochrome terminal. */
+ListView > ListItem.-highlight {
+    background: $primary 15%;
+}
+
+ListView:focus > ListItem.-highlight {
+    background: $primary 45%;
+    border-left: thick $accent;
 }
 
 #detail-meta {
