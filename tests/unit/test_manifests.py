@@ -100,7 +100,10 @@ def test_the_portable_installer_declares_its_commands():
         (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
     )
     assert data["InstallerType"] == "portable"
-    assert set(data["Commands"]) == {"anime", "anime-sh"}
+    # Exactly one, not both. `winget validate` refuses a portable installer that
+    # declares more than one command, and it refuses it at submission time —
+    # after a maintainer has already been asked to look at the pull request.
+    assert data["Commands"] == ["anime"]
     # NestedInstallerFiles describes a file inside an archive; this installer is
     # the bare executable, and including it fails winget's validation.
     assert "NestedInstallerFiles" not in data["Installers"][0]
@@ -138,3 +141,26 @@ def test_the_scoop_manifest_can_follow_new_releases_on_its_own():
     data = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
     assert "checkver" in data and "autoupdate" in data
     assert "$version" in data["autoupdate"]["architecture"]["64bit"]["url"]
+
+
+def test_the_release_date_is_filled_in(tmp_path):
+    """winget records when a version was published. The template holds the epoch
+    so an ungenerated manifest is obviously wrong rather than subtly wrong — but
+    shipping that epoch would be worse than either."""
+    yaml = pytest.importorskip("yaml")
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(b"x")
+    out = tmp_path / "m"
+    assert main(["1.2.3", "--from-file", str(exe), "--out", str(out),
+                 "--release-date", "2026-08-30"]) == 0
+    data = yaml.safe_load(
+        (out / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    )
+    assert str(data["ReleaseDate"]) == "2026-08-30"
+
+
+def test_a_release_date_that_is_not_a_date_is_refused(tmp_path):
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(b"x")
+    assert main(["1.2.3", "--from-file", str(exe), "--out", str(tmp_path / "o"),
+                 "--release-date", "yesterday"]) == 2
