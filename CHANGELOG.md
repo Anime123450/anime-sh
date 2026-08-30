@@ -2,6 +2,41 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.64] — 2026-08-30
+
+### Fixed
+
+- **anime-sh opened the theme picker by itself on every launch.** Nothing was
+  wrong with the picker — it was simply the first thing ever bound to `t`, and
+  a `t` was arriving on its own.
+
+  The cover-art code asks the terminal for its cell size with `CSI 16 t` and
+  waits a tenth of a second for a reply that ends in the literal character `t`.
+  Windows Terminal answers more slowly than that, by which point the probe has
+  already swallowed the `ESC [` that marked the reply as a reply — so the rest
+  of it (`6;20;10t`) lands after the app has started, with nothing left to
+  identify it, and is read as key presses.
+
+  Anything left over from the probe is now cleared before the app starts. It
+  stops as soon as it has swallowed the reply's terminator, so a terminal that
+  answers costs a few milliseconds and only one that never answers waits.
+
+### Added
+
+- **`anime themes`** — lists the themes and marks the one in use; `--set` to
+  change it, `--json` for scripts. The picker inside the app is still the good
+  way to choose, because it previews live; this is for naming what is available
+  without launching it, or setting it from a dotfile.
+
+### Changed
+
+- **The preview panel places a show before it summarises one.** Genres and the
+  studio sit under the title now: they answer "is this for me" faster than a
+  paragraph of plot, and the panel had the room.
+- An unknown theme name given to `anime themes --set` is refused with a sentence
+  and the list of real ones, instead of a raw validation error with a link to
+  pydantic's website attached.
+
 ## [0.2.63] — 2026-08-30
 
 ### Added

@@ -244,3 +244,22 @@ async def test_a_cover_that_cannot_be_fetched_is_not_retried_forever():
     finally:
         home_mod.fetch_cover = original
         home_mod.HomeScreen._COVER_DEBOUNCE_S = 0.35
+
+
+def test_the_panel_places_the_show_before_it_summarises_it():
+    """Genres tell you whether a show is for you faster than a paragraph of
+    plot does, and the panel had room for both."""
+    body = _plain("\n".join(lines(
+        _anime(genres=("Action", "Fantasy", "Comedy", "Drama"), studio="Studio X"), 44
+    )))
+    assert "Action · Fantasy · Comedy" in body
+    assert "Drama" not in body, "all four genres crowded out the synopsis"
+    assert "Studio X" in body
+
+
+def test_a_show_with_no_genres_does_not_get_an_empty_line():
+    """Cached rows often know nothing but a title; a blank slot where the tags
+    would be reads as something failing to load."""
+    body = lines(_anime(genres=(), studio=None), 44)
+    assert not any(part.strip() == "·" for part in body)
+    assert body[1].strip(), "the facts line went missing"

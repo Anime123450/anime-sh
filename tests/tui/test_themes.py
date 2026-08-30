@@ -233,3 +233,73 @@ async def test_the_picker_lets_the_preview_show_through():
         assert screen.styles.background.a < 1.0, (
             "the theme picker is opaque, so nothing it previews can be seen"
         )
+
+
+# --------------------------------------------------------------------------- #
+# `anime themes`
+# --------------------------------------------------------------------------- #
+def _cli(*args):
+    """Through Typer's runner, not by calling the function.
+
+    Calling it directly skips the argument parsing, which is where this
+    project's CLI bugs have actually lived — `config set` was broken for a year
+    by Typer eating a value that began with `--`, and every direct-call test
+    passed throughout.
+    """
+    from typer.testing import CliRunner
+
+    from anime_sh.cli.main import app
+
+    return CliRunner().invoke(app, list(args))
+
+
+def test_themes_lists_every_theme_and_marks_the_current_one():
+    result = _cli("themes")
+    assert result.exit_code == 0, result.output
+    for name in ALL_THEMES:
+        assert name in result.output, f"{name} missing from the listing"
+
+
+def test_themes_json_says_which_are_ours():
+    import json
+
+    result = _cli("themes", "--json")
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    assert [r["name"] for r in rows] == list(ALL_THEMES)
+    assert sum(r["current"] for r in rows) == 1, "no single current theme"
+    ours = {r["name"] for r in rows if not r["builtin"]}
+    assert ours == set(OWN_THEMES)
+
+
+def test_themes_refuses_a_name_that_does_not_exist():
+    """And says so in a sentence. Left to the schema, a typo came back as a
+    pydantic ValidationError with a link to pydantic's website attached."""
+    result = _cli("themes", "--set", "drakula")
+    assert result.exit_code == 1
+    assert "drakula" in result.output
+    assert "pydantic" not in result.output.lower(), (
+        "the raw validation error is reaching the user"
+    )
+    assert "midnight" in result.output, "the error does not say what is available"
+
+
+def test_listing_themes_does_not_import_textual():
+    """`anime themes` prints strings. Reaching for the module that builds the
+    themes would pull the whole TUI stack into it."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys;"
+        "from typer.testing import CliRunner;"
+        "from anime_sh.cli.main import app;"
+        "r = CliRunner().invoke(app, ['themes']);"
+        "assert r.exit_code == 0, r.output;"
+        "print(sum(1 for m in sys.modules if m.startswith('textual.')))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "0", (
+        f"`anime themes` imported {out.stdout.strip()} Textual modules"
+    )

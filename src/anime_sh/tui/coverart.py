@@ -28,19 +28,103 @@ def _graphics_disabled() -> bool:
     return bool(os.environ.get("ANIME_SH_NO_GRAPHICS"))
 
 
+#: The character the probe's reply ends with — ``CSI 16 t``. Seeing it consumed
+#: means the whole answer is out of the buffer and there is nothing left to wait
+#: for, which is what lets the drain finish early on a terminal that answers.
+_PROBE_TERMINATOR = "t"
+
+
+def drain_terminal_replies(budget_s: float = 0.2, poll_s: float = 0.02) -> int:
+    """Discard whatever the capability probe left sitting in stdin.
+
+    The probe asks the terminal for its cell size with ``CSI 16 t`` and waits
+    ``0.1s`` for a reply ending in the literal character ``t``. When the terminal
+    answers more slowly than that — Windows Terminal does — two things have
+    already gone wrong: the probe has consumed and discarded the ``ESC [`` that
+    opened the reply, and the rest of it is still in the buffer. Textual then
+    starts, reads ``6;20;10t``, and, with no escape prefix left to mark it as a
+    terminal response, delivers it as **key presses**.
+
+    The last of those is ``t``. Which is how anime-sh opened its theme picker on
+    every launch: nothing was wrong with the picker, it was simply the first
+    thing ever bound to that key. `textual_image`'s own docstring calls the
+    mechanism "a bit flaky" and notes the lost first character.
+
+    Polls rather than sleeping once, and stops as soon as it has swallowed the
+    terminator — so a terminal that answers costs a few milliseconds, and only
+    one that never answers pays the whole budget. A fixed sleep had to be long
+    enough for the slowest terminal and charged every launch for it.
+
+    Returns how many characters were discarded, so a caller can tell whether it
+    did anything.
+    """
+    import sys
+    import time
+
+    stdin = sys.__stdin__
+    if stdin is None or not stdin.isatty():
+        return 0
+    deadline = time.monotonic() + budget_s
+    dropped = 0
+    while True:
+        try:
+            chunk = _read_pending()
+        except Exception:
+            # Never let tidying up stop the app from starting.
+            return dropped
+        dropped += len(chunk)
+        if _PROBE_TERMINATOR in chunk:
+            return dropped
+        if time.monotonic() >= deadline:
+            return dropped
+        time.sleep(poll_s)
+
+
+def _read_pending() -> str:
+    """Whatever is on stdin right now, without blocking."""
+    import sys
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        out = []
+        while msvcrt.kbhit() and len(out) < 4096:
+            out.append(msvcrt.getwch())
+        return "".join(out)
+
+    import os
+    import select
+
+    fd = sys.__stdin__.fileno()
+    out = []
+    while select.select([fd], [], [], 0)[0] and len(out) < 64:
+        chunk = os.read(fd, 1024)
+        if not chunk:
+            break
+        out.append(chunk.decode("utf-8", "replace"))
+    return "".join(out)
+
+
 def prime_graphics() -> None:
     """Trigger textual-image's terminal-capability probe.
 
     It queries the terminal (sends an escape, reads the reply), which only works
     *before* Textual starts its own IO threads — so the CLI calls this once at
     launch. A no-op if disabled, textual-image isn't installed, or the probe
-    fails."""
+    fails.
+
+    Always followed by `drain_terminal_replies`, including when the probe raises:
+    a probe that failed is *more* likely to have left half an answer behind, not
+    less.
+    """
     if _graphics_disabled():
         return
     try:
         import textual_image.renderable  # noqa: F401  (import runs the probe)
     except Exception:
         pass
+    finally:
+        drain_terminal_replies()
 
 
 def graphics_protocol_active() -> bool:
