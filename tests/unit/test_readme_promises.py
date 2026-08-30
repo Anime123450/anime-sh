@@ -74,3 +74,21 @@ def test_the_install_command_matches_the_published_scoop_bucket():
     homepage = json.loads(manifest.read_text())["homepage"]
     assert "scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh" in README
     assert homepage in README, "the README does not link the project it installs"
+
+
+@pytest.mark.parametrize(
+    "svg", sorted((ROOT / "docs" / "img").glob("*.svg")), ids=lambda p: p.name
+)
+def test_screenshots_declare_their_own_size(svg):
+    """An SVG with a `viewBox` but no `width`/`height` has no intrinsic size.
+    A browser falls back to the 300x150 default for a replaced element and then
+    upscales that to whatever the markup asks for — so the README's screenshots
+    rendered at 278x150 natural, blown up to 511x276, and were unreadable.
+
+    Textual's `save_screenshot` writes exactly that shape, so a regenerated
+    screenshot reintroduces it unless someone remembers. This is the reminder.
+    """
+    head = svg.read_text(encoding="utf-8")[:400]
+    assert 'width=' in head and 'height=' in head, (
+        f"{svg.name} has no intrinsic size; GitHub will render it blurry"
+    )
