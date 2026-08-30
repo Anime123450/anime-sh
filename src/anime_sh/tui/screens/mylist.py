@@ -12,7 +12,7 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListView, LoadingIndicator
 
-from ..rows import Row, columns_for
+from ..rows import Row, columns_for, title_target
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -67,16 +67,25 @@ class MyListScreen(Screen):
             )
             lv = ListView()
             await body.mount(lv)
-            cols = columns_for(self.size.width or 100)
+            built = []
             for e in rows:
                 total = e.anime.episode_count
                 prog = f"{e.progress}/{total}" if total else f"{e.progress}"
+                built.append((e, Row(
+                    title=e.anime.title.preferred,
+                    position=prog,
+                    status=f"[yellow]★ {e.score:g}[/yellow]" if e.score else "",
+                    status_cells=len(f"★ {e.score:g}") if e.score else 0,
+                )))
+            # Sized to the titles this group actually holds, like every other
+            # list on the home screen. Without it a group of short names reserved
+            # the whole measure and left the score column marooned to the right.
+            cols = columns_for(self.size.width or 100,
+                               title_target([r for _, r in built]))
+            for e, row in built:
                 lv.append(AnimeItem(
                     e.anime,
-                    Row(title=e.anime.title.preferred,
-                        position=prog,
-                        status=f"[yellow]★ {e.score:g}[/yellow]" if e.score else "",
-                        status_cells=len(f"★ {e.score:g}") if e.score else 0),
+                    row,
                     cols,
                 ))
 

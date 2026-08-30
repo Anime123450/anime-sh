@@ -13,9 +13,9 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListView, Static
 
 from ...domain.models import Season, Status
-from ..format import browse_cells, continue_cells
-from ..rows import Columns, columns_for, title_cells
-from ..upcoming import render, schedule
+from ..format import RANK_WAITING, browse_cells, continue_cells
+from ..rows import CHROME, Columns, columns_for, title_target
+from ..upcoming import render, schedule, scheduled_ids
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -169,19 +169,74 @@ class HomeScreen(Screen):
         """Column widths for the current terminal. Before the first layout the
         screen reports width 0, so fall back to a sane measure rather than
         collapsing every row to its minimum."""
-        return columns_for(self.size.width or 100)
+        return columns_for(self._body_width())
 
     def _cols_for(self, rows) -> Columns:
-        """Columns sized to the widest title *this* list actually holds."""
-        widest = max((title_cells(r) for r in rows), default=None)
-        return columns_for(self.size.width or 100, widest)
+        """Columns sized to the titles *this* list actually holds."""
+        return columns_for(self._body_width(), title_target(rows))
+
+    def _body_width(self) -> int:
+        """Cells available to Region B, the rail's base share already taken out.
+
+        The rows were being measured against the whole terminal while living in
+        a column the rail had already shortened. At 120 columns that produced
+        96-cell rows inside a 78-cell body — wider than the thing holding them.
+
+        Deliberately measured against the rail's *base* share, never the widened
+        one from `_rail_width`. The widening is computed from how much room the
+        rows turned out to need, so measuring the rows against it would close
+        the loop: wider rail, narrower body, narrower rows, more spare width,
+        wider rail again. Keeping this stable makes the widening purely a matter
+        of where the leftover cells sit.
+        """
+        width = self.size.width or 100
+        return width - (self._rail_base(width) if width >= self._RAIL_MIN_WIDTH else 0)
 
     # Region C appears only when there is genuinely room for it. Below this the
     # rows alone fill the window and a rail would be stealing from them; the
-    # monospace-design standard puts the same boundary at 120 columns, with the
-    # region expanding again on a "wide" (160+) terminal.
+    # monospace-design standard puts the same boundary at 120 columns.
     _RAIL_MIN_WIDTH = 120
-    _RAIL_WIDE_WIDTH = 160
+    _RAIL_MIN_RAIL = 34
+    _RAIL_MAX_RAIL = 72
+    _RAIL_SHARE = 0.30
+
+    def _rail_base(self, width: int) -> int:
+        """Region C's share of a ``width``-cell terminal before any leftover.
+
+        A proportion, not the old two fixed steps of 34 and 42. Those stopped
+        growing at 160 columns, so on a 200-column terminal the rail ellipsized
+        every single title at 27 characters while 54 columns sat empty between
+        it and the rows — both regions truncating on either side of a void.
+        """
+        share = round(width * self._RAIL_SHARE)
+        return max(self._RAIL_MIN_RAIL, min(self._RAIL_MAX_RAIL, share))
+
+    def _widest_row(self) -> int | None:
+        """Cells the widest row currently on screen occupies. None before any
+        list has been filled."""
+        widths = [item._cols.width for item in self.query(AnimeItem)]
+        return max(widths) if widths else None
+
+    def _rail_width(self, width: int) -> int:
+        """Region C's final width: its share, plus whatever Region B left over.
+
+        The rows size themselves to their content, so on a wide terminal they
+        stop well short of the body's edge — 100 cells inside 140. Those 40
+        cells were being left as a gutter *between* the two regions, which is
+        the one place surplus should never sit: it reads as two things that
+        failed to meet rather than one composed layout. They go to the rail,
+        whose own titles were ellipsizing at 27 characters at the time.
+
+        Never takes so much that the rows no longer fit: the upper bound is
+        exactly the width the rows are not using, so the body always keeps
+        ``widest row + CHROME``.
+        """
+        base = self._rail_base(width)
+        widest = self._widest_row()
+        if widest is None:
+            return base
+        spare = width - CHROME - widest
+        return max(base, min(self._RAIL_MAX_RAIL, spare))
 
     def _size_rail(self) -> None:
         """Show, hide and size the context rail for the current terminal."""
@@ -192,8 +247,47 @@ class HomeScreen(Screen):
         width = self.size.width or 100
         rail.display = width >= self._RAIL_MIN_WIDTH
         if rail.display:
-            rail.styles.width = 42 if width >= self._RAIL_WIDE_WIDTH else 34
+            rail.styles.width = self._rail_width(width)
             self._render_rail()
+
+    def _rail_showing(self) -> bool:
+        """Whether Region C is on screen. Asked of the width rather than of the
+        widget's `display`, because the first Continue Watching paint can land
+        before `_size_rail` has run and a `display` of False would then be read
+        as "no rail" on a terminal that is about to have one."""
+        return (self.size.width or 100) >= self._RAIL_MIN_WIDTH
+
+    def _without_rail_duplicates(self, rows):
+        """Drop the Continue Watching rows the rail has taken over.
+
+        A *waiting* row is a show you are caught up on: there is nothing to
+        play, and the row exists only to carry a countdown to the next episode.
+        That is exactly what the rail says, grouped by day and easier to read —
+        so every one of these rows was on screen twice at once. Six of six,
+        measured against the real library.
+
+        Dimming them was already an admission that they are not actionable.
+        Once something else says the same thing better, the honest move is to
+        stop saying it here, and give Continue Watching back to the rows you can
+        press Enter on.
+
+        Only rows the rail is *genuinely* showing are dropped — see
+        `scheduled_ids`. On a narrow terminal there is no rail, and a show
+        beyond the rail's horizon never reaches it; in both cases the dimmed row
+        is the only place that countdown exists, so it stays.
+        """
+        if not self._rail_showing():
+            return rows
+        on_rail = scheduled_ids(
+            schedule(self._upcoming_source, datetime.now(timezone.utc))
+        )
+        if not on_rail:
+            return rows
+        return [
+            (anime, row, resume)
+            for anime, row, resume in rows
+            if row.rank != RANK_WAITING or anime.id.anilist not in on_rail
+        ]
 
     def _render_rail(self) -> None:
         """Repaint the rail from the shows Continue Watching already loaded."""
@@ -204,15 +298,20 @@ class HomeScreen(Screen):
             return
         if not rail.display:
             return
-        width = int(rail.styles.width.value) if rail.styles.width else 34
+        width = (int(rail.styles.width.value) if rail.styles.width
+                 else self._rail_width(self.size.width or 100))
         days = schedule(self._upcoming_source, datetime.now(timezone.utc))
         body.update(render(days, width - 4))  # -4 for the rail's own padding
         self.query_one("#sec-rail").display = True
 
     def on_resize(self) -> None:
+        was_showing = getattr(self, "_rail_was_showing", None)
         self._size_rail()
-        """Re-lay-out in place. Rebuilding the lists would be simpler and would
-        also drop the user's selection every time they dragged a window edge."""
+        now_showing = self._rail_showing()
+        self._rail_was_showing = now_showing
+
+        # Re-lay-out in place. Rebuilding the lists would be simpler and would
+        # also drop the user's selection every time they dragged a window edge.
         for lv in self.query(ListView):
             items = [i for i in lv.children if isinstance(i, AnimeItem)]
             if not items:
@@ -221,10 +320,20 @@ class HomeScreen(Screen):
             for item in items:
                 item.relayout(cols)
 
+        # Whether the rail is present decides whether Continue Watching hides its
+        # waiting rows, so crossing that threshold is the one resize that has to
+        # rebuild — a relayout only re-measures the rows already there, and would
+        # leave a narrowed terminal with no rail *and* no countdowns. Every other
+        # list is relaid out above first, so this rebuild is the only work the
+        # crossing costs.
+        if was_showing is not None and was_showing != now_showing:
+            self._load_continue()
+
     def on_mount(self) -> None:
         self._debounce = None
         self._continue_ids: set[int] = set()
         self._upcoming_source: list = []
+        self._rail_was_showing = self._rail_showing()
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
@@ -346,19 +455,27 @@ class HomeScreen(Screen):
         rows.sort(key=lambda r: r[1].rank)
         sec.display = True
         lv.display = True
-        cols = self._cols_for([r for _, r, _ in rows])
-        for anime, row, resume in rows:
+        # The rail is built from every row, including the ones about to be
+        # hidden from the list — feeding it the filtered set would take the show
+        # off the rail, which would then put the row back, and the two would
+        # flip against each other on every repaint.
+        self._upcoming_source = [a for a, _, _ in rows]
+        shown = self._without_rail_duplicates(rows)
+        cols = self._cols_for([r for _, r, _ in shown])
+        for anime, row, resume in shown:
             lv.append(AnimeItem(anime, row, cols, resume_episode=resume))
-        self._set_section("#sec-continue", "Continue Watching", len(rows))
+        self._set_section("#sec-continue", "Continue Watching", len(shown))
 
         # A show you are already watching does not need to be advertised again
-        # further down the page. Seasonal listed four of these twice, with
+        # further down the page: Seasonal listed four of these twice, with
         # different metadata each time, which read as two different shows.
+        # Hidden rows count too — one you are caught up on is still one you are
+        # watching, and should not reappear in Seasonal just because the rail is
+        # carrying its countdown now.
         self._continue_ids = {a.id.anilist for a, _, _ in rows}
-        # The rail is built from exactly these objects — no extra requests. See
-        # tui/upcoming.py for why that matters.
-        self._upcoming_source = [a for a, _, _ in rows]
-        self._render_rail()
+        # Re-size first: the rail's width depends on how much room the rows
+        # turned out to need, which is only known now they exist.
+        self._size_rail()
         self._hide_seasonal_duplicates()
 
     def _hide_seasonal_duplicates(self) -> None:
@@ -443,6 +560,7 @@ class HomeScreen(Screen):
         for anime, row in built:
             lv.append(AnimeItem(anime, row, cols))
         self._set_section("#sec-favorites", "Favorites", len(items))
+        self._size_rail()
 
     @work(exclusive=True, group="seasonal")
     async def _load_seasonal(self) -> None:
@@ -486,6 +604,7 @@ class HomeScreen(Screen):
         for a, row in built:
             lv.append(AnimeItem(a, row, cols))
         self._set_section("#sec-trending", "Trending", len(animes))
+        self._size_rail()
 
     # -- search ------------------------------------------------------------- #
     def on_input_changed(self, event: Input.Changed) -> None:
