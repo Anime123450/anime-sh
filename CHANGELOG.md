@@ -2,6 +2,27 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.65] — 2026-08-30
+
+### Fixed
+
+- **anime-sh still opened the theme picker by itself on launch.** The previous
+  release fixed half of it.
+
+  `textual-image` asks the terminal two separate questions, and only one of them
+  is asked when the cover-art module is first loaded. The other — the cell-size
+  query, whose reply ends in the literal character `t` — is deferred until the
+  *bitmap* rendering path is used. Since posters started appearing on the home
+  screen, that happens a moment after launch, with the app already reading the
+  keyboard: the terminal's reply arrives as key presses, and the last one opens
+  the theme picker.
+
+  Clearing the keyboard buffer beforehand could never have helped, because the
+  question had not been asked yet. Both questions are now asked before the app
+  starts. And if either somehow is not, the bitmap path declines rather than
+  asking mid-run — a slightly softer poster is a far better outcome than the app
+  typing at itself.
+
 ## [0.2.64] — 2026-08-30
 
 ### Fixed

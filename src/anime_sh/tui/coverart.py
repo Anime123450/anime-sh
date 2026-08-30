@@ -120,7 +120,22 @@ def prime_graphics() -> None:
     if _graphics_disabled():
         return
     try:
-        import textual_image.renderable  # noqa: F401  (import runs the probe)
+        # Two separate round-trips to the terminal, and both have to happen
+        # here.
+        #
+        # Importing `renderable` asks whether Sixel/kitty are supported.
+        # Importing `widget` is what asks for the **cell size** — `CSI 16 t`,
+        # the query whose reply ends in the literal character `t`. That one is
+        # deliberately deferred by the library, and priming only `renderable`
+        # left it to fire later, from `graphics_cover_widget`, which now runs
+        # when the first poster paints on the home screen — with Textual already
+        # reading stdin. The reply arrived as key presses and the trailing `t`
+        # opened the theme picker on every launch.
+        #
+        # Both imports are cheap after the first; what matters is that the
+        # questions are asked while we still own the terminal.
+        import textual_image.renderable  # noqa: F401
+        import textual_image.widget  # noqa: F401  (import runs the cell-size query)
     except Exception:
         pass
     finally:
@@ -140,10 +155,37 @@ def graphics_protocol_active() -> bool:
         return False
 
 
+def _terminal_questions_all_answered() -> bool:
+    """True when nothing textual-image might ask the terminal is still pending.
+
+    The one deferred question is the cell size, cached on `get_cell_size` after
+    its first call. `prime_graphics` triggers it before Textual starts; this is
+    the check that we are not about to trigger it *after*.
+
+    Belt and braces on purpose. Twice now a query has turned out to fire later
+    than expected, and the symptom — the terminal's reply arriving as key
+    presses — looks nothing like a graphics bug, so it is worth making the
+    unsafe path unreachable rather than trusting that priming covered
+    everything.
+    """
+    try:
+        from textual_image._terminal import get_cell_size
+
+        return hasattr(get_cell_size, "_result")
+    except Exception:
+        return False
+
+
 def graphics_cover_widget(data: bytes, width_cells: int):
     """A textual-image widget that renders the cover as a real bitmap at
     ``width_cells`` wide, or None if that isn't possible (caller falls back to
     the unicode-block render)."""
+    if not _terminal_questions_all_answered():
+        # Importing `textual_image.widget` is what asks the terminal for its
+        # cell size. Doing that from here means asking while Textual owns
+        # stdin, and the reply comes back as key presses. A slightly softer
+        # poster is a much better outcome than the app typing at itself.
+        return None
     try:
         import io
 
