@@ -15,11 +15,12 @@ Providers, mirrors and resolvers are internal details you never have to think ab
 <img src="docs/img/home.png" alt="anime-sh running in Windows Terminal: Continue Watching with progress bars, Airing This Season, and a context panel showing the highlighted show's cover art, genres, progress and next episode" width="900">
 
 ```powershell
+irm get.scoop.sh | iex                                                    # if you don't have Scoop
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
 
-*One command. No Python, no setup — mpv comes with it.*
+*From nothing. No Python, no setup — mpv is installed with it.*
 
 </div>
 
@@ -41,9 +42,15 @@ what actually plays the video.
 **[Scoop](https://scoop.sh)** — available now:
 
 ```powershell
+irm get.scoop.sh | iex          # only if you don't already have Scoop
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
+
+> Run that first line in a **normal** PowerShell, not an administrator one —
+> Scoop installs per-user and refuses to run elevated. If it is blocked, your
+> execution policy is stricter than the default; `Set-ExecutionPolicy
+> -ExecutionPolicy RemoteSigned -Scope CurrentUser` once will let it through.
 
 **WinGet** — [pending review](https://github.com/microsoft/winget-pkgs/pull/426448); winget already ships with Windows 10 and 11:
 
