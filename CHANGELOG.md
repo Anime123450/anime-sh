@@ -2,6 +2,46 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.60] — 2026-08-30
+
+### Changed
+
+- **Continue Watching keeps only the episodes you can actually play.** The rows
+  for shows you are caught up on — dimmed, unplayable, carrying nothing but a
+  countdown to the next episode — were saying exactly what the Coming Up rail
+  says, grouped by day and easier to read. Six of twenty rows were on screen
+  twice at once. Dimming them was already an admission they are not actionable;
+  now that something else says it better, they leave the list.
+
+  They stay when the rail is not there to take them: below 120 columns there is
+  no rail at all, and a show airing beyond the rail's week-long horizon never
+  reaches it. In both cases the dimmed row is the only countdown on screen.
+
+- **A wide terminal is spent instead of left empty.** On a 200-column window the
+  rows stopped at 96 cells and the rail sat at a fixed 42, leaving 54 empty
+  columns between two regions that were *both* ellipsizing titles — the list cut
+  four of them, and the rail cut every single one at 27 characters.
+
+  The rail grows with the terminal now, and takes the width the rows turn out
+  not to need, so the leftover ends up at the edge as a margin instead of in the
+  middle as a gutter. The rows' own measure cap no longer trims titles a wide
+  terminal has room to print. The title column follows the bulk of a list's
+  titles rather than its longest, so one very long name cannot push the episode
+  column far to the right of where the short ones end.
+
+  Measured at 200 columns: the gap between the two regions falls from 54 columns
+  to 20, the rail's room for a title goes from 27 characters to 53, and one row
+  is ellipsized where four were.
+
+- My List sizes its rows to their contents too, like every list on the home
+  screen.
+
+### Fixed
+
+- Rows were being measured against the width of the *terminal* while living in a
+  column the rail had already shortened. On a 120-column terminal that laid out
+  96-cell rows inside a 78-cell body — wider than the thing holding them.
+
 ## [0.2.59] — 2026-08-29
 
 ### Added
