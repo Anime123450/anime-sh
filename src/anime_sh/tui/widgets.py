@@ -27,9 +27,16 @@ class AnimeItem(ListItem):
         cols: Columns,
         *,
         resume_episode: float | None = None,
+        fraction: float = 0.0,
     ) -> None:
         self.anime = anime
         self.resume_episode = resume_episode
+        # How far into `resume_episode` you are, 0–1. Carried on the row so the
+        # context rail can draw it for whichever row the cursor lands on: the
+        # rendered Row keeps a *bar*, which cannot be measured back into a
+        # number, and re-reading progress from the database on every keypress
+        # would put a query behind the arrow keys.
+        self.fraction = fraction
         self._row = row
         self._cols = cols
         self._label = Label(render(row, cols))

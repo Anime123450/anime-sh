@@ -31,8 +31,12 @@ from .test_app import FakePlayback, FakeSearch, ResumeItem, _noop
 
 
 def _anime(anilist: int, title: str, eps: int = 12) -> Anime:
+    # A cover URL on every show: the rail fetches one for the highlighted row,
+    # and a fixture without one would make the debounce tests pass by having
+    # nothing to debounce.
     return Anime(id=AnimeId(anilist=anilist), title=Title(romaji=title),
-                 format=Format.TV, episode_count=eps, year=2023)
+                 format=Format.TV, episode_count=eps, year=2023,
+                 cover_url=f"https://example.invalid/{anilist}.jpg")
 
 
 # Deliberately lopsided: Continue Watching holds the long titles and Seasonal
