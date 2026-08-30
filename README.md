@@ -67,19 +67,19 @@ anything) is missing.
 
 ### Windows — one command
 
-Once anime-sh is in the package managers (see
-[`packaging/`](packaging/README.md)):
-
-```powershell
-winget install AnimeshSharma.anime-sh
-winget install shinchiro.mpv            # needed to play anything
-```
-
-or, with [Scoop](https://scoop.sh):
+With [Scoop](https://scoop.sh):
 
 ```powershell
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh mpv
+```
+
+Or WinGet, once the package is accepted
+([submission](https://github.com/microsoft/winget-pkgs/pull/426448)):
+
+```powershell
+winget install AnimeshSharma.anime-sh
+winget install shinchiro.mpv            # needed to play anything
 ```
 
 Both install a **single self-contained executable** — no Python, nothing else to

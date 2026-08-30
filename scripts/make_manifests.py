@@ -40,6 +40,24 @@ def sha256_of(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def strip_comments(text: str) -> str:
+    """Drop our own notes from a manifest that is about to be published.
+
+    The templates in `packaging/winget/` are commented heavily, and those
+    comments are for whoever regenerates them here — why the installer type is
+    `portable`, why there is exactly one command, why `NestedInstallerFiles` is
+    absent. None of that belongs in a pull request to microsoft/winget-pkgs,
+    where the file is data for their tooling and the reviewer did not ask for
+    our reasoning.
+
+    Only whole-line comments are removed. A `#` inside a value is part of the
+    value — scoop URLs use one as a fragment to rename the downloaded file — so
+    this must never touch mid-line text.
+    """
+    kept = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    return "\n".join(kept).strip() + "\n"
+
+
 def render(text: str, version: str, sha256: str, release_date: str) -> str:
     """Substitute the fields that must match the published artifact."""
     text = text.replace(PLACEHOLDER_VERSION, version)
@@ -88,8 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         target = args.out / "winget" / template.name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
-            render(template.read_text(encoding="utf-8"), args.version, sha,
-                   release_date),
+            strip_comments(
+                render(template.read_text(encoding="utf-8"), args.version, sha,
+                       release_date)
+            ),
             encoding="utf-8",
         )
         written.append(target)

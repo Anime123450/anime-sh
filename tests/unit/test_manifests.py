@@ -164,3 +164,39 @@ def test_a_release_date_that_is_not_a_date_is_refused(tmp_path):
     exe.write_bytes(b"x")
     assert main(["1.2.3", "--from-file", str(exe), "--out", str(tmp_path / "o"),
                  "--release-date", "yesterday"]) == 2
+
+
+def test_submitted_winget_manifests_carry_no_house_comments(tmp_path):
+    """The templates explain themselves for whoever regenerates them here. A
+    pull request to microsoft/winget-pkgs is not the place for our reasoning —
+    the file is data for their tooling, and the reviewer did not ask."""
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(b"x")
+    out = tmp_path / "m"
+    assert main(["1.2.3", "--from-file", str(exe), "--out", str(out)]) == 0
+    for path in (out / "winget").glob("*.yaml"):
+        for line in path.read_text().splitlines():
+            assert not line.lstrip().startswith("#"), f"{path.name}: {line}"
+
+
+def test_stripping_comments_leaves_a_hash_inside_a_value_alone():
+    """A `#` mid-line is part of the value. The scoop manifest uses one as a URL
+    fragment to rename the downloaded file, and eating it would break the
+    install for everyone."""
+    from scripts.make_manifests import strip_comments
+
+    kept = strip_comments('# a note\nurl: https://x/y.exe#/anime.exe\n')
+    assert "#/anime.exe" in kept
+    assert "a note" not in kept
+
+
+def test_the_scoop_manifest_keeps_its_url_fragment(tmp_path):
+    """End to end, because that fragment is what makes scoop name the binary
+    `anime.exe` rather than `anime-sh-0.2.66-windows-x64.exe` — which is what
+    the shims point at."""
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(b"x")
+    out = tmp_path / "m"
+    assert main(["1.2.3", "--from-file", str(exe), "--out", str(out)]) == 0
+    data = json.loads((out / "scoop" / "anime-sh.json").read_text())
+    assert data["architecture"]["64bit"]["url"].endswith("#/anime.exe")
