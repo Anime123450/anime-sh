@@ -34,9 +34,20 @@ STATUS_W = 16  # "new episode", "in 4d 0h", a bar plus its percentage
 
 # A list is read by scanning down it, and a line that runs the full width of a
 # 200-column terminal makes the return sweep to the next title long enough to
-# lose your place. Cap the measure and leave the right margin empty.
-MEASURE_MAX = 96
+# lose your place. So the measure is capped — but the cap was 96, which on a
+# 200-column terminal left a 96-cell row island with 54 empty columns beside it
+# *and still ellipsized four titles*. Truncating a title while the space to
+# print it sits unused right there is the worse of the two failures.
+MEASURE_MAX = 120
 TITLE_MIN = 18
+
+# The title column is sized to this share of a list's titles, not to its widest.
+# Sizing to the widest lets one outlier set the column for everyone: "The 100
+# Girlfriends Who Really, Really, Really, Really, REALLY Love You" is 96 cells
+# and would push the episode column 50 cells right of where "BLACK TORCH" ends,
+# reintroducing exactly the ragged gap the grid exists to close. At the 90th
+# percentile the column fits all but a couple of rows, and those two ellipsize.
+TITLE_PERCENTILE = 0.9
 
 # Chrome between the screen edge and a row's own text: #body padding (2 each
 # side), ListItem padding (1 each side), and the scrollbar the body reserves.
@@ -71,15 +82,35 @@ def title_cells(row: "Row") -> int:
     return want
 
 
+def title_target(rows, pct: float = TITLE_PERCENTILE) -> int | None:
+    """The width the title column should aim for: wide enough for ``pct`` of
+    these rows, rather than for the single widest one.
+
+    Returns None for an empty list, which `columns_for` reads as "no content to
+    measure" and falls back to the width the terminal allows.
+    """
+    widths = sorted(title_cells(r) for r in rows)
+    if not widths:
+        return None
+    idx = int(round(pct * (len(widths) - 1)))
+    return widths[max(0, min(len(widths) - 1, idx))]
+
+
 def columns_for(screen_width: int, content_title: int | None = None) -> Columns:
     """Resolve column widths for a terminal ``screen_width`` cells wide.
 
-    ``content_title`` is the widest title the list actually holds. Given it, the
-    title column shrinks to fit rather than reserving room for a title nobody
-    has: a list of "BLACK TORCH" and "Tomb Raider King" left two thirds of the
-    row empty before the episode column began, and the eye had to cross all of
-    it. The column never shrinks below ``TITLE_MIN``, so the grid keeps its shape
-    when one list happens to hold only short names.
+    ``screen_width`` is the width of the *container the rows live in*, not of the
+    terminal. Once a rail takes a third of the window those are different
+    numbers, and passing the terminal's produced rows wider than the column
+    holding them.
+
+    ``content_title`` is the width the title column should aim for — see
+    `title_target`. Given it, the column shrinks to fit rather than reserving
+    room for a title nobody has (a list of "BLACK TORCH" and "Tomb Raider King"
+    left two thirds of the row empty before the episode column began), and grows
+    toward it when the terminal has width going spare. It never shrinks below
+    ``TITLE_MIN``, so the grid keeps its shape when one list happens to hold only
+    short names.
 
     Drops the least load-bearing column first. Status ("can I watch this now")
     outranks position ("which episode"), because a row you cannot act on is not

@@ -26,7 +26,9 @@ _HELP = """[b]anime-sh — keys[/b]
 episodes not yet aired are dimmed. Pick a different source in the
 picker when a show is listed more than once.
 
-Coming Up, on the right, appears on terminals 120 columns and wider.[/dim]
+Coming Up, on the right, appears on terminals 120 columns and wider, and
+carries the shows you are caught up on — so Continue Watching keeps only
+the episodes you can actually play.[/dim]
 
 [dim]Press any key to close.[/dim]"""
 

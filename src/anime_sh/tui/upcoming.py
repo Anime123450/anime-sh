@@ -6,9 +6,11 @@ already on the Anime objects the Continue Watching rows were built from, and the
 launch path has been rate-limited into the ground once already by a screen that
 fetched what it could have reused.
 
-At a wide terminal the row grid stops around column 96 (a readable measure, see
-`rows.MEASURE_MAX`), leaving most of a 190-column window empty. This fills that
-space with the one thing the main list cannot show: what has *not* aired yet.
+The rows size themselves to their content and stop short of a wide terminal's
+edge (a readable measure, see `rows.MEASURE_MAX`). This fills what they leave
+with the one thing the main list cannot show: what has *not* aired yet — and,
+because it says it better, Continue Watching now drops the dimmed rows that were
+saying the same thing. See `HomeScreen._without_rail_duplicates`.
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ class Upcoming:
     airs_at: datetime  # local time, already converted — see `schedule`
     episode: int
     title: str
+    # Which show this is, so a caller can ask "is this already on the rail?"
+    # without re-deriving the rail's own predicate. Continue Watching uses it to
+    # drop the rows the rail has taken over; matching on title instead would
+    # break on the two shows whose titles differ only by season.
+    anilist_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +79,10 @@ def schedule(animes, now: datetime, *, days: int = 7,
         ep = getattr(anime, "next_airing_episode", None)
         if at is None or ep is None or not (now < at <= horizon):
             continue
-        entries.append(Upcoming(at.astimezone(), int(ep), anime.title.preferred))
+        entries.append(Upcoming(
+            at.astimezone(), int(ep), anime.title.preferred,
+            anilist_id=getattr(getattr(anime, "id", None), "anilist", None),
+        ))
 
     entries.sort(key=lambda e: (e.airs_at, e.title))
     entries = entries[:limit]
@@ -113,3 +123,21 @@ def render(days: list[Day], width: int) -> str:
                 f"[dim]{ep.airs_at:%H:%M}  {label:<6} {title}[/dim]"
             )
     return "\n".join(lines)
+
+
+def scheduled_ids(days: list[Day]) -> set[int]:
+    """The AniList ids the rail is actually showing.
+
+    "Actually" is the load-bearing word: `schedule` drops shows beyond the
+    horizon and truncates at `limit`, so a caller must not assume that a show
+    with a future airing time made it onto the rail. Continue Watching hides its
+    waiting rows against this set rather than against that assumption, so a show
+    airing in nine days stays visible in the list where it is the only place it
+    would appear at all.
+    """
+    return {
+        e.anilist_id
+        for day in days
+        for e in day.episodes
+        if e.anilist_id is not None
+    }
