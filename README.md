@@ -12,7 +12,7 @@ Providers, mirrors and resolvers are internal details you never have to think ab
 [![Providers](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml/badge.svg)](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<img src="docs/img/rm_home.svg" alt="anime-sh home screen: Continue Watching, Airing This Season, and a Coming Up rail with cover art" width="900">
+<img src="docs/img/home.png" alt="anime-sh running in Windows Terminal: Continue Watching with progress bars, Airing This Season, and a context panel showing the highlighted show's cover art, genres, progress and next episode" width="900">
 
 ```powershell
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
@@ -27,7 +27,7 @@ scoop install anime-sh
 
 ## 📖 Contents
 
-[Install](#-install) · [What you get](#-what-you-get) · [Themes](#-themes) · [Keys](#%EF%B8%8F-keys) · [First run](#-first-run) · [AniList sync](#-sync-across-devices-anilist) · [Commands](#-command-reference) · [How it behaves](#-how-it-behaves) · [Troubleshooting](#-troubleshooting) · [Develop](#%EF%B8%8F-develop)
+[Install](#-install) · [What you get](#-what-you-get) · [Themes](#-themes) · [Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [Keys](#%EF%B8%8F-keys) · [First run](#-first-run) · [Commands](#-command-reference) · [How it behaves](#-how-it-behaves) · [Troubleshooting](#-troubleshooting) · [Develop](#%EF%B8%8F-develop)
 
 ---
 
@@ -136,18 +136,40 @@ Press **`t`**. Moving the cursor applies each theme to the whole app immediately
 so you choose by looking at anime-sh rather than at a list of names —
 <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> puts back the one you arrived with.
 
-<div align="center">
-<img src="docs/img/rm_themes.svg" alt="The theme picker, showing colour swatches for midnight, ember, paper and the built-in themes" width="820">
-</div>
+Three are anime-sh's own:
 
-Three are anime-sh's own — **midnight** (the default), **ember**, and **paper**,
-the light one — alongside tokyo-night, nord, gruvbox, dracula, catppuccin-mocha
-and solarized-light.
+| Theme | Palette | |
+|---|---|---|
+| **midnight** | ![](https://img.shields.io/badge/-0E1420?style=flat-square&color=0E1420)![](https://img.shields.io/badge/-161E2E?style=flat-square&color=161E2E)![](https://img.shields.io/badge/-26314A?style=flat-square&color=26314A)![](https://img.shields.io/badge/-5CC8D7?style=flat-square&color=5CC8D7)![](https://img.shields.io/badge/-F2B45C?style=flat-square&color=F2B45C) | the default — deep blue-black and teal, with a warm amber focus marker |
+| **ember** | ![](https://img.shields.io/badge/-17120F?style=flat-square&color=17120F)![](https://img.shields.io/badge/-211A16?style=flat-square&color=211A16)![](https://img.shields.io/badge/-372A22?style=flat-square&color=372A22)![](https://img.shields.io/badge/-E8944A?style=flat-square&color=E8944A)![](https://img.shields.io/badge/-6FC0B4?style=flat-square&color=6FC0B4) | warm and dark, with a cool accent |
+| **paper** | ![](https://img.shields.io/badge/-F2EFE7?style=flat-square&color=F2EFE7)![](https://img.shields.io/badge/-E7E2D6?style=flat-square&color=E7E2D6)![](https://img.shields.io/badge/-D2CABA?style=flat-square&color=D2CABA)![](https://img.shields.io/badge/-2F6F7E?style=flat-square&color=2F6F7E)![](https://img.shields.io/badge/-B4552A?style=flat-square&color=B4552A) | the light one, for daylight |
+
+*Background · surface · panel · primary · accent — the three background tiers are
+where the screen gets its depth, and the accent is only ever "the keyboard is
+here".*
+
+Plus tokyo-night, nord, gruvbox, dracula, catppuccin-mocha and solarized-light.
 
 ```bash
 anime themes                 # list them, marking the one in use
 anime themes --set ember     # or set it without opening the app
 ```
+
+---
+
+## 🖼️ Cover art, in a terminal
+
+<div align="center">
+<img src="docs/img/rail.png" alt="The context panel: a show's cover art above its title, format, genres, progress bar, next episode countdown, synopsis, and the action Enter will take" width="560">
+</div>
+
+The panel on the right follows your cursor. Posters render as unicode block
+sextants — 2×3 pixels per character cell — so they work in any truecolor
+terminal with nothing installed. Where a real graphics protocol is available
+(Sixel, kitty, iTerm2) it uses that instead and comes out sharper, as above.
+
+Underneath: what the show is, how far into the episode you are, when the next
+one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 
 ---
 
