@@ -23,8 +23,26 @@ _AS_WRITTEN = {
 }
 
 
+def _documented_keys() -> set[str]:
+    """Every key the cheat sheet actually names, from its key column.
+
+    Parsed out of the `[cyan]…[/cyan]` spans the sheet sets keys in, rather than
+    searched for as a substring of the whole text. Substring matching made this
+    guard useless for exactly the keys it most needed to cover: `"t" in _HELP`
+    is true because of the word "within", so binding `t` to the theme picker and
+    documenting it nowhere passed silently.
+    """
+    import re
+
+    keys: set[str] = set()
+    for span in re.findall(r"\[cyan\](.*?)\[/cyan\]", _HELP):
+        # A span can hold several keys — "↑ ↓", "j k", "g   G".
+        keys.update(part for part in span.split() if part)
+    return keys
+
+
 def _documented(key: str) -> bool:
-    return _AS_WRITTEN.get(key, key) in _HELP
+    return _AS_WRITTEN.get(key, key) in _documented_keys()
 
 
 def test_every_key_the_home_screen_binds_is_in_the_cheat_sheet():
@@ -68,3 +86,17 @@ def test_the_vim_motions_are_kept_out_of_the_footer():
     motions = {"j", "k", "g", "G"}
     shown = {b.key for b in HomeScreen.BINDINGS if getattr(b, "show", False)}
     assert not (motions & shown)
+
+
+def test_the_guard_itself_cannot_pass_on_a_coincidence():
+    """This file's whole job is catching an undocumented key, and it silently
+    stopped doing that: the check was `key in _HELP`, so any single letter
+    appearing anywhere in the prose counted as documentation. `t` was bound to
+    the theme picker, documented nowhere, and passed."""
+    keys = _documented_keys()
+    assert "t" in keys, "the theme key is missing from the cheat sheet"
+    # A letter that appears in the prose but is bound to nothing must not read
+    # as documented.
+    assert "w" not in keys, (
+        "the guard is matching prose again, not the sheet's key column"
+    )

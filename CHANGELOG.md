@@ -2,6 +2,42 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.63] — 2026-08-30
+
+### Added
+
+- **Themes, and a picker to change them.** Press `t`. Moving the cursor applies
+  the theme to the whole app straight away, so you are choosing by looking at
+  anime-sh rather than at a list of names; Enter keeps the one you are on and
+  saves it, and Escape puts back the one you arrived with, so browsing costs
+  nothing.
+
+- **Three new themes**, and a light one at last:
+
+  - **midnight** (the new default) — deep blue-black, teal, with a warm amber
+    accent that is the only warm thing in the palette, so the focused row is
+    findable at a glance rather than by reading.
+  - **ember** — warm and dark, amber with a cool accent for the same reason in
+    reverse.
+  - **paper** — light. Terminals get used in daylight, and every option here was
+    previously dark, which made "change the theme" a choice between four
+    variations on the same brightness.
+
+  Textual's own themes are still offered alongside them.
+
+### Changed
+
+- The default theme is now **midnight** rather than tokyo-night.
+
+### Fixed
+
+- **`config set ui.theme <typo>` used to report success and change nothing.**
+  The value was looked up in a table and, on a miss, the default was quietly
+  left in place — which is indistinguishable from the setting not working. A
+  theme name is validated now, and an unknown one is rejected with the list of
+  real ones. This also means a theme this app defines itself can finally be set
+  from the config file; the old table only knew Textual's.
+
 ## [0.2.62] — 2026-08-30
 
 ### Added

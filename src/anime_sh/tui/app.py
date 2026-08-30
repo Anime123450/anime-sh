@@ -22,6 +22,7 @@ from ..app.playback import PlaybackService
 from ..app.search import SearchService
 from ..domain.ports import MetadataSource
 from .screens.home import HomeScreen
+from .themes import register as register_themes
 
 
 @dataclass(slots=True)
@@ -38,13 +39,11 @@ class TuiServices:
     sync: object | None = None
 
 
-# Map our config theme names onto Textual's built-in themes.
-_THEMES = {
-    "tokyo-night": "tokyo-night",
-    "nord": "nord",
-    "gruvbox": "gruvbox",
-    "dracula": "dracula",
-}
+# There used to be a map from config theme names onto Textual's built-ins. It
+# existed only because every entry was the identity, and it silently swallowed
+# any name not in it — so a theme this app defines itself could never be applied
+# from config at all. `themes.available` is the list now, and the config value is
+# just a theme name.
 
 
 class AnimeShApp(App):
@@ -54,6 +53,7 @@ class AnimeShApp(App):
         Binding("q", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
         Binding("l", "my_list", "My List"),
+        Binding("t", "themes", "Theme"),
         # priority so `?` opens help even while the search box has focus.
         Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
@@ -84,8 +84,9 @@ class AnimeShApp(App):
         return HomeScreen()
 
     def on_mount(self) -> None:
-        if self._wanted_theme in _THEMES and _THEMES[self._wanted_theme] in self.available_themes:
-            self.theme = _THEMES[self._wanted_theme]
+        register_themes(self)
+        if self._wanted_theme in self.available_themes:
+            self.theme = self._wanted_theme
         # Playback status lines ("Episode 5/12 — trying HD-1…", "Next episode:
         # 6/12", "Skipped intro") surface as toasts.
         self.services.playback.set_on_event(self._on_playback_event)
@@ -120,6 +121,12 @@ class AnimeShApp(App):
         # Don't stack multiple help modals.
         if not isinstance(self.screen, HelpScreen):
             self.push_screen(HelpScreen())
+
+    def action_themes(self) -> None:
+        from .screens.themes import ThemesScreen
+
+        if not isinstance(self.screen, ThemesScreen):
+            self.push_screen(ThemesScreen())
 
     def action_my_list(self) -> None:
         from .screens.mylist import MyListScreen
