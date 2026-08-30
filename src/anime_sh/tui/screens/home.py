@@ -14,7 +14,13 @@ from textual.widgets import Footer, Header, Input, Label, ListView, Static
 
 from ...domain.models import Season, Status
 from ..format import RANK_WAITING, browse_cells, continue_cells
-from ..rows import CHROME, Columns, columns_for, title_target
+from ..rows import (
+    CHROME,
+    Columns,
+    columns_for_space,
+    title_cells,
+    title_target_from,
+)
 from ..upcoming import render, schedule, scheduled_ids
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
@@ -169,25 +175,88 @@ class HomeScreen(Screen):
         """Column widths for the current terminal. Before the first layout the
         screen reports width 0, so fall back to a sane measure rather than
         collapsing every row to its minimum."""
-        return columns_for(self._body_width())
+        return columns_for_space(self._row_space())
 
-    def _cols_for(self, rows) -> Columns:
-        """Columns sized to the titles *this* list actually holds."""
-        return columns_for(self._body_width(), title_target(rows))
+    def _cols_for(self, rows, key: str) -> Columns:
+        """Columns for a list about to be filled, on the screen's shared grid.
+
+        Deliberately *not* sized to this list alone. Every section sizing itself
+        put Continue Watching's episode column at column 76 and Seasonal's at
+        70, with Trending somewhere else again — three grids stacked down one
+        screen, so the eye had no vertical line to follow and the whole thing
+        read as output rather than as a layout. `rows` only contributes to the
+        shared target; it never sets it on its own.
+        """
+        # Keyed by list so a section that reloads replaces its own contribution
+        # instead of piling a second copy onto the sample.
+        self._title_widths[key] = [title_cells(r) for r in rows]
+        # Deliberately does NOT update `self._grid`. That is `_apply_grid`'s to
+        # set, and it decides whether to move the other lists by comparing
+        # against it — assign it here and the comparison always finds itself
+        # equal, so the lists already on screen never follow the new grid.
+        return columns_for_space(self._row_space(), self._grid_target())
+
+    def _row_space(self) -> int:
+        """Cells a row may actually occupy, measured from a mounted row.
+
+        Asked of the widget, not computed from a constant. The paddings between
+        the screen edge and a row's text all live in `app.tcss`, the scrollbar
+        comes and goes with the content, and `CHROME` was six cells wrong at 100
+        columns — rows overflowed their label, Textual wrapped them, `height: 1`
+        hid the overflow, and the last column silently vanished.
+
+        Before the first row exists there is nothing to measure, so the estimate
+        stands in; the first `_apply_grid` after they mount corrects it.
+        """
+        widths = [
+            item.content_region.width
+            for item in self.query(AnimeItem)
+            if item.content_region.width > 0
+        ]
+        # The narrowest, not the first. Lists do not all get the same room: a
+        # section long enough to scroll gives up two columns to its scrollbar
+        # and a short one does not, so Continue Watching measured 84 while
+        # Seasonal measured 86. One grid spans both, so it has to fit the
+        # tighter of them or the longer list silently clips its last column.
+        return min(widths) if widths else self._body_width() - CHROME
+
+    def _grid_target(self) -> int | None:
+        """The title width every list on this screen is cut to."""
+        return title_target_from(
+            [w for group in self._title_widths.values() for w in group]
+        )
+
+    def _apply_grid(self) -> None:
+        """Re-cut every list to the shared grid.
+
+        Lists arrive from independent workers, so the sample the grid is drawn
+        from grows as they land: Continue Watching alone gives one answer,
+        Continue Watching plus Seasonal another. Whenever the answer changes,
+        every list already on screen has to move to the new one — otherwise the
+        first list to arrive keeps the grid it was born with and the alignment
+        this exists to create never happens.
+        """
+        cols = columns_for_space(self._row_space(), self._grid_target())
+        if cols == getattr(self, "_grid", None):
+            return
+        self._grid = cols
+        for item in self.query(AnimeItem):
+            item.relayout(cols)
+        # Measuring is one step behind laying out: the rows this pass just
+        # re-cut may have been sized against a list that had not yet grown its
+        # scrollbar, so run once more against what is now on screen. This
+        # terminates — a row's width comes from its list, never from the text
+        # inside it, so the second pass measures the same space, computes the
+        # same columns, and returns at the check above.
+        self.call_after_refresh(self._apply_grid)
 
     def _body_width(self) -> int:
-        """Cells available to Region B, the rail's base share already taken out.
+        """Cells available to Region B, the rail's share already taken out.
 
-        The rows were being measured against the whole terminal while living in
-        a column the rail had already shortened. At 120 columns that produced
-        96-cell rows inside a 78-cell body — wider than the thing holding them.
-
-        Deliberately measured against the rail's *base* share, never the widened
-        one from `_rail_width`. The widening is computed from how much room the
-        rows turned out to need, so measuring the rows against it would close
-        the loop: wider rail, narrower body, narrower rows, more spare width,
-        wider rail again. Keeping this stable makes the widening purely a matter
-        of where the leftover cells sit.
+        Used only where nothing is mounted yet to measure — see `_row_space`.
+        The rows were once sized against the whole terminal while living in a
+        column the rail had already shortened, which at 120 columns produced
+        96-cell rows inside a 78-cell body.
         """
         width = self.size.width or 100
         return width - (self._rail_base(width) if width >= self._RAIL_MIN_WIDTH else 0)
@@ -198,7 +267,7 @@ class HomeScreen(Screen):
     _RAIL_MIN_WIDTH = 120
     _RAIL_MIN_RAIL = 34
     _RAIL_MAX_RAIL = 72
-    _RAIL_SHARE = 0.30
+    _RAIL_SHARE = 0.33
 
     def _rail_base(self, width: int) -> int:
         """Region C's share of a ``width``-cell terminal before any leftover.
@@ -211,32 +280,20 @@ class HomeScreen(Screen):
         share = round(width * self._RAIL_SHARE)
         return max(self._RAIL_MIN_RAIL, min(self._RAIL_MAX_RAIL, share))
 
-    def _widest_row(self) -> int | None:
-        """Cells the widest row currently on screen occupies. None before any
-        list has been filled."""
-        widths = [item._cols.width for item in self.query(AnimeItem)]
-        return max(widths) if widths else None
-
     def _rail_width(self, width: int) -> int:
-        """Region C's final width: its share, plus whatever Region B left over.
+        """Region C's width on a ``width``-cell terminal.
 
-        The rows size themselves to their content, so on a wide terminal they
-        stop well short of the body's edge — 100 cells inside 140. Those 40
-        cells were being left as a gutter *between* the two regions, which is
-        the one place surplus should never sit: it reads as two things that
-        failed to meet rather than one composed layout. They go to the rail,
-        whose own titles were ellipsizing at 27 characters at the time.
+        Deliberately a function of the terminal alone. An earlier version also
+        absorbed whatever Region B left unused, which read better but closed a
+        loop the moment row widths began being *measured* rather than computed:
+        a wider rail makes a narrower body, which makes a narrower measured row,
+        which leaves more spare, which widens the rail again.
 
-        Never takes so much that the rows no longer fit: the upper bound is
-        exactly the width the rows are not using, so the body always keeps
-        ``widest row + CHROME``.
+        It costs less than it sounds. The shared grid and the raised measure cap
+        let the rows use the width themselves, so on a 200-column terminal the
+        leftover is a handful of cells rather than the 54 that started this.
         """
-        base = self._rail_base(width)
-        widest = self._widest_row()
-        if widest is None:
-            return base
-        spare = width - CHROME - widest
-        return max(base, min(self._RAIL_MAX_RAIL, spare))
+        return self._rail_base(width)
 
     def _size_rail(self) -> None:
         """Show, hide and size the context rail for the current terminal."""
@@ -312,13 +369,8 @@ class HomeScreen(Screen):
 
         # Re-lay-out in place. Rebuilding the lists would be simpler and would
         # also drop the user's selection every time they dragged a window edge.
-        for lv in self.query(ListView):
-            items = [i for i in lv.children if isinstance(i, AnimeItem)]
-            if not items:
-                continue
-            cols = self._cols_for([i._row for i in items])
-            for item in items:
-                item.relayout(cols)
+        # One re-cut for the whole screen, not one per list — the grid is shared.
+        self._apply_grid()
 
         # Whether the rail is present decides whether Continue Watching hides its
         # waiting rows, so crossing that threshold is the one resize that has to
@@ -334,6 +386,10 @@ class HomeScreen(Screen):
         self._continue_ids: set[int] = set()
         self._upcoming_source: list = []
         self._rail_was_showing = self._rail_showing()
+        # Title widths per list, pooled into the one grid every section is cut
+        # to. See `_cols_for`.
+        self._title_widths: dict[str, list[int]] = {}
+        self._grid: Columns | None = None
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
@@ -461,7 +517,7 @@ class HomeScreen(Screen):
         # flip against each other on every repaint.
         self._upcoming_source = [a for a, _, _ in rows]
         shown = self._without_rail_duplicates(rows)
-        cols = self._cols_for([r for _, r, _ in shown])
+        cols = self._cols_for([r for _, r, _ in shown], "continue")
         for anime, row, resume in shown:
             lv.append(AnimeItem(anime, row, cols, resume_episode=resume))
         self._set_section("#sec-continue", "Continue Watching", len(shown))
@@ -556,7 +612,7 @@ class HomeScreen(Screen):
         self.query_one("#sec-favorites").display = True
         lv.display = True
         built = [(fav.anime, browse_cells(fav.anime)) for fav in items]
-        cols = self._cols_for([r for _, r in built])
+        cols = self._cols_for([r for _, r in built], "favorites")
         for anime, row in built:
             lv.append(AnimeItem(anime, row, cols))
         self._set_section("#sec-favorites", "Favorites", len(items))
@@ -579,7 +635,7 @@ class HomeScreen(Screen):
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
         await lv.clear()
         built = [(a, browse_cells(a)) for a in animes[:20]]
-        cols = self._cols_for([r for _, r in built])
+        cols = self._cols_for([r for _, r in built], "seasonal")
         for a, row in built:
             lv.append(AnimeItem(a, row, cols))
         # Counts the rows that survive de-duplication, not the fetch limit. The
@@ -600,7 +656,7 @@ class HomeScreen(Screen):
             lv.loading = False
         await lv.clear()
         built = [(a, browse_cells(a)) for a in animes]
-        cols = self._cols_for([r for _, r in built])
+        cols = self._cols_for([r for _, r in built], "trending")
         for a, row in built:
             lv.append(AnimeItem(a, row, cols))
         self._set_section("#sec-trending", "Trending", len(animes))
@@ -635,7 +691,7 @@ class HomeScreen(Screen):
         lv = self.query_one("#results", ListView)
         await lv.clear()
         built = [(r.anime, browse_cells(r.anime)) for r in results]
-        cols = self._cols_for([row for _, row in built])
+        cols = self._cols_for([row for _, row in built], "results")
         for anime, row in built:
             lv.append(AnimeItem(anime, row, cols))
         self._toggle_results(True)
@@ -717,3 +773,14 @@ class HomeScreen(Screen):
         # the one place that reliably knows a list is populated — and therefore
         # focusable. `_adopt_focus` is a no-op after the first success.
         self._adopt_focus()
+        # It is also the one place that knows the sample the shared grid is cut
+        # from has just grown, so the sections that arrived earlier can follow
+        # it. A no-op once nothing has changed.
+        #
+        # After the refresh, not now: the grid is cut to a *measured* row, and
+        # the rows this section just appended have no size until Textual has laid
+        # them out. Called directly, `_row_space` finds every candidate still
+        # reporting zero and falls back to the estimate — which is the thing the
+        # measurement exists to replace.
+        self.call_after_refresh(self._apply_grid)
+        self._size_rail()
