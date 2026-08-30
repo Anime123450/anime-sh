@@ -5,9 +5,14 @@ PackageVersion: 0.0.0
 # `winget uninstall` removes it cleanly. Declaring it as an `exe` installer
 # would make winget hand the binary an /S flag it does not understand.
 InstallerType: portable
+# Exactly one. winget's own validator rejects more:
+#   "Only zero or one value for Commands may be specified for InstallerType
+#    portable."
+# The PyPI package installs both `anime` and `anime-sh`; here the shorter one
+# wins, because it is the one the README and the app's own help tell people to
+# type.
 Commands:
   - anime
-  - anime-sh
 ReleaseDate: 1970-01-01
 Installers:
   - Architecture: x64
