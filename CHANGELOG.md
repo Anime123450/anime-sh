@@ -2,6 +2,52 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.61] — 2026-08-30
+
+### Changed
+
+- **The home screen has been redesigned.** It had become a wall of text: four
+  sections set in the same weight on one flat background, with the loudest thing
+  on screen — bright orange headings — carrying the least information.
+
+  - **The rows sit on a plate now.** Depth comes from three tiers of background
+    rather than from boxes, which would have cost two terminal rows per section
+    to say what a shade of colour says for free. The stylesheet had been setting
+    the screen itself to the *middle* tier, so there was nowhere left to go up
+    and everything came out the same colour.
+  - **Every section shares one column grid.** Each list used to size itself to
+    its own titles, which put Continue Watching's episode column at 76 and
+    Airing This Season's at 70, with Trending somewhere else again — three grids
+    stacked down one screen, so there was no vertical line for the eye to
+    follow.
+  - **Titles lead and metadata recedes.** The episode number is set one step
+    down from the title it belongs to, and "new episode" — the same three words
+    repeated down eight consecutive rows — no longer competes with the names
+    beside it.
+  - **Headings are structure, not decoration.** They are set in the foreground
+    colour; the accent is reserved for one thing only, which is where the
+    keyboard is.
+  - **The rail has a shape.** A single hairline was separating it from the rows,
+    which read as a leftover strip rather than a panel. Its days are set apart
+    from its episodes, and it grows with the terminal instead of stopping at 42
+    columns.
+
+- The resume bar's fill ends in a half-width tip. Whole cells gave a seven-cell
+  bar seven positions, which cannot tell 18% from 25% — both rounded to one
+  cell, so the one row on screen whose job is to say *how far in* drew the same
+  bar for two different places in an episode.
+
+### Fixed
+
+- **Rows could be drawn wider than the widget holding them, losing their last
+  column silently.** The width available to a row was computed from a constant
+  that tried to mirror paddings living in the stylesheet, and the real figure is
+  not even fixed — a list long enough to scroll gives up two columns to its
+  scrollbar and a short one does not. When it was wrong the row overflowed its
+  label, Textual wrapped the overflow onto a second line, and a one-line row
+  height hid it: "new episode" rendered as "new". Rows are measured from the
+  widget now, and cut to the narrowest list on the screen.
+
 ## [0.2.60] — 2026-08-30
 
 ### Changed

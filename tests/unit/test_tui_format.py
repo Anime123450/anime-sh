@@ -125,14 +125,14 @@ def test_continue_cells_ready_row_says_the_episode_is_waiting():
     a = _anime(status=Status.FINISHED, episode_count=12)
     row, resume = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
     assert row.position == "Ep 4/12"
-    assert row.status == "new episode"
+    assert "new episode" in row.status
     assert row.dim is False and resume == 4.0
 
 
 def test_continue_cells_ready_row_without_a_known_total():
     a = _anime(status=Status.FINISHED, episode_count=None)
     row, _ = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
-    assert row.position == "Ep 4" and row.status == "new episode"
+    assert row.position == "Ep 4" and "new episode" in row.status
 
 
 def test_continue_cells_waiting_row_is_dimmed_and_shows_only_the_countdown():
@@ -172,7 +172,7 @@ def test_continue_rows_order_resume_then_ready_then_waiting():
     ]
     rows.sort(key=lambda r: r.rank)
     assert [r.status for r in rows][0].endswith("50%")
-    assert rows[1].status == "new episode"
+    assert "new episode" in rows[1].status
     assert rows[2].dim is True
 
 
@@ -261,6 +261,29 @@ def test_progress_bar_fills_proportionally():
     assert progress_bar(-1.0, 10) == empty
 
 
+def test_a_short_bar_can_still_tell_two_low_percentages_apart():
+    """The reason the fill ends in a half-width tip rather than a whole cell. On
+    the seven-cell resume bar, 18% and 25% both round to one filled cell — so
+    two genuinely different places in an episode drew an identical bar, and the
+    one row on the screen whose job is to say "how far in" said the same thing
+    about both."""
+    from anime_sh.tui.format import progress_bar
+
+    assert progress_bar(0.18, 7) != progress_bar(0.25, 7)
+
+
+def test_the_bar_never_exceeds_its_width():
+    """A partial cell is still a cell. Counting it as extra would push the
+    percentage beside it out of the status column and rag the grid."""
+    import re
+
+    from anime_sh.tui.format import progress_bar
+
+    for pct in range(0, 101):
+        plain = re.sub(r"\[/?[^\]]+\]", "", progress_bar(pct / 100, 7))
+        assert len(plain) == 7, f"{pct}% drew {len(plain)} cells"
+
+
 def test_watch_summary_reads_watched_over_total():
     from anime_sh.tui.format import watch_summary
 
@@ -288,3 +311,17 @@ def test_sextant_table_maps_known_patterns():
 def test_render_cover_returns_none_on_garbage():
     assert render_cover(b"not an image", cols=10) is None
     assert render_cover(b"", cols=10) is None
+
+
+def test_a_marked_up_status_still_declares_its_visible_width():
+    """`render` cannot measure a string carrying markup — `[dim]new episode[/dim]`
+    is 25 characters and 11 cells — so any status with markup has to say how wide
+    it really is, or the column padded from the wrong number and every row after
+    it lost its alignment.
+    """
+    from anime_sh.domain.models import Status
+
+    a = _anime(status=Status.FINISHED, episode_count=12)
+    row, _ = continue_cells(a, _prog(3.0, 0, completed=True), _NOW)
+    assert "[" in row.status, "test premise: this status carries markup"
+    assert row.status_cells == len("new episode")

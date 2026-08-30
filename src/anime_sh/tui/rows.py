@@ -49,9 +49,20 @@ TITLE_MIN = 18
 # percentile the column fits all but a couple of rows, and those two ellipsize.
 TITLE_PERCENTILE = 0.9
 
-# Chrome between the screen edge and a row's own text: #body padding (2 each
-# side), ListItem padding (1 each side), and the scrollbar the body reserves.
-CHROME = 4 + 2 + 2
+# A fallback estimate of the chrome between the screen edge and a row's own
+# text, used only before anything is mounted to measure.
+#
+# Deliberately not a sum of the paddings in `app.tcss`: that sum was wrong every
+# time it was written, because the scrollbar comes and goes with the content and
+# this file cannot see the stylesheet at all. Measured across 100/120/160/200
+# columns the real figure ranged from 15 to 17, so this takes the *largest* —
+# erring narrow costs a couple of columns for a single frame before the measured
+# value replaces it, while erring wide overflows the row into a label that wraps
+# it onto a hidden second line and silently eats the last column. That failure
+# rendered "new episode" as "new" with the whole suite green.
+#
+# Callers holding a mounted widget should measure and use `columns_for_space`.
+CHROME = 17
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,12 +95,21 @@ def title_cells(row: "Row") -> int:
 
 def title_target(rows, pct: float = TITLE_PERCENTILE) -> int | None:
     """The width the title column should aim for: wide enough for ``pct`` of
-    these rows, rather than for the single widest one.
+    these rows, rather than for the single widest one."""
+    return title_target_from([title_cells(r) for r in rows], pct)
 
-    Returns None for an empty list, which `columns_for` reads as "no content to
-    measure" and falls back to the width the terminal allows.
+
+def title_target_from(widths, pct: float = TITLE_PERCENTILE) -> int | None:
+    """As `title_target`, from title widths already measured.
+
+    Taking widths rather than rows is what lets the home screen pool the titles
+    of *every* section into one sample and cut a single grid from it, without
+    having to keep the rows themselves alive after their list is built.
+
+    Returns None for an empty sample, which `columns_for` reads as "no content
+    to measure" and falls back to the width the terminal allows.
     """
-    widths = sorted(title_cells(r) for r in rows)
+    widths = sorted(widths)
     if not widths:
         return None
     idx = int(round(pct * (len(widths) - 1)))
@@ -116,7 +136,17 @@ def columns_for(screen_width: int, content_title: int | None = None) -> Columns:
     outranks position ("which episode"), because a row you cannot act on is not
     worth reading the episode number of.
     """
-    content = min(max(screen_width - CHROME, TITLE_MIN + GLYPH_W + GAP), MEASURE_MAX)
+    return columns_for_space(screen_width - CHROME, content_title)
+
+
+def columns_for_space(space: int, content_title: int | None = None) -> Columns:
+    """As `columns_for`, given the cells a row may actually occupy.
+
+    This is the honest entry point: the caller that owns the widget is the only
+    one that can know how much room a row really has, and `CHROME` is a guess at
+    what that widget's stylesheet does.
+    """
+    content = min(max(space, TITLE_MIN + GLYPH_W + GAP), MEASURE_MAX)
     fixed = GLYPH_W + GAP
 
     title = content - fixed - (GAP + POSITION_W) - (GAP + STATUS_W)
@@ -202,7 +232,11 @@ def render(row: Row, cols: Columns) -> str:
     cells = [row.glyph, " " * GAP, title]
 
     if cols.position:
-        cells += [" " * GAP, fit(row.position, cols.position)]
+        # Which episode is metadata about the title, not a peer of it. Set at the
+        # same weight, a row reads as three equally loud things and the eye has
+        # nowhere to land first; the whole list flattens into a log. One step
+        # down is the entire difference between a table and a dump.
+        cells += [" " * GAP, f"[dim]{fit(row.position, cols.position)}[/dim]"]
 
     if cols.status:
         visible = row.status_cells if row.status_cells is not None else cell_len(row.status)

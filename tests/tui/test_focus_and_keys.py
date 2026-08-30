@@ -96,7 +96,21 @@ async def test_the_focused_list_looks_different_from_the_others():
 
         near = cursor(focused).styles
         far = cursor(other).styles
-        assert near.background.a > far.background.a, (
+
+        # Measured as separation from the plate the rows sit on, not as alpha.
+        # Alpha was standing in for "stronger" and stopped meaning that the
+        # moment the unfocused cursor became an opaque colour a tier up: it
+        # scored 1.0 against the focused cursor's 0.4 while being, on screen,
+        # much the fainter of the two.
+        plate = focused.styles.background
+
+        def against_plate(styles):
+            bg = styles.background
+            solid = bg if bg.a == 1 else plate.blend(bg, bg.a)
+            return (abs(solid.r - plate.r) + abs(solid.g - plate.g)
+                    + abs(solid.b - plate.b))
+
+        assert against_plate(near) > against_plate(far), (
             "the focused list's cursor is no stronger than an unfocused one"
         )
         # Shape as well as colour, so the distinction survives a monochrome

@@ -144,7 +144,13 @@ def continue_cells(
             title=anime.title.preferred,
             glyph="[green]●[/green]",
             position=position,
-            status="new episode",
+            # Dim, because on a real library this is the same three words
+            # repeated down eight consecutive rows. At full weight that column
+            # becomes a block of noise the eye has to read past to reach the
+            # titles, while saying nothing the green ● has not already said. It
+            # stays as words so the row still reads without colour.
+            status="[dim]new episode[/dim]",
+            status_cells=len("new episode"),
             rank=RANK_READY,
         ),
         nxt,
@@ -180,12 +186,25 @@ def progress_bar(
     fraction: float, width: int = 12, *, color: str = "green", track: str = "grey37"
 ) -> str:
     """A slim markup progress bar ``width`` cells wide, filled to ``fraction``
-    (0–1). Uses thin horizontal rules — heavy for the filled part, light for the
-    remaining track — so it reads as a sleek line, not a chunky block."""
+    (0–1). Thin horizontal rules — heavy for the filled part, light for the
+    remaining track — so it reads as a sleek line, not a chunky block.
+
+    The heavy rule ends in a half-width tip (``╸``) when the fill lands
+    mid-cell. Whole cells alone gave a seven-cell bar only seven positions,
+    which is not enough to tell 18% from 25% — both rounded to one cell, so the
+    one row on the screen whose job is to say *how far in* drew the same bar for
+    two different places in an episode.
+
+    (Filled blocks were tried here and reverted: at full height they became the
+    heaviest thing in Continue Watching, which is not what a progress bar should
+    be — the title is.)
+    """
     fraction = 0.0 if fraction < 0 else 1.0 if fraction > 1 else fraction
-    filled = round(fraction * width)
-    filled = 0 if filled < 0 else width if filled > width else filled
-    return f"[{color}]{'━' * filled}[/{color}][{track}]{'─' * (width - filled)}[/{track}]"
+    exact = fraction * width
+    full = int(exact)
+    tip = "╸" if full < width and exact - full >= 0.5 else ""
+    rest = width - full - len(tip)
+    return f"[{color}]{'━' * full}{tip}[/{color}][{track}]{'─' * rest}[/{track}]"
 
 
 def _human_duration(minutes: int) -> str:

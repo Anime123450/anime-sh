@@ -17,6 +17,7 @@ from anime_sh.tui.rows import (
     Columns,
     Row,
     columns_for,
+    columns_for_space,
     fit,
     render,
 )
@@ -87,14 +88,20 @@ def test_wide_terminals_cap_the_measure_instead_of_sprawling():
 
 def test_narrow_terminals_drop_the_least_load_bearing_column_first():
     """Status ("can I watch this now") outranks position ("which episode"),
-    because a row you cannot act on is not worth reading the number of."""
-    wide = columns_for(120)
+    because a row you cannot act on is not worth reading the number of.
+
+    Stated in cells of row space rather than terminal width. Which terminal
+    width reaches which stage depends on `CHROME`, a fallback estimate that
+    moves whenever the stylesheet does — and this test is about the order the
+    columns are given up in, not about where the thresholds happen to land.
+    """
+    wide = columns_for_space(70)
     assert wide.position and wide.status
 
-    tight = columns_for(50)
+    tight = columns_for_space(40)
     assert tight.status and not tight.position
 
-    tiny = columns_for(26)
+    tiny = columns_for_space(25)
     assert not tiny.position and not tiny.status
     assert tiny.title >= TITLE_MIN
 

@@ -113,14 +113,21 @@ def render(days: list[Day], width: int) -> str:
     for i, day in enumerate(days):
         if i:
             lines.append("")
-        lines.append(f"[dim]{day.heading}[/dim]")
+        # The day is the only structure in the rail, so it is the one thing
+        # here allowed to be brighter than the rest. Everything was uniformly
+        # dim before, which made a week of episodes read as one
+        # undifferentiated block and left the headings doing no work.
+        lines.append(f"[b]{day.heading}[/b]")
         for ep in day.episodes:
             label = f"Ep {ep.episode}"
             title = ep.title
             if len(title) > title_w:
                 title = title[: title_w - 1].rstrip() + "…"
+            # The clock time is the scannable column and the title is the
+            # payload; the episode number sits between them and is the
+            # least looked-at thing on the line.
             lines.append(
-                f"[dim]{ep.airs_at:%H:%M}  {label:<6} {title}[/dim]"
+                f"{ep.airs_at:%H:%M}  [dim]{label:<6}[/dim] {title}"
             )
     return "\n".join(lines)
 

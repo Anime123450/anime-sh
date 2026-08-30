@@ -13,7 +13,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from anime_sh.tui.rows import CHROME, Row, columns_for, title_cells, title_target
+from anime_sh.tui.rows import (
+    CHROME,
+    Row,
+    columns_for,
+    columns_for_space,
+    title_cells,
+    title_target,
+)
 from anime_sh.tui.screens.home import HomeScreen
 
 
@@ -31,7 +38,6 @@ class _Geometry:
     _RAIL_SHARE = HomeScreen._RAIL_SHARE
     _rail_base = HomeScreen._rail_base
     _rail_width = HomeScreen._rail_width
-    _widest_row = HomeScreen._widest_row
     _body_width = HomeScreen._body_width
     _rail_showing = HomeScreen._rail_showing
 
@@ -44,11 +50,18 @@ class _Geometry:
         return self._items
 
     def resolve(self):
-        """What the screen would actually lay out at this width."""
-        cols = columns_for(self._body_width(), title_target(self._rows))
-        self._items = [SimpleNamespace(_cols=cols)]
+        """What the screen would actually lay out at this width.
+
+        Uses the `CHROME` estimate, because nothing is mounted here to measure.
+        The real screen measures a mounted row instead — see
+        `test_a_row_fits_inside_the_widget_that_holds_it`, which is the only
+        test here that can catch the estimate drifting from the stylesheet.
+        """
         rail = self._rail_width(self.size.width) if self._rail_showing() else 0
-        return cols, rail, self.size.width - rail
+        body = self.size.width - rail
+        cols = columns_for_space(body - CHROME, title_target(self._rows))
+        self._items = [SimpleNamespace(_cols=cols)]
+        return cols, rail, body
 
 
 def _rows(*widths: int) -> list[Row]:
@@ -69,26 +82,29 @@ def test_the_rows_always_fit_the_column_holding_them():
         assert cols.width <= body - CHROME, f"row overflows its body at {width} columns"
 
 
-def test_the_leftover_goes_to_the_rail_not_to_a_gutter():
-    """Rows size themselves to their content and stop short of the body's edge.
-    Those cells belong to the rail — left in the middle they read as two regions
-    that failed to meet."""
-    _cols, rail, _body = _Geometry(200, LIBRARY).resolve()
-    base = _Geometry(200, LIBRARY)._rail_base(200)
-    assert rail > base, "the rail did not take the width the rows left unused"
+def test_the_rail_width_depends_only_on_the_terminal():
+    """The rail used to absorb whatever Region B left unused, which looked
+    better but could not survive rows being *measured* rather than computed: a
+    wider rail makes a narrower body, which makes a narrower measured row, which
+    leaves more spare, which widens the rail again. Its width has to be a
+    function of something that does not depend on it."""
+    g = _Geometry(200, LIBRARY)
+    lean = _Geometry(200, _rows(11, 12, 13))
+    assert g._rail_width(200) == lean._rail_width(200)
 
 
 def test_the_gutter_is_a_margin_and_not_a_void():
-    """54 empty columns was the complaint. The rail is capped, so *some* residue
-    is expected on a very wide terminal — it just has to read as a margin."""
-    cols, rail, body = _Geometry(200, LIBRARY).resolve()
+    """54 empty columns was the complaint, and closing it no longer needs the
+    rail to absorb anything: with one grid shared across the sections and a
+    measure cap that a wide terminal can actually reach, the rows spend the
+    width themselves."""
+    cols, _rail, body = _Geometry(200, LIBRARY).resolve()
     gutter = body - CHROME - cols.width
     assert gutter <= 24, f"{gutter} columns left sitting between the rows and the rail"
 
 
 def test_the_rail_never_starves_the_rows():
-    """The rail grows into spare width, so it must never take width that is not
-    actually spare."""
+    """Region C may never take room Region B needs."""
     for width in (120, 140, 160, 180, 200, 240):
         cols, _rail, body = _Geometry(width, LIBRARY).resolve()
         assert body - CHROME >= cols.width, f"rail ate the rows at {width}"
@@ -104,8 +120,7 @@ def test_the_rail_keeps_growing_past_160_columns():
 def test_the_rail_is_capped_so_it_stays_a_margin_note():
     """It is glanced at, not read. Past a point it stops supporting the list and
     starts competing with it."""
-    g = _Geometry(400, LIBRARY)
-    _cols, rail, _body = g.resolve()
+    _cols, rail, _body = _Geometry(400, LIBRARY).resolve()
     assert rail <= HomeScreen._RAIL_MAX_RAIL
 
 
@@ -163,6 +178,65 @@ def test_crossing_the_rail_breakpoint_relayouts_before_it_rebuilds():
     import inspect
 
     src = inspect.getsource(HomeScreen.on_resize)
-    assert src.index("item.relayout") < src.index("self._load_continue()"), (
+    assert src.index("self._apply_grid()") < src.index("self._load_continue()"), (
         "the rebuild short-circuits the relayout of the other lists"
     )
+
+
+async def test_a_row_fits_inside_the_widget_that_holds_it():
+    """`CHROME` is a hand-maintained sum of the paddings declared in `app.tcss`,
+    and every other test in this file measures against it — so all of them stay
+    green when it drifts from what the stylesheet actually does.
+
+    This one asks the mounted widget instead. When the row plate gained
+    horizontal padding, rows stayed two cells too wide and the last column was
+    clipped: "new episode" rendered as "new" on a 100-column terminal, with 527
+    tests passing.
+
+    The list must be long enough to *scroll*. Two cells of `CHROME` are the
+    scrollbar, and a short list does not have one — the first version of this
+    test mounted a single row, found two cells of slack that only existed
+    because nothing was overflowing, and passed against the very bug it was
+    written for.
+    """
+    from textual.app import App, ComposeResult
+    from textual.containers import VerticalScroll
+    from textual.widgets import Label, ListView
+
+    from anime_sh.tui.widgets import AnimeItem
+
+    class _Row:
+        pass
+
+    class _Probe(App):
+        CSS_PATH = "../../src/anime_sh/tui/app.tcss"
+
+        def __init__(self, cols) -> None:
+            super().__init__()
+            self.cols = cols
+
+        def compose(self) -> ComposeResult:
+            with VerticalScroll(id="body"):
+                yield ListView(
+                    *[
+                        AnimeItem(
+                            _Row(),
+                            Row(title="x" * 40, position="Ep 9/12",
+                                status="new episode"),
+                            self.cols,
+                        )
+                        for _ in range(60)
+                    ],
+                    id="continue",
+                )
+
+    for width in (100, 120, 160, 200):
+        cols = columns_for(width, title_target(LIBRARY))
+        app = _Probe(cols)
+        async with app.run_test(size=(width, 24)) as pilot:
+            await pilot.pause()
+            label = app.query_one(AnimeItem).query_one(Label)
+            assert label.content_region.width >= cols.width, (
+                f"at {width} columns a {cols.width}-cell row is drawn into "
+                f"{label.content_region.width} cells — the last column is clipped"
+            )
