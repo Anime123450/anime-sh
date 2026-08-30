@@ -7,7 +7,7 @@ Secrets (AniList tokens) never live in this file — they go to the OS keyring.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,7 +47,25 @@ class ResolversConfig(BaseModel):
 
 
 class UiConfig(BaseModel):
-    theme: str = "tokyo-night"
+    theme: str = "midnight"
+
+    @field_validator("theme")
+    @classmethod
+    def _known_theme(cls, v: str) -> str:
+        """Reject a theme name nothing will apply.
+
+        The old code looked the value up in a dict and, on a miss, simply left
+        the default theme in place — so `config set ui.theme drakula` reported
+        success and changed nothing, which is indistinguishable from the setting
+        not working. Validated here, the typo is caught where it is made.
+        """
+        from ..theme_names import ALL_THEMES
+
+        if v not in ALL_THEMES:
+            raise ValueError(
+                f"unknown theme {v!r}; choose one of: " + ", ".join(ALL_THEMES)
+            )
+        return v
 
 
 class DownloadsConfig(BaseModel):

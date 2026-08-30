@@ -187,3 +187,15 @@ ListView:focus > ListItem.-highlight {
     margin: 1 0;
     color: $panel;
 }
+
+/* The theme picker composites over whatever is behind it. A theme is chosen by
+   seeing it applied to a screen full of rows, headings and a poster — behind an
+   opaque modal the live preview changes nothing you can look at, which is the
+   entire feature.
+
+   It has to live here rather than in the screen's own DEFAULT_CSS: the
+   `Screen` rule at the top of this file is app-level CSS and outranks a
+   widget's DEFAULT_CSS, so it silently won and the modal came out solid. */
+ThemesScreen {
+    background: $background 55%;
+}
