@@ -2,6 +2,29 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.67] — 2026-08-30
+
+### Fixed
+
+- **Tab now moves between sections, which is what it was documented to do.**
+  Both the README and the `?` sheet said "next section"; Textual's default focus
+  chain walks every focusable widget instead. On this screen that meant Tab also
+  landed on the body and the Coming Up rail — scroll containers that take focus,
+  draw no cursor, and turn the arrow keys into panel scrolling. Three presses
+  behaved as described and the fourth left you somewhere with nothing selected
+  and no way to tell why.
+
+  It cycles the lists that are on screen and have rows in them, wraps round at
+  the end, and `Shift+Tab` goes back the other way. Empty and hidden sections are
+  skipped — landing on Favorites before you have starred anything, or on a browse
+  list hidden behind search results, is landing nowhere.
+
+- The installation instructions on a machine without Scoop were incomplete: they
+  opened with `scoop bucket add`, which needs Scoop. Both of Scoop's own
+  quickstart lines are included now, verbatim — including the execution-policy
+  one, without which Windows refuses the install with a message about running
+  scripts being disabled.
+
 ## [0.2.66] — 2026-08-30
 
 ### Added

@@ -20,6 +20,10 @@ _AS_WRITTEN = {
     "escape": "Esc",
     "question_mark": "?",
     "slash": "/",
+    # Textual names these in lower case; the sheet writes them the way a person
+    # reads them off a keyboard.
+    "tab": "Tab",
+    "shift+tab": "Shift+Tab",
 }
 
 

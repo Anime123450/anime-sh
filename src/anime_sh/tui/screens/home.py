@@ -78,6 +78,14 @@ class HomeScreen(Screen):
     # selecting the box and deleting it by hand.
     BINDINGS = [
         Binding("escape", "clear_search", "Clear search", show=False),
+        # Tab is documented — in the README and on the `?` sheet — as "next
+        # section", and Textual's default focus chain does not do that. Left to
+        # itself it walks every focusable widget, which here means `#body` and
+        # `#rail`: scroll containers that take focus, show no cursor, and turn
+        # the arrow keys into panel scrolling. Four presses of Tab left you
+        # somewhere with nothing selected and no way to tell why.
+        Binding("tab", "next_section", "Next section", show=False),
+        Binding("shift+tab", "previous_section", "Previous section", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("g", "cursor_top", "Top", show=False),
@@ -136,6 +144,37 @@ class HomeScreen(Screen):
     # `j`/`k` and `g`/`G` are the vocabulary a terminal user reaches for first,
     # and cost nothing next to the arrow keys they sit beside. Bound on the
     # screen rather than globally so typing "j" into the search box stays typing.
+    def _sections(self) -> list[ListView]:
+        """The lists Tab moves between: on screen, and with something in them.
+
+        An empty or hidden list is not a place to land — during a search the
+        browse sections are hidden, and Favorites stays empty until you star
+        something.
+        """
+        out = []
+        for wid in (*self._FOCUS_ORDER, "#results"):
+            try:
+                lv = self.query_one(wid, ListView)
+            except Exception:
+                continue
+            if lv.display and len(lv.children):
+                out.append(lv)
+        return out
+
+    def _cycle_section(self, step: int) -> None:
+        sections = self._sections()
+        if not sections:
+            return
+        current = self._focused_list()
+        index = sections.index(current) if current in sections else -step
+        sections[(index + step) % len(sections)].focus()
+
+    def action_next_section(self) -> None:
+        self._cycle_section(1)
+
+    def action_previous_section(self) -> None:
+        self._cycle_section(-1)
+
     def _focused_list(self) -> ListView | None:
         node = self.focused
         return node if isinstance(node, ListView) else None

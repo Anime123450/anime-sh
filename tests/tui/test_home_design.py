@@ -174,3 +174,80 @@ async def test_the_focus_marker_costs_every_row_the_same_width():
             if isinstance(item, AnimeItem) and item.content_region.width
         }
         assert len(widths) == 1, f"rows in one list have differing widths: {widths}"
+
+
+async def test_tab_moves_between_sections_and_nowhere_else():
+    """Both the README and the `?` sheet say Tab means "next section", and
+    Textual's default focus chain does not do that.
+
+    Left alone it walks every focusable widget, which on this screen includes
+    `#body` and `#rail` — scroll containers that accept focus, draw no cursor,
+    and turn the arrow keys into panel scrolling. Measured before the fix, four
+    presses went: continue → seasonal → trending → **rail** → **search** →
+    **body**, so the documented behaviour was true for three presses and then
+    quietly stopped being true.
+    """
+    from textual.widgets import ListView
+
+    app = _app()
+    async with app.run_test(size=(200, 44)) as pilot:
+        await _settle(app, pilot)
+
+        seen = []
+        for _ in range(6):
+            await pilot.press("tab")
+            await pilot.pause()
+            seen.append(app.focused)
+
+        assert all(isinstance(w, ListView) for w in seen), (
+            "Tab landed on something that is not a list: "
+            + ", ".join(f"#{w.id}" if w is not None else "nothing" for w in seen)
+        )
+        ids = [w.id for w in seen]
+        assert "body" not in ids and "rail" not in ids, f"Tab reached a container: {ids}"
+
+
+async def test_tab_wraps_round_rather_than_stopping():
+    """A cycle that dead-ends at the last section makes the key feel broken."""
+    app = _app()
+    async with app.run_test(size=(200, 44)) as pilot:
+        await _settle(app, pilot)
+        first = app.focused.id
+        seen = set()
+        for _ in range(8):
+            await pilot.press("tab")
+            await pilot.pause()
+            seen.add(app.focused.id)
+        assert first in seen, "Tab never came back round to where it started"
+
+
+async def test_shift_tab_goes_the_other_way():
+    app = _app()
+    async with app.run_test(size=(200, 44)) as pilot:
+        await _settle(app, pilot)
+        start = app.focused.id
+        await pilot.press("tab")
+        await pilot.pause()
+        await pilot.press("shift+tab")
+        await pilot.pause()
+        assert app.focused.id == start
+
+
+async def test_tab_skips_a_section_with_nothing_in_it():
+    """Favorites stays empty until you star something, and searching hides the
+    browse lists. Landing on either is landing nowhere."""
+    from textual.widgets import ListView
+
+    app = _app()
+    async with app.run_test(size=(200, 44)) as pilot:
+        await _settle(app, pilot)
+        empty = [lv.id for lv in app.screen.query(ListView)
+                 if not len(lv.children) or not lv.display]
+        assert empty, "test premise: no empty or hidden list to skip"
+
+        for _ in range(6):
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.focused.id not in empty, (
+                f"Tab stopped on #{app.focused.id}, which has no rows"
+            )

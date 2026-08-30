@@ -193,7 +193,7 @@ one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 |---|---|
 | <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move within a list |
 | <kbd>g</kbd> / <kbd>G</kbd> | first / last row |
-| <kbd>Tab</kbd> | next section |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous section |
 | <kbd>Enter</kbd> | open a show, or play the highlighted episode |
 | <kbd>/</kbd> | search |
 | <kbd>Esc</kbd> | clear the search, or go back |
