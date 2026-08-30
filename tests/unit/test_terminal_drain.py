@@ -129,3 +129,61 @@ def test_the_stray_t_never_reaches_the_app(monkeypatch):
 
     dropped = coverart.drain_terminal_replies(budget_s=1, poll_s=0)
     assert dropped == len(reply), "the probe reply was left for Textual to read"
+
+
+def test_every_terminal_query_is_asked_before_the_app_starts():
+    """The bug that survived the first fix.
+
+    `textual-image` asks the terminal two separate questions. Importing
+    `renderable` asks about Sixel/kitty support. Importing `widget` asks for the
+    **cell size** — `CSI 16 t`, the one whose reply ends in the literal `t`.
+
+    The first fix primed only `renderable`, so the cell-size query stayed
+    deferred and fired later from `graphics_cover_widget` — which, now that
+    posters render on the home screen, runs while Textual is reading stdin. The
+    reply came back as key presses and the trailing `t` reopened the picker.
+
+    Draining is useless against a question that has not been asked yet, so the
+    property worth asserting is not "stdin is clear" but "nothing is left to
+    ask".
+
+    Run in a subprocess because the thing being measured is an *import side
+    effect*: once `textual_image.widget` is in `sys.modules`, importing it again
+    does nothing, and clearing the cache by hand tests only the clearing. The
+    first version of this test did exactly that and failed against the fix.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "from anime_sh.tui.coverart import prime_graphics;"
+        "prime_graphics();"
+        "from textual_image._terminal import get_cell_size;"
+        "print(hasattr(get_cell_size, '_result'))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    if out.returncode != 0 and "textual_image" in out.stderr:
+        __import__("pytest").skip("textual-image not installed")
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "True", (
+        "prime_graphics left the cell-size query to fire later, from inside the "
+        "running app"
+    )
+
+
+def test_the_bitmap_path_refuses_to_ask_the_terminal_anything_mid_run():
+    """The structural half of the fix.
+
+    Priming is a promise that every query has already been made; this is what
+    happens when the promise is broken. Rather than import the module that asks
+    the terminal for its cell size — while Textual is reading stdin, so the
+    reply arrives as key presses — the bitmap path declines and the caller falls
+    back to the unicode render. A slightly softer poster beats the app typing at
+    itself.
+    """
+    original = coverart._terminal_questions_all_answered
+    coverart._terminal_questions_all_answered = lambda: False
+    try:
+        assert coverart.graphics_cover_widget(b"whatever", 20) is None
+    finally:
+        coverart._terminal_questions_all_answered = original
