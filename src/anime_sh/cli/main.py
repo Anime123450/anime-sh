@@ -295,6 +295,57 @@ def config_set(
     console.print(f"[green]Set[/] {key} = [bold]{typed}[/]")
 
 
+@app.command("themes")
+def themes_cmd(
+    set_to: str = typer.Option(None, "--set", help="switch to this theme"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List the themes, and say which one is in use.
+
+    The picker inside the TUI (`t`) is the good way to choose one, because it
+    previews live. This is for the times you cannot see it: naming what is
+    available without launching the app, and setting it from a script or a
+    dotfile.
+
+    Deliberately reads the names from `anime_sh.theme_names`, which is
+    dependency-free — reaching for the module that builds the themes would pull
+    Textual into a command that only prints strings.
+    """
+    from ..config import set_config_value
+    from ..theme_names import ALL_THEMES, OWN_THEMES
+
+    if set_to is not None:
+        # Checked here as well as in the schema. The schema's job is to stop a
+        # bad value being stored; this one's is to say so in a sentence, rather
+        # than handing back a pydantic ValidationError complete with a link to
+        # pydantic's website — which is what a typo produced.
+        if set_to not in ALL_THEMES:
+            err.print(f"[red]No theme called[/] [bold]{set_to}[/][red].[/]")
+            err.print("Available: " + ", ".join(ALL_THEMES))
+            raise typer.Exit(code=1)
+        try:
+            set_config_value("ui.theme", set_to)
+        except Exception as e:
+            err.print(f"[red]{e}[/]")
+            raise typer.Exit(code=1)
+        console.print(f"[green]Theme set to[/] [bold]{set_to}[/]")
+        return
+
+    current = load_config().ui.theme
+    if as_json:
+        json.dump(
+            [{"name": n, "current": n == current, "builtin": n not in OWN_THEMES}
+             for n in ALL_THEMES],
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+    for name in ALL_THEMES:
+        mark = "[green]*[/]" if name == current else " "
+        origin = "" if name in OWN_THEMES else "  [dim]textual[/dim]"
+        console.print(f" {mark} {name}{origin}")
+
+
 @providers_app.command("ls")
 def providers_ls(as_json: bool = typer.Option(False, "--json")) -> None:
     """List installed providers, and say which ones are switched off.

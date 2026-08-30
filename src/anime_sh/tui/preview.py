@@ -77,7 +77,18 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
     """The rail's preview block, as markup lines at most ``width`` cells wide."""
     width = max(12, width)
     out: list[str] = [f"[b]{fit(anime.title.preferred, width).rstrip()}[/b]",
-                      f"[dim]{facts(anime)}[/dim]", ""]
+                      f"[dim]{facts(anime)}[/dim]"]
+
+    # Genres are the fastest way to tell whether a show is for you, and the
+    # panel had the room — it was showing a synopsis and no way to place it.
+    # Studio sits with them because it answers the same "what kind of thing is
+    # this" question a paragraph of plot does not.
+    tags = list(anime.genres[:3])
+    if anime.studio:
+        tags.append(anime.studio)
+    if tags:
+        out.append(f"[dim]{fit(' · '.join(tags), width).rstrip()}[/dim]")
+    out.append("")
 
     if fraction > 0:
         pct = round(fraction * 100)
