@@ -153,3 +153,16 @@ def test_a_wide_terminal_reaches_the_column_the_content_asked_for():
     assert cols.title == target, (
         f"title column stopped at {cols.title} while the content asked for {target}"
     )
+
+
+def test_crossing_the_rail_breakpoint_relayouts_before_it_rebuilds():
+    """Resizing past 120 columns changes the body width for *every* list, not
+    just Continue Watching. An early return here left favourites, seasonal and
+    trending laid out for the old width until something else happened to touch
+    them."""
+    import inspect
+
+    src = inspect.getsource(HomeScreen.on_resize)
+    assert src.index("item.relayout") < src.index("self._load_continue()"), (
+        "the rebuild short-circuits the relayout of the other lists"
+    )

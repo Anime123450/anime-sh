@@ -307,17 +307,11 @@ class HomeScreen(Screen):
     def on_resize(self) -> None:
         was_showing = getattr(self, "_rail_was_showing", None)
         self._size_rail()
-        # Whether the rail is present decides whether Continue Watching hides its
-        # waiting rows, so crossing that threshold has to rebuild the list — a
-        # relayout only re-measures the rows that are already there, and would
-        # leave a narrow terminal with no rail *and* no countdowns.
         now_showing = self._rail_showing()
         self._rail_was_showing = now_showing
-        if was_showing is not None and was_showing != now_showing:
-            self._load_continue()
-            return
-        """Re-lay-out in place. Rebuilding the lists would be simpler and would
-        also drop the user's selection every time they dragged a window edge."""
+
+        # Re-lay-out in place. Rebuilding the lists would be simpler and would
+        # also drop the user's selection every time they dragged a window edge.
         for lv in self.query(ListView):
             items = [i for i in lv.children if isinstance(i, AnimeItem)]
             if not items:
@@ -325,6 +319,15 @@ class HomeScreen(Screen):
             cols = self._cols_for([i._row for i in items])
             for item in items:
                 item.relayout(cols)
+
+        # Whether the rail is present decides whether Continue Watching hides its
+        # waiting rows, so crossing that threshold is the one resize that has to
+        # rebuild — a relayout only re-measures the rows already there, and would
+        # leave a narrowed terminal with no rail *and* no countdowns. Every other
+        # list is relaid out above first, so this rebuild is the only work the
+        # crossing costs.
+        if was_showing is not None and was_showing != now_showing:
+            self._load_continue()
 
     def on_mount(self) -> None:
         self._debounce = None
