@@ -1,0 +1,10 @@
+# winget package identity. Submitted to microsoft/winget-pkgs as
+# manifests/a/AnimeshSharma/anime-sh/<version>/ — three files, this one plus the
+# locale and installer manifests beside it.
+#
+# Regenerate for a release with: python scripts/make_manifests.py <version>
+PackageIdentifier: AnimeshSharma.anime-sh
+PackageVersion: 0.0.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

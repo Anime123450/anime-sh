@@ -1,0 +1,43 @@
+{
+    "version": "0.0.0",
+    "description": "The terminal-native anime client - providers, mirrors and resolvers, handled for you.",
+    "homepage": "https://github.com/Anime123450/anime-sh",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Anime123450/anime-sh/releases/download/v0.0.0/anime-sh-0.0.0-windows-x64.exe#/anime.exe",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+    },
+    "bin": [
+        [
+            "anime.exe",
+            "anime"
+        ],
+        [
+            "anime.exe",
+            "anime-sh"
+        ]
+    ],
+    "suggest": {
+        "mpv": "mpv",
+        "ffmpeg": "ffmpeg"
+    },
+    "checkver": {
+        "github": "https://github.com/Anime123450/anime-sh"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Anime123450/anime-sh/releases/download/v$version/anime-sh-$version-windows-x64.exe#/anime.exe"
+            }
+        },
+        "hash": {
+            "url": "$baseurl/anime.exe.sha256"
+        }
+    },
+    "notes": [
+        "anime-sh needs mpv on PATH to play anything:  scoop install mpv",
+        "and ffmpeg only if you use `anime download`:  scoop install ffmpeg"
+    ]
+}

@@ -1,0 +1,140 @@
+"""A package manifest is a promise that an exact file is at an exact URL.
+
+The two fields nobody should ever type by hand are the version and the hash: get
+either wrong and `winget install` fails on a checksum mismatch for everyone, and
+the fix is another pull request to a Microsoft-owned repo. So they are generated
+from the artifact, and these tests cover the generation.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import pathlib
+
+import pytest
+
+from scripts.make_manifests import PLACEHOLDER_HASH, PLACEHOLDER_VERSION, main
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+
+
+def _render(tmp_path, version="1.2.3", body=b"pretend this is an exe"):
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(body)
+    out = tmp_path / "manifests"
+    code = main([version, "--from-file", str(exe), "--out", str(out)])
+    assert code == 0
+    return out, hashlib.sha256(body).hexdigest()
+
+
+def test_the_hash_comes_from_the_file_not_from_a_human(tmp_path):
+    out, expected = _render(tmp_path)
+    installer = (out / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    assert expected in installer
+    assert PLACEHOLDER_HASH not in installer
+
+
+def test_every_manifest_carries_the_same_version(tmp_path):
+    """winget rejects a manifest set whose three files disagree, and the error
+    it gives points at the file, not at the disagreement."""
+    out, _ = _render(tmp_path, version="9.9.9")
+    for path in (out / "winget").glob("*.yaml"):
+        text = path.read_text()
+        assert "9.9.9" in text, path.name
+        assert PLACEHOLDER_VERSION not in text, f"{path.name} kept the placeholder"
+
+
+def test_the_download_url_points_at_the_tag_being_released(tmp_path):
+    """The release asset is named for its version, so the URL and the filename
+    have to move together — a manifest pointing at last release's file installs
+    last release."""
+    out, _ = _render(tmp_path, version="4.5.6")
+    installer = (out / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    assert "releases/download/v4.5.6/anime-sh-4.5.6-windows-x64.exe" in installer
+
+
+def test_the_scoop_manifest_still_parses_after_substitution(tmp_path):
+    """It is JSON, and a template substitution is perfectly capable of producing
+    something that no longer is."""
+    out, expected = _render(tmp_path, version="2.0.0")
+    data = json.loads((out / "scoop" / "anime-sh.json").read_text())
+    assert data["version"] == "2.0.0"
+    assert data["architecture"]["64bit"]["hash"] == expected
+    assert "v2.0.0" in data["architecture"]["64bit"]["url"]
+
+
+def test_a_version_that_is_not_a_version_is_refused(tmp_path):
+    exe = tmp_path / "anime.exe"
+    exe.write_bytes(b"x")
+    assert main(["v1.2.3", "--from-file", str(exe), "--out", str(tmp_path / "o")]) == 2
+    assert main(["latest", "--from-file", str(exe), "--out", str(tmp_path / "o")]) == 2
+
+
+def test_a_hash_that_is_not_a_hash_is_refused(tmp_path):
+    assert main(["1.2.3", "--sha256", "nope", "--out", str(tmp_path / "o")]) == 2
+
+
+def test_a_missing_artifact_is_refused_rather_than_hashed_as_nothing(tmp_path):
+    assert main(["1.2.3", "--from-file", str(tmp_path / "gone.exe"),
+                 "--out", str(tmp_path / "o")]) == 2
+
+
+@pytest.mark.parametrize("name", [
+    "AnimeshSharma.anime-sh.yaml",
+    "AnimeshSharma.anime-sh.locale.en-US.yaml",
+    "AnimeshSharma.anime-sh.installer.yaml",
+])
+def test_the_committed_templates_are_valid_yaml(name):
+    yaml = pytest.importorskip("yaml")
+    data = yaml.safe_load((ROOT / "packaging" / "winget" / name).read_text())
+    assert data["PackageIdentifier"] == "AnimeshSharma.anime-sh"
+
+
+def test_the_portable_installer_declares_its_commands():
+    """`InstallerType: portable` is what puts a single .exe on PATH without
+    running an installer. Without `Commands`, winget installs the file and
+    leaves no way to run it."""
+    yaml = pytest.importorskip("yaml")
+    data = yaml.safe_load(
+        (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    )
+    assert data["InstallerType"] == "portable"
+    assert set(data["Commands"]) == {"anime", "anime-sh"}
+    # NestedInstallerFiles describes a file inside an archive; this installer is
+    # the bare executable, and including it fails winget's validation.
+    assert "NestedInstallerFiles" not in data["Installers"][0]
+
+
+def test_the_release_workflow_builds_and_verifies_the_bundle():
+    """The bundle is what winget and scoop install. If the release stops
+    producing it, the manifests point at a URL that 404s and every new install
+    fails — while the release itself looks green."""
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+
+    assert "bundle-windows" in wf["jobs"], "nothing builds the standalone exe"
+    assert "bundle-windows" in wf["jobs"]["github-release"]["needs"], (
+        "the release can publish without waiting for the bundle"
+    )
+    steps = wf["jobs"]["bundle-windows"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    assert any("must actually work" in n for n in names), (
+        "the bundle is built but never run before being published"
+    )
+
+
+def test_the_release_attaches_the_versioned_executable():
+    """winget pins an exact filename. Publishing it under a name the manifests
+    do not expect is the same as not publishing it."""
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe" in text
+    assert "anime.exe.sha256" in text, "no checksum published beside the binary"
+
+
+def test_the_scoop_manifest_can_follow_new_releases_on_its_own():
+    """A bucket nobody updates is worse than no bucket: it keeps installing an
+    old version forever, silently."""
+    data = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
+    assert "checkver" in data and "autoupdate" in data
+    assert "$version" in data["autoupdate"]["architecture"]["64bit"]["url"]

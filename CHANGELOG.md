@@ -2,6 +2,36 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.66] — 2026-08-30
+
+### Added
+
+- **Every release now carries a standalone Windows executable.** One file,
+  about 30 MB, with Python and every dependency inside it —
+  `anime-sh-<version>-windows-x64.exe` on the release page, with its checksum
+  beside it. The build existed before but had to be run by hand and was never
+  published; it is built, *verified* and attached automatically now.
+
+  The verification matters: a bundle missing its package metadata builds
+  perfectly, runs, and reports version `0.0.0+unknown` with no providers — an
+  app that cannot play anything, released green. The release now runs the
+  executable and refuses to publish one that cannot see its own plugins.
+
+- **Package manifests for WinGet and Scoop**, in `packaging/`, plus
+  `scripts/make_manifests.py` to fill in the version, URL and checksum from the
+  built artifact. Those are the two fields that must never be typed by hand: get
+  either wrong and every install fails on a checksum mismatch.
+
+### Changed
+
+- **`anime doctor` now says how to fix what it found.** "mpv: not found on PATH"
+  is a diagnosis, not help — especially for someone who downloaded a single
+  executable precisely so they would not have to think about this. It now names
+  a package manager you actually have (`winget` / `scoop` / `choco` / `brew`),
+  and the package name that manager really publishes.
+- The packaging notes said the bundle was 145 MB and that one build flag was
+  load-bearing. Both were out of date; re-measured and re-checked, and corrected.
+
 ## [0.2.65] — 2026-08-30
 
 ### Fixed

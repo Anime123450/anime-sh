@@ -65,6 +65,31 @@ anything) is missing.
 
 ## Install
 
+### Windows — one command
+
+Once anime-sh is in the package managers (see
+[`packaging/`](packaging/README.md)):
+
+```powershell
+winget install AnimeshSharma.anime-sh
+winget install shinchiro.mpv            # needed to play anything
+```
+
+or, with [Scoop](https://scoop.sh):
+
+```powershell
+scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
+scoop install anime-sh mpv
+```
+
+Both install a **single self-contained executable** — no Python, nothing else to
+set up. `anime doctor` will tell you if anything is still missing, and the exact
+command to fix it.
+
+The same executable is attached to every
+[release](https://github.com/Anime123450/anime-sh/releases) as
+`anime-sh-<version>-windows-x64.exe` if you would rather just download it.
+
 ### Easiest on Windows — one file, no terminal
 
 Download this repo (green **Code** button → **Download ZIP**), unzip it, and
