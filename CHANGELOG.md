@@ -2,6 +2,36 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.62] — 2026-08-30
+
+### Added
+
+- **The right-hand panel now shows the show your cursor is on — with its
+  poster.** It was a second list of upcoming episodes and nothing else, which
+  left the home screen as three lists beside a fourth, with no focal point and
+  not one image on it — in a client for a visual medium.
+
+  It leads with the highlighted show: cover art, what the show is, how far
+  through the episode you are, when the next one airs, a few lines of synopsis,
+  and what pressing Enter will actually do. The schedule keeps the space
+  underneath.
+
+  The art renders as unicode block sextants, so it needs nothing but a
+  truecolor terminal; where a real graphics protocol is available (Sixel, kitty,
+  iTerm) it uses that instead and comes out sharper.
+
+  Posters are fetched only for the row you *stop* on — holding an arrow key
+  walks the cursor through a dozen rows a second, and a request per row would be
+  the launch-time rate-limit storm again with a new trigger. Each is fetched at
+  most once, including the ones that fail.
+
+### Changed
+
+- **Section headings are anchored.** A heading now runs a rule out to the edge
+  of the rows beneath it and puts the count at the far end, so it reads as the
+  lid of its section and the count is in the same place every time instead of
+  floating wherever the name happens to stop.
+
 ## [0.2.61] — 2026-08-30
 
 ### Changed

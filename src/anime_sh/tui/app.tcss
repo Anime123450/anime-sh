@@ -158,3 +158,32 @@ ListView:focus > ListItem.-highlight {
     padding: 1 2;
     max-height: 24;
 }
+
+/* Region C's header block: the poster, then what the row under the cursor is.
+   The cover is centred over the text rather than beside it — at rail width
+   there is not room for a column of each, and a poster is the one thing on this
+   screen that earns being looked at rather than read. */
+#rail-cover {
+    height: auto;
+    width: 1fr;
+    align-horizontal: center;
+    margin: 0 0 1 0;
+}
+
+/* The art is a fixed number of cells wide; the Static holding it must shrink to
+   that, or it fills the rail and `align-horizontal` has nothing to centre. */
+#rail-cover > Static {
+    width: auto;
+    height: auto;
+}
+
+#rail-preview {
+    width: 1fr;
+    height: auto;
+    color: $text;
+}
+
+#rail-rule {
+    margin: 1 0;
+    color: $panel;
+}

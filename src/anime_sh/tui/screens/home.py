@@ -8,9 +8,17 @@ from datetime import date, datetime, timezone
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label, ListView, Static
+from textual.widgets import (
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListView,
+    Rule,
+    Static,
+)
 
 from ...domain.models import Season, Status
 from ..format import RANK_WAITING, browse_cells, continue_cells
@@ -21,6 +29,13 @@ from ..rows import (
     title_cells,
     title_target_from,
 )
+from ..coverart import (
+    fetch_cover,
+    graphics_cover_widget,
+    graphics_protocol_active,
+    render_cover,
+)
+from ..preview import render as preview_render
 from ..upcoming import render, schedule, scheduled_ids
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
@@ -166,6 +181,13 @@ class HomeScreen(Screen):
                 # no indication of what had happened. This is what fills that space.
                 yield Label("", id="results-empty")
             with VerticalScroll(id="rail"):
+                # Region C leads with the row the cursor is on — poster first.
+                # It used to be a second list of episodes and nothing else,
+                # which left a client for a visual medium with no image on its
+                # main screen and no focal point anywhere.
+                yield Container(id="rail-cover")
+                yield Static("", id="rail-preview")
+                yield Rule(id="rail-rule")
                 yield Label("Coming Up", classes="section", id="sec-rail")
                 yield Static("", id="rail-body")
         yield Footer()
@@ -264,6 +286,18 @@ class HomeScreen(Screen):
     # Region C appears only when there is genuinely room for it. Below this the
     # rows alone fill the window and a rail would be stealing from them; the
     # monospace-design standard puts the same boundary at 120 columns.
+    # The poster's width in cells. Region C is narrower than the detail
+    # screen's column, and a cover wider than the text beside it stops being an
+    # illustration and becomes the panel.
+    _COVER_COLS = 22
+
+    # How long the cursor must rest on a row before its poster is requested.
+    # Long enough that walking a list never fetches anything; short enough that
+    # stopping on a row feels like it responds. A named constant so a test can
+    # widen or close the window instead of racing a real clock — the first
+    # version of that test pressed keys and hoped, and failed one run in three.
+    _COVER_DEBOUNCE_S = 0.35
+
     _RAIL_MIN_WIDTH = 120
     _RAIL_MIN_RAIL = 34
     _RAIL_MAX_RAIL = 72
@@ -341,9 +375,9 @@ class HomeScreen(Screen):
         if not on_rail:
             return rows
         return [
-            (anime, row, resume)
-            for anime, row, resume in rows
-            if row.rank != RANK_WAITING or anime.id.anilist not in on_rail
+            entry
+            for entry in rows
+            if entry[1].rank != RANK_WAITING or entry[0].id.anilist not in on_rail
         ]
 
     def _render_rail(self) -> None:
@@ -390,6 +424,11 @@ class HomeScreen(Screen):
         # to. See `_cols_for`.
         self._title_widths: dict[str, list[int]] = {}
         self._grid: Columns | None = None
+        # Posters, by AniList id. Small, and the alternative is
+        # re-fetching an image every time the cursor passes a row.
+        self._covers: dict[int, bytes] = {}
+        self._cover_timer = None
+        self._preview_id: int | None = None
         self._show_home_sections(True)
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
@@ -496,7 +535,13 @@ class HomeScreen(Screen):
             if built is None:
                 continue  # finished and fully watched — nothing to continue
             row, resume = built
-            rows.append((anime, row, resume))
+            # Only a part-watched episode has a meaningful fraction; a row that
+            # is merely "ready" is at zero and must not draw a progress bar in
+            # the rail as though it were started.
+            part_way = (not it.progress.completed and it.progress.position_s > 0
+                        and it.progress.duration_s > 0)
+            rows.append((anime, row, resume,
+                         it.progress.fraction if part_way else 0.0))
 
         lv = self.query_one("#continue", ListView)
         sec = self.query_one("#sec-continue")
@@ -515,11 +560,12 @@ class HomeScreen(Screen):
         # hidden from the list — feeding it the filtered set would take the show
         # off the rail, which would then put the row back, and the two would
         # flip against each other on every repaint.
-        self._upcoming_source = [a for a, _, _ in rows]
+        self._upcoming_source = [a for a, _, _, _ in rows]
         shown = self._without_rail_duplicates(rows)
-        cols = self._cols_for([r for _, r, _ in shown], "continue")
-        for anime, row, resume in shown:
-            lv.append(AnimeItem(anime, row, cols, resume_episode=resume))
+        cols = self._cols_for([r for _, r, _, _ in shown], "continue")
+        for anime, row, resume, fraction in shown:
+            lv.append(AnimeItem(anime, row, cols, resume_episode=resume,
+                                fraction=fraction))
         self._set_section("#sec-continue", "Continue Watching", len(shown))
 
         # A show you are already watching does not need to be advertised again
@@ -528,7 +574,7 @@ class HomeScreen(Screen):
         # Hidden rows count too — one you are caught up on is still one you are
         # watching, and should not reappear in Seasonal just because the rail is
         # carrying its countdown now.
-        self._continue_ids = {a.id.anilist for a, _, _ in rows}
+        self._continue_ids = {a.id.anilist for a, _, _, _ in rows}
         # Re-size first: the rail's width depends on how much room the rows
         # turned out to need, which is only known now they exist.
         self._size_rail()
@@ -724,6 +770,107 @@ class HomeScreen(Screen):
         label.display = True
 
     # -- navigation --------------------------------------------------------- #
+    # -- Region C: the row the cursor is on --------------------------------- #
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Repaint the preview for the newly highlighted row."""
+        item = event.item
+        if isinstance(item, AnimeItem):
+            self._show_preview(item)
+
+    def _show_preview(self, item: AnimeItem) -> None:
+        """Draw Region C's header block for one row, and ask for its poster.
+
+        The text goes up immediately — every field it needs is already on the
+        Anime the row was built from. Only the image has to be fetched, and it
+        arrives separately so the panel is never waiting on the network to say
+        what it already knows.
+        """
+        if not self._rail_showing():
+            return
+        try:
+            panel = self.query_one("#rail-preview", Static)
+        except Exception:
+            return
+        self._preview_id = item.anime.id.anilist
+        width = self._rail_width(self.size.width or 100) - 4
+        panel.update(preview_render(
+            item.anime, width,
+            resume_episode=item.resume_episode,
+            fraction=item.fraction,
+        ))
+        self._request_cover(item.anime)
+
+    def _request_cover(self, anime) -> None:
+        """Show this show's poster, fetching it at most once.
+
+        Debounced: holding an arrow key walks the cursor through a dozen rows a
+        second, and a request per row would be a launch storm with a different
+        trigger — the same mistake that once earned this screen a 429 on every
+        start. The timer is reset on each move, so only the row you actually
+        stopped on is fetched.
+        """
+        self._covers = getattr(self, "_covers", {})
+        anilist = anime.id.anilist
+        if anilist in self._covers:
+            self._paint_cover(anilist)
+            return
+        self._clear_cover()
+        if not anime.cover_url:
+            return
+        if (timer := getattr(self, "_cover_timer", None)) is not None:
+            timer.stop()
+        self._cover_timer = self.set_timer(
+            self._COVER_DEBOUNCE_S,
+            lambda: self._fetch_cover(anilist, anime.cover_url),
+        )
+
+    @work(exclusive=True, group="cover")
+    async def _fetch_cover(self, anilist: int, url: str) -> None:
+        data = await fetch_cover(url)
+        # The attempt is recorded even when it fails, so a cover that 404s or
+        # times out is tried once rather than re-requested every time the cursor
+        # passes its row. An empty entry paints nothing, which is what a missing
+        # poster should do anyway.
+        self._covers[anilist] = data or b""
+        # The cursor may have moved on while this was in flight; painting it
+        # then would put one show's poster beside another show's text.
+        if data and getattr(self, "_preview_id", None) == anilist:
+            self._paint_cover(anilist)
+
+    def _clear_cover(self) -> None:
+        try:
+            self.query_one("#rail-cover", Container).remove_children()
+        except Exception:
+            pass
+
+    def _paint_cover(self, anilist: int) -> None:
+        """Mount the cached poster. Decoration only — any failure leaves the
+        panel textual rather than costing the screen."""
+        data = self._covers.get(anilist)
+        if not data:
+            return
+        try:
+            container = self.query_one("#rail-cover", Container)
+        except Exception:
+            return
+        container.remove_children()
+        cols = min(self._COVER_COLS,
+                   max(8, self._rail_width(self.size.width or 100) - 4))
+        if graphics_protocol_active():
+            widget = graphics_cover_widget(data, cols)
+            if widget is not None:
+                try:
+                    container.mount(widget)
+                    return
+                except Exception:
+                    pass
+        art = render_cover(data, cols=cols)
+        if art is not None:
+            try:
+                container.mount(Static(art))
+            except Exception:
+                pass
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, AnimeItem):
@@ -763,12 +910,26 @@ class HomeScreen(Screen):
             return False
 
     def _set_section(self, sec_id: str, base: str, count: int) -> None:
-        """Append a dim count to a section header, e.g. 'Trending  20'."""
+        """Draw a section header: a name, a rule to the plate's edge, a count.
+
+        The rule is what makes a heading read as the lid of the section beneath
+        rather than as a line of text that happens to be bold — it ties the name
+        to the width of the rows it introduces, and it puts the count at the far
+        end where it can be found in the same place every time instead of
+        floating wherever the name happens to stop.
+        """
         try:
             label = self.query_one(sec_id, Label)
-            label.update(f"{base}  [dim]{count}[/dim]" if count else base)
         except Exception:
-            pass
+            return
+        tail = str(count) if count else ""
+        # The label sits above the plate and is padded one cell in from it.
+        room = max(12, self._row_space() - 2)
+        rule = max(1, room - len(base) - len(tail) - 4)
+        label.update(
+            f"[b]{base}[/b]  [dim]{'─' * rule}[/dim]"
+            + (f"  [dim]{tail}[/dim]" if tail else "")
+        )
         # Every section calls this once it has rendered its rows, which makes it
         # the one place that reliably knows a list is populated — and therefore
         # focusable. `_adopt_focus` is a no-op after the first success.
