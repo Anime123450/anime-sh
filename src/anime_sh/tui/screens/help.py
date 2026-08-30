@@ -12,7 +12,7 @@ _HELP = """[b]anime-sh — keys[/b]
 [b]Move[/b]
   [cyan]↑ ↓[/cyan]  or  [cyan]j k[/cyan]     within a list
   [cyan]g[/cyan]   [cyan]G[/cyan]            first / last row
-  [cyan]Tab[/cyan]              next section
+  [cyan]Tab[/cyan]  [cyan]Shift+Tab[/cyan]   next / previous section
 
 [b]Act[/b]
   [cyan]Enter[/cyan]            open / play the highlighted item
