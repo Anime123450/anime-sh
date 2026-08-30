@@ -72,6 +72,71 @@ jobs:
           name: release-notes
           path: RELEASE_NOTES.md
 
+
+  bundle-windows:
+    # The standalone .exe: anime-sh with Python and every dependency inside it,
+    # for people who have no Python and should not have to care. This is what
+    # winget and scoop point at, so it has to exist for every tagged version at
+    # a stable URL.
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Build the standalone executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --with pyinstaller python -m PyInstaller --onefile --name anime --console             --collect-all textual --collect-all textual_image --collect-all rich             --collect-all typer --collect-all curl_cffi --collect-all pydantic             --collect-all aiosqlite --collect-all platformdirs             --collect-submodules anime_sh --collect-data anime_sh             --copy-metadata anime-sh             --distpath dist/bundle --workpath build/pyi --specpath build/pyi             --noconfirm packaging/launcher.py
+
+      - name: The bundle must actually work
+        shell: bash
+        # A bundle that builds is not a bundle that works. Providers and
+        # resolvers are entry points, entry points live in the package metadata,
+        # and a bundle without it runs perfectly while reporting version
+        # 0.0.0+unknown and "providers: none installed" — an app that cannot play
+        # anything, shipped green.
+        #
+        # Asserts the property, not the flag. `--copy-metadata anime-sh` is what
+        # historically guaranteed it, but PyInstaller 6 collects the metadata
+        # anyway (verified: a build without the flag still carries the dist-info
+        # and still lists both providers). The flag stays because it is free and
+        # explicit; this check stays because it is the thing that would actually
+        # notice if that ever stopped being true.
+        run: |
+          set -euo pipefail
+          version=$(./dist/bundle/anime.exe --version)
+          echo "bundle reports: $version"
+          expected="anime-sh ${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$expected" ]; then
+            echo "::error::bundle reports '$version', expected '$expected' — metadata did not make it in"
+            exit 1
+          fi
+          ./dist/bundle/anime.exe providers ls --json > providers.json
+          cat providers.json
+          for plugin in anikoto anizone; do
+            if ! grep -q "\"name\": \"$plugin\"" providers.json; then
+              echo "::error::the bundle is missing provider $plugin — entry-point metadata did not make it in"
+              exit 1
+            fi
+          done
+          echo "providers present in the bundle: anikoto, anizone"
+
+      - name: Checksum
+        shell: bash
+        run: |
+          cd dist/bundle
+          sha256sum anime.exe | tee anime.exe.sha256
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-windows
+          path: dist/bundle/
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -95,7 +160,7 @@ jobs:
   github-release:
     # Runs after PyPI so the release page never advertises a version you cannot
     # yet `uv tool install`.
-    needs: publish
+    needs: [publish, bundle-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,6 +169,10 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundle-windows
+          path: dist/bundle/
       - uses: actions/download-artifact@v8
         with:
           name: release-notes
@@ -130,5 +199,12 @@ jobs:
           fi
           # --clobber so a re-run replaces the artifacts rather than erroring on
           # ones that are already attached.
-          gh release upload "$GITHUB_REF_NAME" dist/* \
+          # The Windows bundle goes up under a versioned name. The winget and
+          # scoop manifests pin an exact URL and hash, so the filename has to
+          # carry the version and must not change shape between releases.
+          mv dist/bundle/anime.exe "dist/bundle/anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe"
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/*.whl dist/*.tar.gz \
+            "dist/bundle/anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe" \
+            dist/bundle/anime.exe.sha256 \
             --repo "$GITHUB_REPOSITORY" --clobber

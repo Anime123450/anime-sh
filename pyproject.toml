@@ -1,6 +1,6 @@
 [project]
 name = "anime-sh"
-version = "0.2.65"
+version = "0.2.66"
 description = "The terminal-native anime client — providers, mirrors and resolvers, handled for you."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,7 @@ dev = [
     "anyio>=4.3",
     "textual>=8.0", # TUI tests run in the default dev env
     "pillow>=10.0",
+    "pyyaml>=6.0",  # validates the packaging manifests and the workflows
 ]
 
 # The account is Anime123450 and the default branch is master. These were

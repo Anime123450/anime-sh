@@ -1,0 +1,20 @@
+PackageIdentifier: AnimeshSharma.anime-sh
+PackageVersion: 0.0.0
+# `portable` is the right type for a single self-contained .exe: winget puts it
+# on PATH through an app execution alias instead of running an installer, and
+# `winget uninstall` removes it cleanly. Declaring it as an `exe` installer
+# would make winget hand the binary an /S flag it does not understand.
+InstallerType: portable
+Commands:
+  - anime
+  - anime-sh
+ReleaseDate: 1970-01-01
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Anime123450/anime-sh/releases/download/v0.0.0/anime-sh-0.0.0-windows-x64.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+# `NestedInstallerFiles` does not belong here: it describes a file *inside* an
+# archive, and this installer is the bare executable. The aliases come from
+# `Commands` above.
+ManifestType: installer
+ManifestVersion: 1.6.0
