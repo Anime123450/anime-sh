@@ -71,7 +71,7 @@ With [Scoop](https://scoop.sh):
 
 ```powershell
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
-scoop install anime-sh mpv
+scoop install anime-sh
 ```
 
 Or WinGet, once the package is accepted
@@ -79,8 +79,15 @@ Or WinGet, once the package is accepted
 
 ```powershell
 winget install AnimeshSharma.anime-sh
-winget install shinchiro.mpv            # needed to play anything
 ```
+
+Either one installs **mpv** with it — that is what actually plays the video, and
+anime-sh cannot do anything without it. Both put `anime` on your PATH. (WinGet
+asks you to open a new terminal afterwards; Scoop does not.)
+
+`ffmpeg` is *not* installed, because only `anime download` needs it and the
+Windows builds are enormous. `anime doctor` will name it, and the command to
+install it, if you ever reach for downloads.
 
 Both install a **single self-contained executable** — no Python, nothing else to
 set up. `anime doctor` will tell you if anything is still missing, and the exact

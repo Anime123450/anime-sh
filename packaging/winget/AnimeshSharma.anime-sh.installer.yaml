@@ -14,6 +14,18 @@ InstallerType: portable
 Commands:
   - anime
 ReleaseDate: 1970-01-01
+# anime-sh hands the stream to mpv; without it the app installs, launches, and
+# then fails the moment you press Enter on an episode. Declaring the dependency
+# is how a package manager solves that — the alternative is shipping a 116 MB
+# GPL binary inside an MIT release, which would also make us responsible for
+# offering its source.
+#
+# ffmpeg is deliberately NOT declared: it is only needed by `anime download`,
+# and the common Windows build is several hundred megabytes. `anime doctor`
+# names it, with the command to install it, if you ever reach for downloads.
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: shinchiro.mpv
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/Anime123450/anime-sh/releases/download/v0.0.0/anime-sh-0.0.0-windows-x64.exe

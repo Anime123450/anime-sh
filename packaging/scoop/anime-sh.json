@@ -19,8 +19,8 @@
             "anime-sh"
         ]
     ],
+    "depends": "mpv",
     "suggest": {
-        "mpv": "mpv",
         "ffmpeg": "ffmpeg"
     },
     "checkver": {
@@ -37,7 +37,8 @@
         }
     },
     "notes": [
-        "anime-sh needs mpv on PATH to play anything:  scoop install mpv",
-        "and ffmpeg only if you use `anime download`:  scoop install ffmpeg"
+        "mpv was installed alongside anime-sh - it is what actually plays the video.",
+        "For `anime download` you also need ffmpeg:  scoop install ffmpeg",
+        "Run `anime doctor` to check everything was found."
     ]
 }

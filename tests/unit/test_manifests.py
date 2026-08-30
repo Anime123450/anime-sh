@@ -200,3 +200,43 @@ def test_the_scoop_manifest_keeps_its_url_fragment(tmp_path):
     assert main(["1.2.3", "--from-file", str(exe), "--out", str(out)]) == 0
     data = json.loads((out / "scoop" / "anime-sh.json").read_text())
     assert data["architecture"]["64bit"]["url"].endswith("#/anime.exe")
+
+
+def test_mpv_is_a_hard_dependency_in_both_manifests():
+    """`scoop install anime-sh` and `winget install ...` have to be the whole
+    job. anime-sh hands the stream to mpv — without it the app installs,
+    launches, and fails at the exact moment you press Enter on an episode, which
+    is the worst possible place to discover a missing dependency.
+
+    Declared rather than bundled: mpv is 116 MB and GPL, so shipping the binary
+    inside an MIT release would also make us responsible for offering its
+    source.
+    """
+    yaml = pytest.importorskip("yaml")
+
+    scoop = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
+    assert scoop.get("depends") == "mpv", "scoop would install anime-sh without mpv"
+
+    installer = yaml.safe_load(
+        (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    )
+    deps = installer["Dependencies"]["PackageDependencies"]
+    assert [d["PackageIdentifier"] for d in deps] == ["shinchiro.mpv"]
+
+
+def test_ffmpeg_is_not_forced_on_people_who_only_stream():
+    """It is only needed by `anime download`, and the usual Windows build is
+    several hundred megabytes — 706 MB in the one scoop ships. Making it
+    mandatory would charge every viewer for a feature most never use."""
+    yaml = pytest.importorskip("yaml")
+
+    scoop = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
+    assert "ffmpeg" not in str(scoop.get("depends", "")), "ffmpeg became mandatory"
+    assert "ffmpeg" in scoop.get("suggest", {}), "ffmpeg is not even mentioned"
+
+    installer = yaml.safe_load(
+        (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
+    )
+    ids = [d["PackageIdentifier"]
+           for d in installer["Dependencies"]["PackageDependencies"]]
+    assert not any("ffmpeg" in i.lower() for i in ids)
