@@ -15,7 +15,8 @@ Providers, mirrors and resolvers are internal details you never have to think ab
 <img src="docs/img/home.png" alt="anime-sh running in Windows Terminal: Continue Watching with progress bars, Airing This Season, and a context panel showing the highlighted show's cover art, genres, progress and next episode" width="900">
 
 ```powershell
-irm get.scoop.sh | iex                                                    # if you don't have Scoop
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser      # if you don't have Scoop
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
@@ -42,15 +43,21 @@ what actually plays the video.
 **[Scoop](https://scoop.sh)** — available now:
 
 ```powershell
-irm get.scoop.sh | iex          # only if you don't already have Scoop
+# Only if you don't have Scoop yet — these two lines are Scoop's own quickstart.
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
 
-> Run that first line in a **normal** PowerShell, not an administrator one —
-> Scoop installs per-user and refuses to run elevated. If it is blocked, your
-> execution policy is stricter than the default; `Set-ExecutionPolicy
-> -ExecutionPolicy RemoteSigned -Scope CurrentUser` once will let it through.
+> Run these in a **normal** PowerShell, not an administrator one — Scoop
+> installs per-user and refuses to run elevated.
+>
+> The first line is what stops Windows refusing the second with a message about
+> running scripts being disabled. It applies to your account only, and
+> `RemoteSigned` still requires anything downloaded to be signed — it is the
+> setting Microsoft ships on Windows Server. Answer `Y` when it asks.
 
 **WinGet** — [pending review](https://github.com/microsoft/winget-pkgs/pull/426448); winget already ships with Windows 10 and 11:
 
