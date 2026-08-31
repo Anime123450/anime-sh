@@ -17,6 +17,7 @@ Providers, mirrors and resolvers are internal details you never have to think ab
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser      # if you don't have Scoop
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+scoop bucket add extras
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
@@ -47,6 +48,8 @@ what actually plays the video.
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 
+# mpv lives in Scoop's `extras` bucket, and a fresh Scoop only has `main`.
+scoop bucket add extras
 scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
 scoop install anime-sh
 ```
