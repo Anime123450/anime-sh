@@ -132,7 +132,39 @@ def test_the_release_attaches_the_versioned_executable():
     do not expect is the same as not publishing it."""
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe" in text
-    assert "anime.exe.sha256" in text, "no checksum published beside the binary"
+    assert '"$asset.sha256"' in text, "no checksum published beside the binary"
+
+
+def test_the_checksum_is_taken_after_the_binary_gets_its_release_name():
+    """`sha256sum` writes the filename into the file, and scoop reads that name
+    back out. Hashing `anime.exe` and renaming the binary afterwards produced a
+    checksum file that named a file the release does not contain: scoop searched
+    it for `anime-sh-<version>-windows-x64.exe`, found nothing, and fell back to
+    downloading 21 MB to hash itself. The published checksum verified nothing.
+    """
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    steps = wf["jobs"]["bundle-windows"]["steps"]
+    run = next(s["run"] for s in steps if "Checksum" in s.get("name", ""))
+    mv = run.index("mv anime.exe")
+    assert "sha256sum" in run[mv:], "the checksum is taken before the rename"
+    assert "sha256sum anime.exe" not in run, "still hashing the pre-rename name"
+
+
+def test_scoop_looks_for_the_checksum_where_the_release_puts_it():
+    """The two halves of this only ever break together, silently: scoop derives
+    the name it searches for from the installer URL, so if the checksum URL
+    stops matching that shape, autoupdate degrades to a full download and the
+    hash it records is one nothing cross-checked."""
+    data = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
+    installer = data["autoupdate"]["architecture"]["64bit"]["url"]
+    # Everything after `#/` renames the download; the hash file is named for the
+    # part before it, which is what actually lives on the release page.
+    published = installer.split("#/")[0].rsplit("/", 1)[-1]
+    hash_url = data["autoupdate"]["hash"]["url"]
+    assert hash_url.rsplit("/", 1)[-1] == f"{published}.sha256", (
+        f"scoop would fetch {hash_url!r} for an asset named {published!r}"
+    )
 
 
 def test_the_scoop_manifest_can_follow_new_releases_on_its_own():
@@ -215,7 +247,14 @@ def test_mpv_is_a_hard_dependency_in_both_manifests():
     yaml = pytest.importorskip("yaml")
 
     scoop = json.loads((ROOT / "packaging" / "scoop" / "anime-sh.json").read_text())
-    assert scoop.get("depends") == "mpv", "scoop would install anime-sh without mpv"
+    # Bucket-qualified on purpose. mpv is not in scoop's `main` bucket, and a
+    # freshly installed scoop has only `main` - so a bare "mpv" aborted the
+    # install with `Couldn't find manifest for 'mpv'` and no clue which bucket
+    # to add. Qualifying it makes scoop name the missing bucket instead, and the
+    # README adds `extras` before it gets that far.
+    assert scoop.get("depends") == "extras/mpv", (
+        "scoop would install anime-sh without mpv, or fail without saying why"
+    )
 
     installer = yaml.safe_load(
         (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
@@ -240,3 +279,19 @@ def test_ffmpeg_is_not_forced_on_people_who_only_stream():
     ids = [d["PackageIdentifier"]
            for d in installer["Dependencies"]["PackageDependencies"]]
     assert not any("ffmpeg" in i.lower() for i in ids)
+
+
+def test_the_readme_adds_the_bucket_mpv_actually_lives_in():
+    """The install instructions have to work on a machine that has nothing.
+    `mpv` is in scoop's `extras` bucket; a scoop installed a minute ago has only
+    `main`, so without this line `scoop install anime-sh` aborts on the
+    dependency - on exactly the clean machine the instructions are written for.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    # Every place we tell someone to install must have added `extras` first.
+    parts = readme.split("scoop install anime-sh")
+    assert len(parts) == 3, "the number of install blocks changed"
+    for preceding in parts[:-1]:
+        assert "scoop bucket add extras" in preceding, (
+            "an install block does not add the bucket mpv lives in"
+        )

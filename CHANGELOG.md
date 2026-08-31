@@ -2,6 +2,36 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.68] - 2026-08-31
+
+### Fixed
+
+- **The checksum published beside the Windows executable named a file that was
+  not in the release**, so nothing ever verified against it. The binary was
+  hashed as `anime.exe` and only renamed to `anime-sh-<version>-windows-x64.exe`
+  at upload time, and `sha256sum` writes the name it hashed into the file.
+
+  Scoop's excavator reads that file to learn the hash of a new version and looks
+  inside it for the published filename. It never matched, so every automatic
+  update fell back to downloading the whole 21 MB executable and hashing it
+  itself - which works, but means the manifest recorded a hash of whatever it
+  had just downloaded, cross-checked against nothing. Verified against a real
+  `scoop checkver -u` run, before and after.
+
+  The binary now gets its release name before it is hashed, and the checksum
+  ships as `anime-sh-<version>-windows-x64.exe.sha256`.
+
+- **`scoop install anime-sh` could not work on a machine that had just installed
+  Scoop.** The manifest declared `mpv` as a dependency, and `mpv` is not in
+  Scoop's `main` bucket - it is in `extras`, which a fresh Scoop does not have.
+  The install aborted with `Couldn't find manifest for 'mpv'` and no indication
+  of which bucket was missing, on precisely the clean machine the README's
+  instructions are written for.
+
+  The dependency is now `extras/mpv`, so Scoop names the bucket it needs, and
+  the README adds `extras` before it can come up. Verified by installing from
+  the manifest rather than by reading it.
+
 ## [0.2.67] — 2026-08-30
 
 ### Fixed

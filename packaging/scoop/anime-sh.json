@@ -19,7 +19,7 @@
             "anime-sh"
         ]
     ],
-    "depends": "mpv",
+    "depends": "extras/mpv",
     "suggest": {
         "ffmpeg": "ffmpeg"
     },
@@ -33,11 +33,11 @@
             }
         },
         "hash": {
-            "url": "$baseurl/anime.exe.sha256"
+            "url": "$baseurl/anime-sh-$version-windows-x64.exe.sha256"
         }
     },
     "notes": [
-        "mpv was installed alongside anime-sh - it is what actually plays the video.",
+        "Video is played by mpv, which scoop keeps installed as a dependency.",
         "For `anime download` you also need ffmpeg:  scoop install ffmpeg",
         "Run `anime doctor` to check everything was found."
     ]

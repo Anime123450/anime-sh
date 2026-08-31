@@ -126,11 +126,22 @@ jobs:
           done
           echo "providers present in the bundle: anikoto, anizone"
 
-      - name: Checksum
+      - name: Checksum, under the name the release will publish it as
         shell: bash
+        # scoop's excavator reads this file to learn the hash of a new version,
+        # and it looks inside it for the *published* filename. Hashing
+        # `anime.exe` here and renaming the binary later, at upload time, meant
+        # the file said `anime.exe` while the excavator searched it for
+        # `anime-sh-<version>-windows-x64.exe`, never matched, and quietly fell
+        # back to downloading the whole 21 MB executable to hash for itself. So
+        # the checksum we published was never the one anything checked against.
+        # Renaming before hashing makes the file and the name inside it agree.
         run: |
+          set -euo pipefail
           cd dist/bundle
-          sha256sum anime.exe | tee anime.exe.sha256
+          asset="anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe"
+          mv anime.exe "$asset"
+          sha256sum "$asset" | tee "$asset.sha256"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -199,12 +210,12 @@ jobs:
           fi
           # --clobber so a re-run replaces the artifacts rather than erroring on
           # ones that are already attached.
-          # The Windows bundle goes up under a versioned name. The winget and
-          # scoop manifests pin an exact URL and hash, so the filename has to
-          # carry the version and must not change shape between releases.
-          mv dist/bundle/anime.exe "dist/bundle/anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe"
+          # The bundle job already named the binary for its version, because
+          # the checksum file beside it has to record that same name. The winget
+          # and scoop manifests pin an exact URL and hash, so neither filename
+          # may change shape between releases.
+          asset="anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe"
           gh release upload "$GITHUB_REF_NAME" \
             dist/*.whl dist/*.tar.gz \
-            "dist/bundle/anime-sh-${GITHUB_REF_NAME#v}-windows-x64.exe" \
-            dist/bundle/anime.exe.sha256 \
+            "dist/bundle/$asset" "dist/bundle/$asset.sha256" \
             --repo "$GITHUB_REPOSITORY" --clobber
