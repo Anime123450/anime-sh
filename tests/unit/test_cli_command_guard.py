@@ -135,3 +135,36 @@ def test_a_multiword_title_is_left_alone():
     """Only the first bare argument is ever considered, and a phrase is
     obviously a title."""
     assert _command_suggestion("attack on titan", KNOWN) is None
+
+
+def test_every_count_option_has_a_floor():
+    """A non-positive `--limit` was passed straight through to whatever was
+    behind it. AniList ignores one and returns a full page; SQLite reads
+    `LIMIT -1` as *no* limit. So `--limit 0` printed thirty rows and
+    `history --limit -1` printed everything — the flag doing the opposite of
+    what it says, quietly, in both directions.
+
+    Asserted over the parsed commands rather than one example, so a `--limit`
+    added later cannot be the unguarded one.
+    """
+    import click
+    import typer
+
+    from anime_sh.cli.main import app
+
+    group = typer.main.get_command(app)
+    ctx = click.Context(group)
+    checked = 0
+    for name in group.list_commands(ctx):
+        for param in group.get_command(ctx, name).params:
+            if not set(param.opts) & {"--limit", "--days"}:
+                continue
+            checked += 1
+            # Duck-typed rather than isinstance: typer hands back its own
+            # range class, so checking the type would pass for the wrong
+            # reason today and fail for the wrong reason later.
+            low = getattr(param.type, "min", None)
+            assert low is not None and low >= 1, (
+                f"{name} {param.opts}: unbounded, so 0 and negatives get through"
+            )
+    assert checked >= 6, f"only found {checked} count options; did they move?"

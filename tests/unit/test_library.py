@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from anime_sh.app.library import LibraryService
+from anime_sh.domain.errors import AnimeShError
 from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title, WatchProgress
 from anime_sh.infra.db.database import Database
 from anime_sh.infra.db.library import SqliteLibrary
@@ -384,3 +385,45 @@ async def test_history_records_and_lists(library):
     assert items[0].episode == 6.0
     assert items[0].provider == "allanime"
     assert items[0].anime.title.preferred == "Frieren"
+
+
+async def test_a_catch_up_to_zero_or_less_is_refused(library):
+    """`range(1, 1)` is empty, so `-e 0` wrote nothing at all — while the
+    caller went on to report "marked episodes 1–0 watched" and pushed a 0 to
+    AniList. Nothing failed; it just quietly did not happen."""
+    svc = LibraryService(library)
+    for bad in (0.0, -3.0):
+        with pytest.raises(AnimeShError, match="1 or higher"):
+            await svc.mark_watched(_anime(1, "Frieren"), bad)
+    assert await library.all_progress(AnimeId(anilist=1)) == []
+
+
+async def test_a_single_mark_of_episode_zero_is_allowed(library):
+    """Episode 0 is a real thing — a prologue numbered that way. The floor
+    belongs to catch-up, which cannot mean "up to episode 0", not to a mark of
+    one specific episode."""
+    svc = LibraryService(library)
+    assert await svc.mark_watched(_anime(1, "Frieren"), 0.0, single=True) == [0.0]
+
+
+async def test_catching_up_past_the_end_of_the_show_is_refused(library):
+    """One commit per episode, so `-e 99999` on a 28-episode show sat there for
+    six minutes writing rows for episodes that do not exist — and left 99,971
+    of them behind."""
+    svc = LibraryService(library)
+    with pytest.raises(AnimeShError, match="28 episodes"):
+        await svc.mark_watched(_anime(1, "Frieren"), 99999.0)
+    assert await library.all_progress(AnimeId(anilist=1)) == []
+
+
+async def test_an_unknown_episode_count_still_has_a_ceiling(library):
+    """An ongoing show has no announced total, so there is nothing to check the
+    request against. The ceiling is what stops that being a blank cheque."""
+    from dataclasses import replace
+
+    svc = LibraryService(library)
+    ongoing = replace(_anime(1, "Ongoing"), episode_count=None)
+    with pytest.raises(AnimeShError, match="limit"):
+        await svc.mark_watched(ongoing, LibraryService.MAX_CATCH_UP + 1)
+    # A long shounen still has to work: One Piece is ~1140 episodes.
+    assert len(await svc.mark_watched(ongoing, 1140.0)) == 1140

@@ -58,6 +58,35 @@ def test_parse_episode_spec_rejects_garbage():
         _parse_episode_spec("abc")
 
 
+def test_parse_episode_spec_refuses_a_range_it_would_choke_on():
+    """The range is expanded into one entry per episode *before* anything is
+    downloaded, so an unbounded one never reaches the network — it just
+    allocates. `1-999999999` is about eight gigabytes of list."""
+    from anime_sh.cli.main import MAX_EPISODE_SPAN
+
+    with pytest.raises(ValueError, match="limit"):
+        _parse_episode_spec("1-999999999")
+    # The cap is on what you end up with, not on any one token.
+    with pytest.raises(ValueError, match="limit"):
+        _parse_episode_spec(f"1-{MAX_EPISODE_SPAN},{MAX_EPISODE_SPAN + 1}-{MAX_EPISODE_SPAN + 5}")
+    # A long shounen still has to go through in one command.
+    assert len(_parse_episode_spec("1-1140")) == 1140
+
+
+def test_parse_episode_spec_refuses_negative_episodes():
+    """`-5` parsed as the number -5, and `1--5` as a range starting at -5, so
+    `anime download -e -5` went looking for episode minus five."""
+    with pytest.raises(ValueError):
+        _parse_episode_spec("-5")
+    with pytest.raises(ValueError):
+        _parse_episode_spec("1--5")
+
+
+def test_parse_episode_spec_still_allows_episode_zero():
+    """Some shows number a prologue 0. The floor is on negatives only."""
+    assert _parse_episode_spec("0") == [0.0]
+
+
 def _entry(anilist, romaji, english=None):
     return ListEntry(
         anime=Anime(id=AnimeId(anilist=anilist),

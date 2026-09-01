@@ -551,7 +551,7 @@ def search(
     fmt: str = typer.Option(None, "--format", help="TV|MOVIE|OVA|ONA|SPECIAL."),
     status: str = typer.Option(None, "--status", help="RELEASING|FINISHED|NOT_YET_RELEASED."),
     sort: str = typer.Option(None, "--sort", help="popularity|score|trending|newest|title."),
-    limit: int = typer.Option(20, "-n", "--limit"),
+    limit: int = typer.Option(20, "-n", "--limit", min=1),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output."),
 ) -> None:
     """Search AniList (no providers touched — instant).
@@ -564,7 +564,7 @@ def search(
 
 @app.command()
 def trending(
-    limit: int = typer.Option(20, "-n", "--limit"),
+    limit: int = typer.Option(20, "-n", "--limit", min=1),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show trending anime from AniList."""
@@ -583,7 +583,7 @@ def seasonal(
 
 @app.command()
 def calendar(
-    days: int = typer.Option(7, "-d", "--days", help="Days ahead to show."),
+    days: int = typer.Option(7, "-d", "--days", help="Days ahead to show.", min=1, max=365),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show the upcoming airing schedule."""
@@ -623,7 +623,7 @@ def play(
 @app.command(name="continue")
 def continue_watching(
     as_json: bool = typer.Option(False, "--json"),
-    limit: int = typer.Option(20, "-n", "--limit"),
+    limit: int = typer.Option(20, "-n", "--limit", min=1),
 ) -> None:
     """Show episodes you've started but not finished."""
     _run(_continue(limit, as_json))
@@ -641,7 +641,7 @@ def resume(
 @app.command()
 def history(
     as_json: bool = typer.Option(False, "--json"),
-    limit: int = typer.Option(50, "-n", "--limit"),
+    limit: int = typer.Option(50, "-n", "--limit", min=1),
 ) -> None:
     """Show your watch history."""
     _run(_history(limit, as_json))
@@ -748,7 +748,7 @@ def next(
 @app.command()
 def recommend(
     query: str = typer.Argument(..., help="A show you liked."),
-    limit: int = typer.Option(15, "-n", "--limit"),
+    limit: int = typer.Option(15, "-n", "--limit", min=1),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Suggest shows for people who liked a title (AniList recommendations)."""
@@ -811,14 +811,22 @@ def mark(
     query: str = typer.Argument(..., help="Title to mark."),
     episode: float = typer.Option(..., "-e", "--episode", help="Episode watched."),
     single: bool = typer.Option(
-        False, "--single", help="Mark only this episode (not 1..N)."
+        False, "--single", help="Mark only this episode (not 1..N). Local only."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Allow lowering your AniList progress."
     ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Mark progress without playing — catch up to an episode you watched
     elsewhere. Sets episodes 1..N complete locally and, if AniList is linked,
-    pushes your progress there too."""
-    _run(_mark(query, episode, single, as_json))
+    sets your progress there to N.
+
+    Because it *sets* rather than adds, marking below where you already are
+    would throw away progress; that is refused unless you pass --force.
+    `--single` marks one episode locally and never touches AniList, which has
+    no way to record "episode 5.5" on its own."""
+    _run(_mark(query, episode, single, force, as_json))
 
 
 @favorite_app.command("add")
@@ -1130,16 +1138,62 @@ async def _stats(as_json: bool) -> None:
                       ", ".join(f"{p} ({n})" for p, n in s.top_providers))
 
 
-async def _mark(query: str, episode: float, single: bool, as_json: bool) -> None:
+async def _anilist_progress(c, anime) -> int | None:
+    """The show's current AniList progress, or None if it cannot be read.
+
+    One request. Worth it before a mark, because AniList has no undo and the
+    thing being overwritten is the user's watch history.
+    """
+    if c.tracker is None or anime.id.anilist is None:
+        return None
+    try:
+        for wp in await c.tracker.pull():
+            if wp.anime_id.anilist == anime.id.anilist:
+                return int(wp.episode)
+    except Exception:
+        return None  # unreadable is not the same as zero; do not guess
+    return None
+
+
+async def _mark(query: str, episode: float, single: bool, force: bool,
+                as_json: bool) -> None:
     c = build_container()
     try:
         anime = await c.search.best_match(query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
-        numbers = await c.library_service.mark_watched(anime, episode, single=single)
+
+        # A catch-up sets AniList progress to exactly this episode, so a mark
+        # *below* where you already are throws away watch history — silently,
+        # and with no undo on AniList's side. `mark -e 5` on a show you had
+        # finished set it back to "watching, 5 episodes". Checked before
+        # anything is written, so refusing leaves nothing half-done.
+        current = None
+        if not single:
+            current = await _anilist_progress(c, anime)
+            if current is not None and current > episode and not force:
+                err.print(
+                    f"[red]AniList has you at episode {current} of "
+                    f"{anime.title.preferred}; marking {episode:g} would lower "
+                    f"it.[/] Pass --force if that is what you meant."
+                )
+                raise typer.Exit(code=2)
+
+        try:
+            numbers = await c.library_service.mark_watched(
+                anime, episode, single=single
+            )
+        except AnimeShError as e:
+            err.print(f"[red]{e}[/]")
+            raise typer.Exit(code=2)
         synced = False
-        if c.tracker is not None and anime.id.anilist is not None:
+        # `--single` marks one episode, which is not the same statement as "I am
+        # N episodes in" — and AniList only understands the latter. Pushing a
+        # single mark as overall progress is a category error: marking a special
+        # numbered 5.5 on a finished show reported episode 5 to AniList and
+        # dropped it from "completed" back to "watching".
+        if not single and c.tracker is not None and anime.id.anilist is not None:
             try:
                 await c.tracker.push(
                     WatchProgress(anime.id, episode, 1, 1,
@@ -1157,7 +1211,10 @@ async def _mark(query: str, episode: float, single: bool, as_json: bool) -> None
             )
             sys.stdout.write("\n")
             return
-        span = f"episode {episode:g}" if single else f"episodes 1–{episode:g}"
+        # Report what was written, not what was asked for. The two used to be
+        # allowed to differ, and the message believed the request.
+        span = (f"episode {numbers[0]:g}" if len(numbers) == 1
+                else f"episodes {numbers[0]:g}–{numbers[-1]:g}")
         tail = " [dim](synced to AniList)[/]" if synced else ""
         console.print(f"[green]Marked[/] {anime.title.preferred} {span} watched{tail}.")
     finally:
@@ -1660,8 +1717,12 @@ async def _download(query, episode, dub, quality) -> None:
         config.playback.quality = quality
     try:
         numbers = _parse_episode_spec(episode)
-    except ValueError:
-        err.print(f"[red]Bad episode spec[/] {episode!r} — use 5, 1-12, or 1,3,5.")
+    except ValueError as e:
+        # The parser knows *why* — "covers 999999999 episodes", "asks for a
+        # negative episode". Swallowing that for one generic line made a
+        # refused range look like a syntax error.
+        err.print(f"[red]Bad episode spec[/] {episode!r}: {e}")
+        err.print("[dim]Use 5, a range 1-12, or a list 1,3,5.[/]")
         raise typer.Exit(code=1)
     if not numbers:
         err.print("[red]No episodes to download.[/]")
@@ -1869,11 +1930,20 @@ async def _favorite_ls(as_json: bool) -> None:
 # --------------------------------------------------------------------------- #
 # Rendering helpers
 # --------------------------------------------------------------------------- #
+#: A range is expanded into one list entry per episode before anything is
+#: fetched, so an unbounded one is an out-of-memory bug rather than a slow
+#: download: `-e 1-999999999` allocates gigabytes and hangs without touching the
+#: network. Two thousand is past the longest thing anyone asks for in one go —
+#: One Piece is around 1140 — and well short of a typo.
+MAX_EPISODE_SPAN = 2000
+
+
 def _parse_episode_spec(spec: str) -> list[float]:
     """Parse an episode selector into an ordered, de-duplicated list.
 
     "5" -> [5]; "1-12" -> [1..12]; "1,3,5" -> [1,3,5]; "1-3,5" -> [1,2,3,5].
-    Raises ValueError on anything that isn't a number or ``a-b`` range.
+    Raises ValueError on anything that isn't a number or ``a-b`` range, on a
+    negative episode, and on a range too large to mean anything.
     """
     out: list[float] = []
     for token in spec.split(","):
@@ -1885,9 +1955,26 @@ def _parse_episode_spec(spec: str) -> list[float]:
             start, end = int(float(a)), int(float(b))
             if end < start:
                 start, end = end, start
+            # Before building the list, not after: the point is to never
+            # allocate it. A negative endpoint reaches here as `1--5`, which
+            # partitions into a range running from -5.
+            if start < 0:
+                raise ValueError(f"{token!r} asks for a negative episode")
+            if end - start + 1 > MAX_EPISODE_SPAN:
+                raise ValueError(
+                    f"{token!r} covers {end - start + 1} episodes; "
+                    f"the limit is {MAX_EPISODE_SPAN}"
+                )
             out.extend(float(n) for n in range(start, end + 1))
         else:
-            out.append(float(token))
+            n = float(token)
+            if n < 0:
+                raise ValueError(f"{token!r} is not an episode number")
+            out.append(n)
+    if len(out) > MAX_EPISODE_SPAN:
+        raise ValueError(
+            f"that selects {len(out)} episodes; the limit is {MAX_EPISODE_SPAN}"
+        )
     # De-duplicate while preserving the order first seen.
     seen: set[float] = set()
     return [n for n in out if not (n in seen or seen.add(n))]
