@@ -2,6 +2,62 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.69] - 2026-08-31
+
+### Fixed
+
+- **`anime mark` could silently destroy your AniList progress.** It *sets*
+  progress rather than advancing it, so marking below where you already were
+  overwrote the higher number with no warning and no undo. Marking a special
+  numbered 5.5 on a finished 28-episode show reported episode 5 to AniList and
+  dropped the entry from "completed" back to "watching".
+
+  Three separate faults, all found by running the command with odd numbers and
+  then checking what had actually changed on the account:
+
+  - `--single` now never touches AniList. It means "this one episode"; AniList
+    only understands "N episodes finished", and sending one as the other is a
+    category error that a float episode number makes obvious.
+  - A catch-up that would *lower* your AniList progress is refused, naming both
+    numbers, unless you pass `--force`. Checked before anything is written, so
+    refusing leaves nothing half-done.
+  - The confirmation reports the episodes actually written rather than the
+    number you asked for. The two were allowed to differ, and the message
+    believed the request - which is how it came to print "episodes 1-0 watched".
+
+- **`anime mark -e 0` marked nothing and said it had.** `1..0` is an empty
+  range, so no rows were written, yet the command reported success and pushed
+  the 0 to AniList. Zero or less is now refused for a catch-up. A `--single`
+  mark of episode 0 is still allowed, because some shows really do number a
+  prologue that way.
+
+- **`anime mark -e 99999` ran for six minutes and left 99,971 junk rows behind.**
+  Progress is one committed write per episode, and the episode count was never
+  checked against the show. A catch-up past the end of a show is now refused and
+  names the real length; when the length is unknown, as on an ongoing series,
+  the ceiling is 2000 - well past One Piece, and short of a typo.
+
+- **`anime download -e 1-999999999` allocated gigabytes before touching the
+  network.** The range is expanded into one list entry per episode up front, so
+  an unbounded one is an out-of-memory bug rather than a slow download. Ranges
+  are now capped at 2000 episodes, counted across the whole selector rather than
+  per token, and the refusal says how many episodes were actually asked for.
+
+- **`anime download -e -5` went looking for episode minus five.** `-5` parsed as
+  the number, and `1--5` as a range starting at -5. Negative episodes are
+  refused; episode 0 still works, because some shows number a prologue that way.
+
+- A refused episode selector now says why. The specific reason was being
+  swallowed for one generic line about the format, which made a rejected range
+  look like a syntax error.
+
+- **`--limit 0` printed thirty rows and `history --limit -1` printed
+  everything.** Non-positive counts were passed straight through: AniList
+  ignores one and returns a full page, and SQLite reads `LIMIT -1` as *no*
+  limit, so the flag quietly did the opposite of what it said in both
+  directions. Every `--limit` now has a floor of 1, and `--days` is bounded to a
+  year — 9999 used to reach AniList and come back a 400.
+
 ## [0.2.68] - 2026-08-31
 
 ### Fixed

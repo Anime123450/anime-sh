@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ..domain.errors import AnimeShError
 from ..domain.models import (
     Anime,
     AnimeId,
@@ -37,14 +38,54 @@ class LibraryService:
         """Clear all local watch progress for a show. Returns rows removed."""
         return await self._library.delete_progress(anime_id)
 
+    #: Ceiling for a catch-up on a show whose episode count we do not know —
+    #: an ongoing or unannounced season. The longest thing anyone will plausibly
+    #: mark is a shounen in the low thousands (One Piece is ~1140), and marking
+    #: that costs about four seconds. Anything above this is a typo, and taking
+    #: a typo literally is what made `-e 99999` sit there for six minutes.
+    MAX_CATCH_UP = 2000
+
+    def _check_mark_bounds(self, anime: Anime, up_to: float, *, single: bool) -> None:
+        """Refuse a mark that cannot mean what it says.
+
+        Episode 0 is real — some shows number a prologue that way — so a single
+        mark may be 0. A *catch-up* to 0 or less cannot be: it names an empty
+        range, which silently marked nothing while reporting success.
+        """
+        floor = 0.0 if single else 1.0
+        if up_to < floor:
+            raise AnimeShError(
+                f"episode must be {floor:g} or higher (got {up_to:g})"
+            )
+        if single:
+            return
+        total = anime.episode_count
+        if total is not None and up_to > total:
+            raise AnimeShError(
+                f"{anime.title.preferred} has {total} episodes "
+                f"(asked to mark up to {up_to:g})"
+            )
+        if total is None and up_to > self.MAX_CATCH_UP:
+            raise AnimeShError(
+                f"refusing to mark {up_to:g} episodes at once; "
+                f"the limit is {self.MAX_CATCH_UP} when the episode count is "
+                f"unknown"
+            )
+
     async def mark_watched(
         self, anime: Anime, up_to: float, *, single: bool = False
     ) -> list[float]:
         """Mark episodes complete without playing. By default every episode
         1..``up_to`` (catch-up); ``single`` marks only ``up_to``. Caches the
-        show's metadata so it renders offline. Returns the episodes marked."""
+        show's metadata so it renders offline. Returns the episodes marked.
+
+        Bounds are checked here rather than in the CLI so that every caller
+        gets them, and so the number the caller goes on to report is one that
+        was actually written.
+        """
         from datetime import datetime, timezone
 
+        self._check_mark_bounds(anime, up_to, single=single)
         numbers = [up_to] if single else [float(n) for n in range(1, int(up_to) + 1)]
         now = datetime.now(timezone.utc)
         await self._library.save_anime(anime)

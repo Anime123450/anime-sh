@@ -252,7 +252,8 @@ anime recommend "Frieren"    # shows for people who liked it
 anime related "Attack on Titan"  # prequels, sequels, side stories, movies
 
 # Library & tracking
-anime mark "Frieren" -e 12    # mark eps 1–12 watched (syncs to AniList)
+anime mark "Frieren" -e 12    # mark eps 1–12 watched; sets AniList progress to 12
+anime mark "Frieren" -e 12 --single   # just that episode, locally, no AniList
 anime unmark "Frieren"        # clear local progress for a show
 anime history                 # what you've watched
 anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
