@@ -530,7 +530,7 @@ constant; a test that asserts the two agree costs almost nothing.
 
 ## 10. Phase G — docs site and plugin ergonomics
 
-The remaining M6 milestone from `CLAUDE.md`.
+The remaining M6 milestone from `NOTES.md`.
 
 ### G1. A documentation site
 
@@ -597,7 +597,7 @@ uv run python scripts/canary.py --provider anikoto  # probe a real provider
 uv run python scripts/changelog_section.py 0.2.41   # release notes for a version
 ```
 
-**Windows note (from `CLAUDE.md`).** Smart App Control blocks uv's generated
+**Windows note (from `NOTES.md`).** Smart App Control blocks uv's generated
 `anime.exe` trampoline on the maintainer's machine. Invoke the CLI as a module —
 `uv run python -m anime_sh <cmd>` — to sidestep the shim. `pytest.exe` and
 `lint-imports.exe` currently pass SAC; `anime.exe` does not. This affects the
