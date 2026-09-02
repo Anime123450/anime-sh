@@ -287,3 +287,116 @@ async def test_verification_never_makes_a_blocking_subprocess_call(tmp_path):
         await FfmpegDownloader()._verify(FFMPEG, good, lost_segments=0)
 
     assert good.is_file()
+
+
+# --------------------------------------------------------------------------- #
+# An abandoned download must not look like a finished one
+# --------------------------------------------------------------------------- #
+class _ThrottledHandler(_QuietHandler):
+    """Slow enough that a download cannot finish before the test cancels it.
+
+    The first attempt at this test used a fast server and a short sleep, and the
+    download simply *completed* — so it "reproduced" the bug by inspecting a
+    perfectly good file. Throttling is what makes the cancellation land where it
+    is supposed to.
+    """
+
+    def end_headers(self) -> None:
+        time.sleep(0.05)
+        super().end_headers()
+
+
+@pytest.fixture
+def serve_slowly(tmp_path):
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        functools.partial(_ThrottledHandler, directory=str(tmp_path)),
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@needs_ffmpeg
+async def test_an_abandoned_download_leaves_nothing_at_the_destination(
+    tmp_path, serve_slowly
+):
+    """Ctrl-C, a closed terminal, a cancelled TUI worker.
+
+    ffmpeg used to write straight to the final path, so an interrupted download
+    left a truncated .mp4 exactly where `local_path` looks. From then on the
+    episode was skipped by every later `anime download` ("already downloaded"),
+    preferred by playback over the real stream, and shown as on-disk — a corrupt
+    file, trusted permanently. `_verify` deletes a *bad* file, but an abandoned
+    download never reaches it.
+
+    Verified before and after: before, `ep.mp4` was sitting there.
+    """
+    _make_segment(tmp_path / "s.ts")
+    # One segment, referenced many times: a long download for one ffmpeg run.
+    _playlist(tmp_path, ["s.ts"] * 200)
+    dest = tmp_path / "out" / "ep.mp4"
+
+    task = asyncio.create_task(
+        FfmpegDownloader().download(_stream(f"{serve_slowly}/play.m3u8"), dest)
+    )
+    await asyncio.sleep(3)
+    assert not task.done(), "the download finished; it was never interrupted"
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not dest.exists(), (
+        "a truncated episode is sitting at the path that means 'downloaded'"
+    )
+
+
+@needs_ffmpeg
+async def test_a_good_download_still_arrives_at_the_destination(tmp_path, serve):
+    """The other half of the same change: writing via a temporary file must not
+    stop a successful download from landing where everything else reads it."""
+    _make_segment(tmp_path / "s.ts")
+    _playlist(tmp_path, ["s.ts", "s.ts"])
+    dest = tmp_path / "out" / "ep.mp4"
+
+    await FfmpegDownloader().download(_stream(f"{serve}/play.m3u8"), dest)
+
+    assert dest.is_file() and dest.stat().st_size > 0
+    # And nothing half-written is left beside it.
+    assert sorted(p.name for p in dest.parent.iterdir()) == ["ep.mp4"]
+
+
+def test_the_scratch_file_is_not_mistaken_for_the_episode(tmp_path):
+    """`local_path` is the single authority for "do I have this one?". It keys
+    on the exact destination name, so the scratch file has to differ from it —
+    otherwise the temporary write would itself read as a finished download."""
+    from anime_sh.app.download import DownloadService
+
+    svc = DownloadService(
+        playback=lambda: None, downloader=object(), store=object(),
+        library=object(), download_dir=str(tmp_path),
+    )
+
+    class _Id:
+        anilist = 1
+
+    class _Title:
+        preferred = "Frieren"
+
+    class _Anime:
+        id = _Id()
+        title = _Title()
+
+    dest = svc.destination(_Anime(), 5.0)
+    scratch = dest.with_name(f"{dest.stem}.part{dest.suffix}")
+    assert scratch != dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    scratch.write_bytes(b"half an episode")
+    assert svc.local_path(_Anime(), 5.0) is None, (
+        "a download still in progress reads as already downloaded"
+    )

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -159,7 +160,22 @@ class FfmpegDownloader:
         if binary is None:
             raise DownloadError(f"{self._binary} not found on PATH")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        cmd = build_ffmpeg_command(binary, stream, dest)
+        # ffmpeg writes beside the destination, and the file is moved into place
+        # only once it has been checked. Writing straight to `dest` meant every
+        # interrupted download — Ctrl-C, a closed terminal, a cancelled TUI
+        # worker, a host that hung up — left a truncated .mp4 at exactly the path
+        # `local_path` calls "already downloaded". After that the episode was
+        # skipped by every later `anime download`, preferred by playback over the
+        # real stream, and shown as on-disk. `_verify` deletes a *bad* file, but
+        # an abandoned download never reaches it.
+        #
+        # Keeping the real extension matters: ffmpeg picks the output container
+        # from it, and there is no explicit `-f` in the command.
+        part = dest.with_name(f"{dest.stem}.part{dest.suffix}")
+        # A leftover from a previous attempt is not a resume point — ffmpeg
+        # starts from the beginning, and `-y` would overwrite it anyway.
+        _discard(part)
+        cmd = build_ffmpeg_command(binary, stream, part)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
@@ -167,36 +183,53 @@ class FfmpegDownloader:
         assert proc.stderr is not None
         tail: list[str] = []
         lost_segments = 0
+        finished = False
         try:
-            async for raw in proc.stderr:
-                line = raw.decode(errors="replace").strip()
-                if not line:
-                    continue
-                if _SEGMENT_LOST.search(line):
-                    lost_segments += 1
-                tail = (tail + [line])[-5:]
-                if on_line is not None:
-                    on_line(line)
-            await proc.wait()
-        finally:
-            # Abandoning the download (quit, Ctrl-C, a cancelled worker) used to
-            # leave ffmpeg running headless, still writing to the destination
-            # long after anime-sh was gone. Make the child die with us.
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError, OSError):
-                    proc.kill()
-                with contextlib.suppress(Exception):
-                    await proc.wait()
-        if proc.returncode != 0:
-            raise DownloadError(
-                f"ffmpeg exited {_signed(proc.returncode)}: "
-                f"{' / '.join(tail) or 'no output'}"
-            )
+            try:
+                async for raw in proc.stderr:
+                    line = raw.decode(errors="replace").strip()
+                    if not line:
+                        continue
+                    if _SEGMENT_LOST.search(line):
+                        lost_segments += 1
+                    tail = (tail + [line])[-5:]
+                    if on_line is not None:
+                        on_line(line)
+                await proc.wait()
+            finally:
+                # Abandoning the download (quit, Ctrl-C, a cancelled worker) used
+                # to leave ffmpeg running headless, still writing to the
+                # destination long after anime-sh was gone. Make the child die
+                # with us.
+                if proc.returncode is None:
+                    with contextlib.suppress(ProcessLookupError, OSError):
+                        proc.kill()
+                    with contextlib.suppress(Exception):
+                        await proc.wait()
+            if proc.returncode != 0:
+                raise DownloadError(
+                    f"ffmpeg exited {_signed(proc.returncode)}: "
+                    f"{' / '.join(tail) or 'no output'}"
+                )
 
-        # Exit code 0 is not evidence that the file is watchable. Two failure
-        # modes reach this point with a clean exit, and both used to be recorded
-        # as completed downloads.
-        await self._verify(binary, dest, lost_segments)
+            # Exit code 0 is not evidence that the file is watchable. Two failure
+            # modes reach this point with a clean exit, and both used to be
+            # recorded as completed downloads.
+            await self._verify(binary, part, lost_segments)
+
+            # Only now does the episode exist at the path everything else reads.
+            # os.replace is atomic within a filesystem, so there is no instant at
+            # which `dest` is a half-written file.
+            os.replace(part, dest)
+            finished = True
+        finally:
+            # Covers every way out that is not success: cancellation, a non-zero
+            # exit, a failed verification, an unexpected error. What survives a
+            # hard kill is a `.part.mp4`, which `local_path` does not recognise —
+            # so the worst case is a stray file, never a corrupt episode passed
+            # off as a complete one.
+            if not finished:
+                _discard(part)
 
     async def _verify(
         self, ffmpeg_binary: str, dest: Path, lost_segments: int
