@@ -99,6 +99,12 @@ class DetailScreen(Screen):
     DetailScreen #detail-action { height: auto; padding: 0 0 1 0; }
     """
 
+    #: Episode cells mounted per yield to the event loop. Mounting is what
+    #: costs — 1175 ONE PIECE cells in one go froze the screen for 5.7 seconds.
+    #: This size puts the first cells up in about a third of a second and keeps
+    #: the worst uninterruptible stretch well under one.
+    _RENDER_CHUNK = 120
+
     def __init__(self, anime: Anime, *, resume_episode: float | None = None,
                  source=None) -> None:
         super().__init__()
@@ -111,6 +117,9 @@ class DetailScreen(Screen):
         # marks); serialize them so a clear+append from one can't interleave with
         # another and double the list (seen after a series auto-completes).
         self._render_lock = asyncio.Lock()
+        # Which render is current. A render in flight stops as soon as a newer
+        # one arrives, so a long grid is never mounted twice over.
+        self._render_gen = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -387,35 +396,71 @@ class DetailScreen(Screen):
                 n for n in numbers if playback.is_downloaded(self.anime, n)
             }
 
+        # Bumped outside the lock on purpose. A later render must be able to tell
+        # an in-flight one to stop *while* it is still holding the lock —
+        # otherwise the newer call queues behind a long fill, and the screen
+        # mounts a thousand cells only to clear them and mount them again.
+        self._render_gen += 1
+        gen = self._render_gen
+
+        width = len(f"{max(numbers, default=1):g}")
+        select_index = 0
+        items: list[EpisodeItem] = []
+        for i, number in enumerate(numbers):
+            avail = is_avail(number)
+            is_watched = number <= watched_through
+            pct = partial.get(number)
+            if number == next_number:
+                select_index = i
+            items.append(
+                EpisodeItem(
+                    number,
+                    width=width,
+                    downloaded=number in downloaded,
+                    watched=is_watched,
+                    resume_s=1 if number == resume else 0,
+                    progress_pct=pct,
+                    available=avail,
+                    air_label=None if avail else self._unavailable_label(number),
+                    is_next=(not is_watched and pct is None
+                             and number == next_number and avail),
+                )
+            )
+
         async with self._render_lock:
+            if gen != self._render_gen:
+                return
             lv = self.query_one("#episodes", EpisodeGrid)
             await lv.clear()
-            select_index = 0
-            for i, number in enumerate(numbers):
-                avail = is_avail(number)
-                is_watched = number <= watched_through
-                pct = partial.get(number)
-                if number == next_number:
-                    select_index = i
-                lv.append(
-                    EpisodeItem(
-                        number,
-                        width=len(f"{max(numbers, default=1):g}"),
-                        downloaded=number in downloaded,
-                        watched=is_watched,
-                        resume_s=1 if number == resume else 0,
-                        progress_pct=pct,
-                        available=avail,
-                        air_label=None if avail else self._unavailable_label(number),
-                        is_next=(not is_watched and pct is None
-                                 and number == next_number and avail),
-                    )
-                )
-            # Size the grid only now: the column count depends on the widest
-            # episode number, which is not known until the rows exist.
-            self._size_episode_grid()
-            lv.index = select_index
-            lv.focus()
+            # Mounted in chunks, yielding between them. Building the cells is
+            # nearly free (0.09s for ONE PIECE's 1175); *mounting* them is what
+            # costs, and doing it in one go froze the screen for 5.7 seconds on
+            # a long-running show — twice, because this runs again once the
+            # provider's episode list arrives. In chunks the first cells are up
+            # in 0.35s and the screen stays answerable while the rest fill in.
+            placed = False
+            for start in range(0, len(items), self._RENDER_CHUNK):
+                if gen != self._render_gen:
+                    return  # a newer render is waiting; stop wasting mounts
+                lv.extend(items[start:start + self._RENDER_CHUNK])
+                if not placed and select_index < start + self._RENDER_CHUNK:
+                    # As soon as the cursor's own cell exists, put the cursor on
+                    # it — waiting for the whole grid would leave the episode you
+                    # came here to play unselected for seconds.
+                    self._size_episode_grid()
+                    lv.index = select_index
+                    lv.focus()
+                    placed = True
+                if start + self._RENDER_CHUNK < len(items):
+                    await asyncio.sleep(0)
+            if not placed:
+                self._size_episode_grid()
+                lv.index = select_index
+                lv.focus()
+            else:
+                # The column count depends on the widest episode number, which
+                # is only certain once every cell is mounted.
+                self._size_episode_grid()
         self._refresh_action(next_number, partial, watched_through)
 
     def _refresh_action(self, next_number, partial: dict, watched_through) -> None:
