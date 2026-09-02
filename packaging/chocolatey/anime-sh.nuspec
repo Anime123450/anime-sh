@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chocolatey package for anime-sh.
+
+  Version and the installer's sha256 are placeholders, filled in by
+  scripts/make_manifests.py from the built artifact. The same rule as the winget
+  and scoop manifests: the two fields that must match an exact published file
+  are never typed by hand.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>anime-sh</id>
+    <version>0.0.0</version>
+    <packageSourceUrl>https://github.com/Anime123450/anime-sh/tree/master/packaging/chocolatey</packageSourceUrl>
+    <owners>Anime123450</owners>
+
+    <title>anime-sh</title>
+    <authors>Animesh Sharma</authors>
+    <projectUrl>https://github.com/Anime123450/anime-sh</projectUrl>
+    <licenseUrl>https://github.com/Anime123450/anime-sh/blob/master/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/Anime123450/anime-sh</projectSourceUrl>
+    <docsUrl>https://github.com/Anime123450/anime-sh/blob/master/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/Anime123450/anime-sh/issues</bugTrackerUrl>
+    <releaseNotes>https://github.com/Anime123450/anime-sh/blob/master/CHANGELOG.md</releaseNotes>
+    <tags>anime cli tui terminal streaming anilist mpv foss</tags>
+    <summary>The terminal-native anime client - providers, mirrors and resolvers, handled for you.</summary>
+    <description><![CDATA[
+anime-sh finds a show, picks a working source and plays it in mpv, from the
+terminal. It tracks what you have watched, resumes where you stopped, and can
+sync progress with AniList. Sources are plugins, so a site going down does not
+take the app with it.
+
+### What gets installed
+
+A single standalone executable with Python and every library inside it — there
+is nothing to set up and no Python required.
+
+**mpv** is installed alongside it (the `mpvio` package), because it is what
+actually plays the video.
+
+**ffmpeg** is *not* installed: it is needed only by `anime download`, and the
+usual Windows build is several hundred megabytes. If you want downloads:
+
+    choco install ffmpeg
+
+Run `anime doctor` after installing and it will tell you what it found and what
+is missing.
+]]></description>
+
+    <dependencies>
+      <!--
+        `mpvio`, not `mpv`. The package named `mpv` on the community repository
+        is titled "[Deprecated] mpv" and its own description says it is
+        deprecated in favour of `mpvio`; it is pinned to a 2024 build. `mpvio`
+        is the one that follows upstream mpv's version scheme and is still
+        published.
+
+        Declared rather than bundled: mpv is GPL, so shipping its binary inside
+        an MIT package would also make us responsible for offering its source.
+      -->
+      <dependency id="mpvio" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

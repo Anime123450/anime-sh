@@ -2,6 +2,31 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.72] - 2026-09-02
+
+### Added
+
+- **A Chocolatey package.** `choco install anime-sh` installs the standalone
+  executable and pulls mpv in with it, the same deal as Scoop and WinGet. ffmpeg
+  stays optional, because it is only needed by `anime download` and the Windows
+  build is several hundred megabytes.
+
+  The mpv dependency is **`mpvio`**, not the package named `mpv`: that one is
+  titled "[Deprecated] mpv" on the community repository, says in its own
+  description that it is deprecated in favour of `mpvio`, and is pinned to a
+  2024 build. Depending on the obvious name would have quietly installed a stale
+  player.
+
+  The version and checksum are generated from the built artifact by
+  `scripts/make_manifests.py`, like the other two channels — Chocolatey verifies
+  the checksum at install time, so a wrong one fails for every user and the fix
+  is another moderated submission.
+
+  The release now builds the package and **installs it** on a clean Windows
+  runner, then runs `anime --version` and checks mpv actually landed. Packing
+  only proves the XML parses; it proves nothing about the download URL, the
+  checksum, the shim, or whether the dependency exists under the name we chose.
+
 ## [0.2.71] - 2026-09-02
 
 ### Fixed

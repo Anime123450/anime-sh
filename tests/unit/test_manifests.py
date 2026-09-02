@@ -295,3 +295,81 @@ def test_the_readme_adds_the_bucket_mpv_actually_lives_in():
         assert "scoop bucket add extras" in preceding, (
             "an install block does not add the bucket mpv lives in"
         )
+
+
+# -- chocolatey -------------------------------------------------------------- #
+def test_the_chocolatey_package_depends_on_the_maintained_mpv():
+    """`mpvio`, not `mpv`.
+
+    The community package literally named `mpv` is titled "[Deprecated] mpv";
+    its own description says it is deprecated in favour of `mpvio`, and it is
+    pinned to a 2024 build. Depending on the obvious name would install a stale
+    player — the same shape of mistake as depending on scoop's `mpv` without
+    noticing it lives in the `extras` bucket.
+    """
+    import xml.etree.ElementTree as ET
+
+    ns = {"n": "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"}
+    root = ET.parse(ROOT / "packaging" / "chocolatey" / "anime-sh.nuspec").getroot()
+    deps = [d.get("id") for d in root.findall(".//n:dependency", ns)]
+    assert deps == ["mpvio"], f"chocolatey dependencies are {deps}"
+
+
+def test_chocolatey_does_not_force_ffmpeg_on_people_who_only_stream():
+    """Same reasoning as the other two channels: it is only needed by
+    `anime download`, and the Windows build is several hundred megabytes."""
+    import xml.etree.ElementTree as ET
+
+    ns = {"n": "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"}
+    root = ET.parse(ROOT / "packaging" / "chocolatey" / "anime-sh.nuspec").getroot()
+    deps = [d.get("id", "").lower() for d in root.findall(".//n:dependency", ns)]
+    assert not any("ffmpeg" in d for d in deps)
+    # But it must still be mentioned, with the command to get it.
+    text = (ROOT / "packaging" / "chocolatey" / "anime-sh.nuspec").read_text()
+    assert "choco install ffmpeg" in text
+
+
+def test_the_chocolatey_install_script_is_generated_never_typed(tmp_path):
+    """The URL and the checksum are the two fields that must match an exact
+    published file. Chocolatey verifies the checksum at install time, so a wrong
+    one fails for every user and the fix is another moderated submission."""
+    out, expected = _render(tmp_path, version="4.5.6")
+    script = (out / "chocolatey" / "tools" / "chocolateyinstall.ps1").read_text()
+    assert expected in script
+    assert PLACEHOLDER_HASH not in script
+    assert "releases/download/v4.5.6/anime-sh-4.5.6-windows-x64.exe" in script
+
+    nuspec = (out / "chocolatey" / "anime-sh.nuspec").read_text()
+    assert "<version>4.5.6</version>" in nuspec
+    assert PLACEHOLDER_VERSION not in nuspec
+
+
+def test_the_chocolatey_package_downloads_the_same_artifact_as_everyone_else():
+    """One artifact per release for every channel to verify against. If this
+    URL drifts from the one the release actually publishes, chocolatey installs
+    404 while the release itself looks green."""
+    script = (ROOT / "packaging" / "chocolatey" / "tools"
+              / "chocolateyinstall.ps1").read_text()
+    assert "anime-sh-0.0.0-windows-x64.exe" in script, (
+        "not pointing at the versioned release asset"
+    )
+    # Shimmed as `anime`, which is the command every doc tells people to run.
+    assert "'anime.exe'" in script
+
+
+def test_the_release_installs_the_chocolatey_package_rather_than_only_packing_it():
+    """`choco pack` proves the XML parses. It does not prove the download URL
+    resolves, the checksum matches, the shim is created, or that the declared
+    mpv dependency exists under the name we guessed."""
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+
+    assert "chocolatey" in wf["jobs"], "nothing builds the chocolatey package"
+    job = wf["jobs"]["chocolatey"]
+    # After the release exists: the install script downloads the published
+    # binary by URL, so there is nothing to install before then.
+    assert job["needs"] == "github-release" or "github-release" in job["needs"]
+    run = "\n".join(s.get("run", "") for s in job["steps"])
+    assert "choco install anime-sh" in run, "packs but never installs"
+    assert "--version" in run, "installs but never runs the result"
+    assert "mpvio" in run, "never checks the dependency actually landed"

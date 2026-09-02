@@ -72,6 +72,14 @@ winget install AnimeshSharma.anime-sh
 > changed your `PATH` and this terminal still has the old copy. Open a new one.
 > Scoop needs no restart.
 
+**Chocolatey** — pending moderation:
+
+```powershell
+choco install anime-sh
+```
+
+> mpv comes with it. For downloads, add ffmpeg: `choco install ffmpeg`.
+
 ### Any OS — with Python
 
 `uv` is a single standalone binary that brings its own Python, so this works on
@@ -120,7 +128,7 @@ uv run anime
 
 | | Why | Required? |
 |---|---|---|
-| **[mpv](https://mpv.io)** | plays the video | **yes** — installed for you by scoop/winget |
+| **[mpv](https://mpv.io)** | plays the video | **yes** — installed for you by scoop/winget/choco |
 | **[ffmpeg](https://ffmpeg.org)** | saves downloads | only for `anime download` |
 | **Python 3.11+** | runs the app | only for the PyPI and source installs |
 
@@ -326,7 +334,7 @@ expired, `cache clear` empties it and hands the disk space back.
 | Symptom | What's happening |
 |---|---|
 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (winget), or run `uv tool update-shell` (uv). |
-| **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv`. |
+| **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
 | **A show won't play — "trying next…" on every source** | Providers get Cloudflare-gated or geo-blocked. Try later, or another title; search and your library are unaffected. |
 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/winget, or the `uv` block above. |
 | **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |

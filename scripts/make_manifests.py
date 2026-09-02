@@ -114,6 +114,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         written.append(target)
 
+    # Chocolatey: the nuspec plus everything under tools/. The scripts are
+    # copied whole because the install script carries the URL and checksum, and
+    # `choco pack` needs the directory laid out exactly as it will ship.
+    choco_src = ROOT / "packaging" / "chocolatey"
+    choco_out = args.out / "chocolatey"
+    for src in sorted(choco_src.rglob("*")):
+        if src.is_dir():
+            continue
+        target = choco_out / src.relative_to(choco_src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            render(src.read_text(encoding="utf-8"), args.version, sha, release_date),
+            encoding="utf-8",
+        )
+        written.append(target)
+
     scoop_src = ROOT / "packaging" / "scoop" / "anime-sh.json"
     scoop_out = args.out / "scoop" / "anime-sh.json"
     scoop_out.parent.mkdir(parents=True, exist_ok=True)
