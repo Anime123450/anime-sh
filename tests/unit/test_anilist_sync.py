@@ -238,3 +238,59 @@ async def test_push_keeps_going_when_one_row_is_rejected():
     result = await SyncService(Library(), tracker).push()
     assert tracker.seen == [1, 2, 3]  # row 3 was still attempted
     assert (result.pushed, result.skipped) == (2, 1)
+
+
+async def test_sync_push_sends_one_call_per_show_not_per_episode():
+    """A tracker entry holds one number. Sending every row for a show set that
+    entry over and over, ending on the highest — the same result as sending only
+    the highest, for as many calls as the show has episodes. On a real library
+    that was 152 calls for 76 shows.
+    """
+    lib = FakeLibrary()
+    await lib.save_anime(Anime(id=AnimeId(anilist=1), title=Title(romaji="A"),
+                               episode_count=28))
+    now = datetime.now(timezone.utc)
+    for ep in (1.0, 2.0, 3.0, 28.0):
+        await lib.save_progress(WatchProgress(AnimeId(anilist=1), ep, 0, 0, now))
+    tracker = _FakeTracker()
+    result = await SyncService(lib, tracker).push()
+
+    assert tracker.pushed == [(1, 28, 28)], "one call, carrying the furthest episode"
+    assert result.pushed == 1, "the CLI reports this as 'show(s)'"
+
+
+async def test_sync_push_never_sets_a_show_below_where_you_are():
+    """The reason it matters. Every intermediate call set the entry *below* your
+    real progress, so a push interrupted partway — a dropped connection, a rate
+    limit outlasting its retries — left finished shows parked at a low episode.
+    """
+    lib = FakeLibrary()
+    await lib.save_anime(Anime(id=AnimeId(anilist=1), title=Title(romaji="A"),
+                               episode_count=28))
+    now = datetime.now(timezone.utc)
+    for ep in (1.0, 2.0, 3.0, 28.0):
+        await lib.save_progress(WatchProgress(AnimeId(anilist=1), ep, 0, 0, now))
+    tracker = _FakeTracker()
+    await SyncService(lib, tracker).push()
+
+    # Not "ends on the highest" — never *sends* anything lower at all, so there
+    # is no moment during the push at which the account reads low.
+    assert [ep for _, ep, _ in tracker.pushed] == [28]
+
+
+async def test_sync_push_picks_the_furthest_even_if_rows_arrive_unordered():
+    """The repository happens to ORDER BY episode today. The property being
+    relied on is "furthest", which should not depend on that staying true."""
+    now = datetime.now(timezone.utc)
+
+    class Library:
+        async def all_progress_rows(self):
+            return [WatchProgress(AnimeId(anilist=1), ep, 0, 0, now)
+                    for ep in (12.0, 3.0, 7.0)]
+
+        async def get_anime(self, anime_id):
+            return None
+
+    tracker = _FakeTracker()
+    await SyncService(Library(), tracker).push()
+    assert tracker.pushed == [(1, 12, None)]
