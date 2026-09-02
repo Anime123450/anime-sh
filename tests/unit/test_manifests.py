@@ -373,3 +373,61 @@ def test_the_release_installs_the_chocolatey_package_rather_than_only_packing_it
     assert "choco install anime-sh" in run, "packs but never installs"
     assert "--version" in run, "installs but never runs the result"
     assert "mpvio" in run, "never checks the dependency actually landed"
+
+
+def test_the_chocolatey_package_satisfies_the_repositorys_own_rules():
+    """The community repository runs a validator, and its Requirements block
+    approval until fixed. These are checked against the rules as implemented in
+    chocolatey's package-validator, not from memory — the two that looked most
+    likely to bite turned out not to, and it would have been easy to "fix" them
+    into something worse.
+    """
+    import re
+    import xml.etree.ElementTree as ET
+
+    ns = {"n": "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"}
+    src = ROOT / "packaging" / "chocolatey" / "anime-sh.nuspec"
+    meta = ET.parse(src).getroot().find("n:metadata", ns)
+
+    def field(name: str) -> str:
+        node = meta.find(f"n:{name}", ns)
+        return (node.text or "").strip() if node is not None else ""
+
+    # ProjectUrlRequirement, LicenseUrlValidRequirement,
+    # PackageSourceUrlValidRequirement — each must be present and resolvable.
+    for name in ("projectUrl", "licenseUrl", "packageSourceUrl", "description",
+                 "authors", "id", "version"):
+        assert field(name), f"{name} is required and missing"
+    for name in ("projectUrl", "licenseUrl", "packageSourceUrl"):
+        assert field(name).startswith("https://"), f"{name} is not https"
+
+    # DescriptionHeadingMarkdownRequirement: `###Heading` with no space after
+    # the hashes is what it rejects. `### Heading` is fine.
+    assert not re.search(r"^(#+)([^\s#].*)$", field("description"), re.M), (
+        "the description contains a heading the validator calls invalid"
+    )
+    # DescriptionWordCountMinimum30Guideline / Maximum4000Requirement.
+    words = len(field("description").split())
+    assert 30 <= words <= 4000, f"description is {words} words"
+
+
+def test_the_chocolatey_scripts_satisfy_the_script_requirements():
+    """Rules that reject on the *contents* of the automation scripts."""
+    import re
+
+    tools = ROOT / "packaging" / "chocolatey" / "tools"
+    names = sorted(p.name for p in tools.glob("*.ps1"))
+    # InstallScriptsNamedCorrectlyRequirement — chocolatey only runs these
+    # exact names, so a typo produces a package that installs nothing at all.
+    assert names == ["chocolateyinstall.ps1", "chocolateyuninstall.ps1"], names
+
+    for path in tools.glob("*.ps1"):
+        body = path.read_text(encoding="utf-8")
+        # ScriptsDoNotContainChocoCommandsRequirement — a package that shells
+        # out to choco during its own install deadlocks the run.
+        assert not re.search(r"\bchoco(\.exe)?\s+\w", body), path.name
+        # CommentsShouldBeCleanedUpRequirement looks for the template's own
+        # boilerplate left behind.
+        assert "main helper" not in body.lower(), path.name
+        # ScriptsDoNotContainImportOfChocolateyModuleRequirement.
+        assert "import-module chocolatey" not in body.lower(), path.name
