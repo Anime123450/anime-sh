@@ -219,3 +219,74 @@ jobs:
             dist/*.whl dist/*.tar.gz \
             "dist/bundle/$asset" "dist/bundle/$asset.sha256" \
             --repo "$GITHUB_REPOSITORY" --clobber
+
+  chocolatey:
+    # Build the chocolatey package and prove it installs, on a runner that has
+    # chocolatey but has never seen anime-sh — which is the only way to catch
+    # the class of bug that only shows up on a clean machine.
+    #
+    # Runs after the release exists, because the install script downloads the
+    # published executable by URL and verifies its checksum. Packing without
+    # installing would only prove the XML parses.
+    needs: github-release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Render the package for this version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # The hash comes from the checksum published beside the binary, which
+          # the bundle job generated from the binary itself. Never retyped.
+          curl -fsSL -o sums.txt \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/anime-sh-$version-windows-x64.exe.sha256"
+          sha=$(awk '{print $1}' sums.txt)
+          echo "sha256: $sha"
+          uv run python scripts/make_manifests.py "$version" --sha256 "$sha" --out dist/manifests
+
+      - name: choco pack
+        shell: pwsh
+        run: choco pack dist/manifests/chocolatey/anime-sh.nuspec --outputdirectory dist/manifests/chocolatey
+
+      - name: The package must actually install, and bring mpv with it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Local dir first for our package, community feed second so the
+          # `mpvio` dependency resolves. `mpvio`, not `mpv`: the package named
+          # `mpv` is titled "[Deprecated] mpv" and pinned to a 2024 build.
+          choco install anime-sh --yes --no-progress `
+            --source "dist/manifests/chocolatey;https://community.chocolatey.org/api/v2/"
+          if ($LASTEXITCODE -ne 0) { throw "choco install failed ($LASTEXITCODE)" }
+
+          # A package that installs is not a package that works. Assert the
+          # shim runs and reports the version being released, and that the
+          # declared dependency actually landed.
+          $env:PATH = "$env:ALLUSERSPROFILE\chocolatey\bin;$env:PATH"
+          $reported = (anime --version) | Out-String
+          $reported = $reported.Trim()
+          $expected = "anime-sh $($env:GITHUB_REF_NAME -replace '^v','')"
+          Write-Host "shim reports: $reported"
+          if ($reported -ne $expected) { throw "expected '$expected', got '$reported'" }
+
+          $mpv = choco list --local-only --exact mpvio --limit-output
+          Write-Host "mpv dependency: $mpv"
+          if (-not $mpv) { throw "mpvio was not installed as a dependency" }
+
+      - name: Attach the .nupkg to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/manifests/chocolatey/*.nupkg \
+            --repo "$GITHUB_REPOSITORY" --clobber
