@@ -2,6 +2,32 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.71] - 2026-09-02
+
+### Fixed
+
+- **Opening a very long show froze the screen.** ONE PIECE's 1175 episode cells
+  were built and mounted in one go: nothing on screen for 3.8 seconds, and the
+  app answered nothing for all of it. Building the cells turns out to be nearly
+  free — 0.09s — so the entire cost was Textual mounting them, which meant the
+  only real lever was mounting fewer at a time.
+
+  They now go up in chunks, yielding to the event loop between them: the first
+  cells appear in **0.3s** and the screen stays answerable while the rest fill
+  in. Every episode is still there, the grid and its keys are unchanged, and a
+  normal-length show still mounts in a single batch.
+
+  The cursor is placed as soon as its own cell exists rather than after the whole
+  grid, so on a show you are 1090 episodes into, the episode you came to play is
+  selected almost immediately.
+
+  The episode list is also no longer built twice over. It renders once from
+  AniList's planned count and again from what the provider actually has; the
+  second render used to queue behind the first, so a long show mounted a thousand
+  cells only to clear them and mount them again. A render now stops as soon as a
+  newer one arrives — which is why the whole grid also finishes sooner than it
+  used to (2.8s against 3.8s), despite doing the same work in smaller pieces.
+
 ## [0.2.70] - 2026-09-02
 
 ### Fixed
