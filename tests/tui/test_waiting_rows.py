@@ -19,7 +19,16 @@ from anime_sh.tui.rows import Row
 from anime_sh.tui.screens.home import HomeScreen
 from anime_sh.tui.upcoming import schedule, scheduled_ids
 
-NOW = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+# Relative to the real clock, not a fixed date. The code under test asks the
+# rail what it is carrying, and the rail measures its seven-day horizon from
+# `datetime.now()` — so a hard-coded NOW quietly drifts out of that window and
+# takes the suite red on a later calendar day than the one it was written on.
+# This file was pinned to 2026-08-30 and started failing on 2026-09-01, when
+# the `in_days=2` fixture fell into the past.
+#
+# Every offset below is a whole number of days against a seven-day horizon, so
+# there is no boundary close enough for the time of day to matter.
+NOW = datetime.now(timezone.utc)
 
 
 def _anime(anilist: int, title: str, *, in_days: float | None, episode: int = 5):

@@ -2,6 +2,40 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.70] - 2026-09-02
+
+### Fixed
+
+- **An interrupted `anime sync push` could leave finished shows sitting at a low
+  episode on AniList.** It sent one request per local progress row rather than
+  one per show. A tracker entry holds a single number, so pushing rows 1, 2, 3 …
+  28 for one show just set that entry over and over, landing on 28 — the same
+  end state as sending only 28, for as many requests as the show has episodes.
+
+  The cost was not only waste. Every intermediate request set the entry *below*
+  where you actually are, so a push that stopped partway — a dropped connection,
+  a rate limit that outlasted its retries — left the account reading whatever
+  episode it had reached. Now it sends the furthest episode per show, one
+  request each, so a show is all-or-nothing.
+
+  On a real library that is 76 requests instead of 152, which also matters
+  because AniList caps requests per minute and a large push was capable of
+  hitting that cap by itself.
+
+- `anime sync push` reported the number of rows it had sent as the number of
+  "show(s)" it had synced. It now counts shows, which is what it was already
+  claiming to count.
+
+### Security
+
+- **The AniList token was written to disk with default permissions and made
+  private a moment later.** `save_token` wrote the file and *then* chmod-ed it
+  0600, so on Linux and macOS there was a window in which an access token sat
+  on disk readable by every user on the machine. The file is now created 0600,
+  before the token goes into it. The chmod stays, because it is what repairs a
+  file an older build left loose. On Windows the mode was never meaningful
+  either way — there the file is protected by living under your AppData.
+
 ## [0.2.69] - 2026-08-31
 
 ### Fixed
