@@ -2,6 +2,28 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.73] - 2026-09-02
+
+### Fixed
+
+- **An interrupted download left a truncated episode that anime-sh then trusted
+  forever.** ffmpeg wrote straight to the final path, so pressing Ctrl-C,
+  closing the terminal, or letting a TUI worker be cancelled left a partial
+  `.mp4` sitting exactly where `local_path` looks for a finished episode.
+
+  From that point on the episode was skipped by every later `anime download`
+  ("already downloaded, skipping"), preferred by playback over the real stream,
+  and shown as on-disk in the episode grid. The existing integrity check deletes
+  a *bad* file, but an abandoned download never reaches it — it is the failure
+  mode that check's own note calls worse than an outright failure.
+
+  The download is now written to a scratch file beside the destination and moved
+  into place only after it has been verified, with `os.replace`, so there is no
+  instant at which the destination is a half-written file. Anything that
+  survives a hard kill is named `.part.mp4`, which `local_path` does not
+  recognise — the worst case is a stray file, never a corrupt episode passed off
+  as a complete one.
+
 ## [0.2.72] - 2026-09-02
 
 ### Added
