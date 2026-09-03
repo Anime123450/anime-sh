@@ -256,6 +256,15 @@ def test_mpv_is_a_hard_dependency_in_both_manifests():
         "scoop would install anime-sh without mpv, or fail without saying why"
     )
 
+    # chocolatey's validator flags a dependency with no version as a guideline
+    # ("you should at least specify a minimum"). The floor is the version
+    # actually tested, not the oldest that might work.
+    import xml.etree.ElementTree as ET
+    ns = {"n": "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"}
+    root = ET.parse(ROOT / "packaging" / "chocolatey" / "anime-sh.nuspec").getroot()
+    dep = root.find(".//n:dependency", ns)
+    assert dep.get("version"), "chocolatey dependency has no minimum version"
+
     installer = yaml.safe_load(
         (ROOT / "packaging" / "winget" / "AnimeshSharma.anime-sh.installer.yaml").read_text()
     )

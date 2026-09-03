@@ -59,7 +59,14 @@ is missing.
         Declared rather than bundled: mpv is GPL, so shipping its binary inside
         an MIT package would also make us responsible for offering its source.
       -->
-      <dependency id="mpvio" />
+      <!--
+        The floor is the version actually tested against - on CI and locally -
+        not the oldest that might work. chocolatey's validator asks for a
+        minimum version, and the honest answer to "what do we support" is the
+        one we have run. It is also the current release, so for anyone
+        installing fresh this constrains nothing.
+      -->
+      <dependency id="mpvio" version="0.41.0" />
     </dependencies>
   </metadata>
   <files>
