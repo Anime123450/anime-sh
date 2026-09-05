@@ -180,8 +180,31 @@ def test_browse_cells_airing_splits_count_from_countdown():
     a = _anime(status=Status.RELEASING, episode_count=12, next_airing_episode=3,
                next_airing_at=_NOW + timedelta(days=4, hours=6))
     row = browse_cells(a, _NOW)
-    assert row.position == "2/12"
+    assert row.position == "2/12 eps"
     assert row.status == "Ep 3 in 4d 6h"
+
+
+def test_the_browse_episode_column_says_what_the_numbers_are():
+    """A season list of bare "7/11", "8/12", "9/14" reads as November, December
+    and September before it reads as episode counts — and it sat in the same
+    column as the finished-show branch's "12 eps", so one column carried two
+    grammars for one kind of fact."""
+    a = _anime(status=Status.RELEASING, episode_count=11, next_airing_episode=8,
+               next_airing_at=_NOW + timedelta(hours=3))
+    assert browse_cells(a, _NOW).position == "7/11 eps"
+
+
+def test_a_long_runner_keeps_its_count_rather_than_the_unit():
+    """`1139/1140` is nobody's idea of a date, and the column is nine cells:
+    spending four of them on "eps" would truncate the number instead — on the
+    one row where the count is the interesting part."""
+    from anime_sh.tui.format import _aired_of
+    from anime_sh.tui.rows import POSITION_W
+
+    assert _aired_of(1139, 1140) == "1139/1140"
+    assert len(_aired_of(1139, 1140)) <= POSITION_W
+    # And the short case still fits the column it has to live in.
+    assert len(_aired_of(21, 24)) <= POSITION_W
 
 
 def test_browse_cells_finished_show_falls_back_to_year():
