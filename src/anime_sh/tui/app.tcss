@@ -196,6 +196,18 @@ ListView:focus > ListItem.-highlight {
    It has to live here rather than in the screen's own DEFAULT_CSS: the
    `Screen` rule at the top of this file is app-level CSS and outranks a
    widget's DEFAULT_CSS, so it silently won and the modal came out solid. */
+/* Toasts land bottom-right by default, which is exactly where Region C is. A
+   toast is 60 cells wide and the rail is barely more than half that, so a
+   "Synced 74 from AniList" covered the next three days of the schedule
+   completely — the one thing on screen you cannot scroll back to, because it is
+   not a list, it is the answer to "what is on tonight".
+
+   Moved to the other corner, where it covers the tail of the browse lists
+   instead: rows that are still there when it fades, and scrollable besides. */
+ToastRack {
+    align-horizontal: left;
+}
+
 ThemesScreen {
     background: $background 55%;
 }

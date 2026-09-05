@@ -2,6 +2,34 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.74] - 2026-09-05
+
+### Changed
+
+- **The browse lists' episode column says what its numbers are.** A season list
+  showing `7/11`, `8/12`, `9/14` reads as November, December and September
+  before it reads as episode counts — and it sat in the same column as the
+  finished-show branch's `12 eps`, so one column carried two grammars for one
+  kind of fact. It now reads `7/11 eps`.
+
+  The unit is appended only when it fits the column, which is exactly where the
+  ambiguity lives: `1139/1140` is nobody's idea of a date, and spending four
+  cells to say so would truncate the number instead — on the one row where the
+  count is the interesting part.
+
+### Fixed
+
+- **A notification no longer lands on top of the Coming Up rail.** Textual docks
+  toasts bottom-*right*, which is where Region C sits; a toast is 60 cells wide
+  and the rail is barely more than half that, so "Synced 74 from AniList"
+  covered the next three days of schedule outright. They now appear in the other
+  corner, over the tail of the browse lists — rows that are still there when the
+  toast fades, and scrollable besides.
+
+- Chocolatey's `mpvio` dependency now declares a minimum version, which is the
+  one Guideline the community repository's validator raised that was a real
+  claim about the package. The floor is the version actually tested against.
+
 ## [0.2.73] - 2026-09-02
 
 ### Fixed

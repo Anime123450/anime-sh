@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from ..domain.models import Anime, WatchProgress
-from .rows import Row
+from .rows import POSITION_W, Row
 
 # The Continue-Watching bar shares a column with text statuses, so it stays
 # short enough to leave room for the percentage beside it.
@@ -157,6 +157,25 @@ def continue_cells(
     )
 
 
+def _aired_of(aired: int, total: int | None) -> str:
+    """The browse lists' episode column: "7/11 eps", or "7 eps" with no total.
+
+    The unit is not decoration. Bare "7/11" sat directly under "12 eps" in the
+    same column - two grammars for one kind of fact - and on its own it reads as
+    a date: a season list showing 7/11, 8/12 and 9/14 looks like November,
+    December and September before it looks like episode counts.
+
+    Appended only when it fits the column, which is exactly where the ambiguity
+    lives. A long-runner's "1139/1140" is nobody's idea of a date, and spending
+    four cells to say so would truncate the number instead - the one row where
+    the count is the interesting part.
+    """
+    if not total:
+        return f"{aired} eps"
+    bare = f"{aired}/{total}"
+    return f"{bare} eps" if len(bare) + 4 <= POSITION_W else bare
+
+
 def browse_cells(anime: Anime, now: datetime | None = None) -> Row:
     """A row for the browse lists — seasonal, trending, search results.
 
@@ -169,7 +188,7 @@ def browse_cells(anime: Anime, now: datetime | None = None) -> Row:
         total = anime.episode_count
         return Row(
             title=anime.title.preferred,
-            position=f"{aired}/{total}" if total else f"{aired} eps",
+            position=_aired_of(aired, total),
             status=f"Ep {anime.next_airing_episode} {countdown(anime.next_airing_at, now)}",
         )
     eps = anime.episode_count

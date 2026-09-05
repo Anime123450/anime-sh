@@ -251,3 +251,30 @@ async def test_tab_skips_a_section_with_nothing_in_it():
             assert app.focused.id not in empty, (
                 f"Tab stopped on #{app.focused.id}, which has no rows"
             )
+
+
+async def test_a_toast_does_not_land_on_top_of_the_rail():
+    """Textual docks notifications bottom-*right*, which is exactly where the
+    Coming Up rail lives. A toast is 60 cells wide and the rail is barely more
+    than half that, so "Synced 74 from AniList" covered the next three days of
+    schedule outright — and the rail is the one thing on screen you cannot
+    scroll back to, because it is not a list.
+
+    Asserted on the computed style rather than by screenshotting a toast:
+    notifications are not mounted at all in headless mode, so a rendered check
+    here would pass whether or not the rule applied.
+    """
+    from textual.widgets._toast import ToastRack
+
+    from .test_app import _make_app
+
+    app, _ = _make_app()
+    async with app.run_test(size=(190, 44)) as pilot:
+        await pilot.pause()
+        rack = ToastRack()
+        await app.screen.mount(rack)
+        await pilot.pause()
+        assert rack.styles.align_horizontal == "left", (
+            "toasts are back on the right, over the rail"
+        )
+        assert rack.styles.align_vertical == "bottom"
