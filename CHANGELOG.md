@@ -2,6 +2,21 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.77] - 2026-09-06
+
+### Fixed
+
+- **The detail screen kept the poster's column even when there was no poster.**
+  `#detail-cover` is a fixed 34 cells, reserved before the image is fetched so
+  the metadata does not jump sideways when the art lands. Every way that fetch
+  can fail — a show with no cover URL, an unreachable host, no Pillow to decode
+  with — returned early and left the reservation standing, so the panel sat
+  indented past an empty gutter a third of the screen wide with nothing in it.
+
+  The column is taken back once there is definitely nothing to show. It is still
+  held while the fetch is in flight, so a cover that does arrive still does not
+  make the metadata jump.
+
 ## [0.2.76] - 2026-09-06
 
 ### Added

@@ -226,3 +226,49 @@ def test_view_means_the_same_thing_on_both_screens():
     assert "g" not in keys(detail_mod.DetailScreen.BINDINGS), (
         "the detail screen took `g`, which is 'first row' app-wide"
     )
+
+
+# -- the cover column -------------------------------------------------------- #
+async def test_the_cover_column_is_taken_back_when_there_is_no_cover():
+    """`#detail-cover` is a fixed 34 cells, reserved before the fetch so the
+    metadata does not jump sideways when the art lands. Every way the fetch can
+    fail — no cover URL, an unreachable host, no Pillow to decode with — returned
+    early and left that reservation standing, so the panel sat indented past an
+    empty gutter a third of the screen wide.
+
+    The fixture show has no cover URL, which is the cheapest of those paths and
+    exercises the same collapse.
+    """
+    from textual.containers import Container
+
+    from .test_app import _make_app
+
+    app, _ = _make_app()
+    d = detail_mod.DetailScreen(_anime(1, "A Show", eps=12))
+    async with app.run_test(size=(92, 32)) as pilot:
+        await pilot.pause()
+        await app.push_screen(d)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        cover = d.query_one("#detail-cover", Container)
+        assert cover.display is False, "an empty poster column is still reserved"
+        meta = d.query_one("#detail-meta")
+        assert meta.region.x <= 2, (
+            f"the metadata still starts at column {meta.region.x}"
+        )
+
+
+async def test_the_column_is_held_until_the_answer_is_known():
+    """Collapsing on sight would trade one flaw for another: the metadata would
+    jump sideways every time a cover *did* arrive. The reservation is in the
+    stylesheet and only a definite "there is nothing to show" removes it."""
+    css = (
+        pytest.importorskip("pathlib").Path("src/anime_sh/tui/screens/detail.py")
+        .read_text(encoding="utf-8")
+    )
+    assert "DetailScreen #detail-cover { width: 34;" in css, (
+        "the column is no longer reserved up front, so covers will make the "
+        "metadata jump"
+    )
