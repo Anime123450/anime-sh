@@ -266,15 +266,37 @@ class DetailScreen(Screen):
         # never surface a failure (no Pillow, offline, odd image → just skip).
         url = self.anime.cover_url
         if not url:
+            self._collapse_cover()
             return
         try:
             data = await fetch_cover(url)
             if not data:
+                self._collapse_cover()
                 return
             self._cover_data = data
             await self._mount_cover()
         except Exception:
-            return  # decoration only — a broken image never costs you the screen
+            # decoration only — a broken image never costs you the screen, but
+            # it must not cost you the column it was going to sit in either.
+            self._collapse_cover()
+
+    def _collapse_cover(self) -> None:
+        """Take the poster's column back when there is going to be no poster.
+
+        `#detail-cover` is a fixed 34 cells, reserved before the fetch so the
+        metadata does not jump sideways when the art lands. Every way the fetch
+        can fail — no cover URL, an unreachable host, no Pillow to decode with —
+        returned early and left that reservation standing, so the panel sat
+        indented past an empty gutter a third of the screen wide with nothing
+        in it.
+
+        Collapsed only once there is definitely nothing to show, so the common
+        case still has its space held and still does not jump.
+        """
+        try:
+            self.query_one("#detail-cover", Container).display = False
+        except Exception:
+            pass
 
     async def _mount_cover(self) -> None:
         data = getattr(self, "_cover_data", None)
@@ -297,11 +319,15 @@ class DetailScreen(Screen):
                 except Exception:
                     pass
         art = render_cover(data, cols=_COVER_COLS)
-        if art is not None:
-            try:
-                await container.mount(Static(art))
-            except Exception:
-                pass
+        if art is None:
+            # No Pillow, or an image it could not decode. Nothing will ever be
+            # mounted here, so the column is dead weight.
+            self._collapse_cover()
+            return
+        try:
+            await container.mount(Static(art))
+        except Exception:
+            self._collapse_cover()
 
     def on_resize(self, event) -> None:
         # A Sixel image doesn't reflow when the terminal is resized, so re-mount
