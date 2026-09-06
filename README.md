@@ -30,7 +30,22 @@ scoop install anime-sh
 
 ## 📖 Contents
 
-[Install](#-install) · [What you get](#-what-you-get) · [Themes](#-themes) · [Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [Keys](#%EF%B8%8F-keys) · [First run](#-first-run) · [Commands](#-command-reference) · [How it behaves](#-how-it-behaves) · [Troubleshooting](#-troubleshooting) · [Develop](#%EF%B8%8F-develop)
+[Install](#-install) · [What you get](#-what-you-get) · [Themes](#-themes) · [Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [Keys](#%EF%B8%8F-keys) · [First run](#-first-run) · [AniList](#-linking-anilist-optional) · [Commands](#-command-reference) · [How it behaves](#-how-it-behaves) · [Troubleshooting](#-troubleshooting) · [Develop](#%EF%B8%8F-develop)
+
+---
+
+## ▶️ A minute with it
+
+<div align="center">
+
+<img src="docs/img/demo.svg" alt="anime-sh in use: the home screen with Continue Watching, typing a search, a show's episodes as a grid, and the same episodes as a list" width="900">
+
+<sub>Home · search-as-you-type · a show's episodes, in two of the three layouts</sub>
+
+</div>
+
+Every frame there is the real application, rendered and captured from the app
+itself — the same code you install, not a mockup of it.
 
 ---
 
@@ -231,6 +246,32 @@ Prefer one-shot commands? `anime "Frieren"` searches, picks the best match and
 plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` is fully explicit.
 
 Turn on shell tab-completion once: `anime --install-completion`.
+
+---
+
+## 🔗 Linking AniList (optional)
+
+Everything works without an account. Linking one adds two-way sync: finish an
+episode here and your phone knows, and `anime sync pull` brings in what you have
+been watching elsewhere.
+
+**anime-sh ships no API credentials, and there is no shared app to sign in
+through.** You create your own client, which takes about a minute and means the
+token belongs to you:
+
+1. Go to [AniList → Settings → Developer](https://anilist.co/settings/developer)
+   and create a new client.
+2. **Name:** anything (`anime-sh` is fine).
+   **Redirect URL:** `https://anilist.co/api/v2/oauth/pin`
+3. Link it:
+
+```bash
+anime auth login --client-id <YOUR_ID> --secret <YOUR_SECRET>
+```
+
+Your token is written to your own config directory with `0600` permissions, is
+never sent anywhere but AniList, and `anime auth logout` deletes it. Nothing
+about your account is stored in this project.
 
 ---
 

@@ -98,3 +98,46 @@ def test_screenshots_declare_their_own_size():
         assert "width=" in head and "height=" in head, (
             f"{name} has no intrinsic size; GitHub will render it blurry"
         )
+
+
+def test_the_animated_demo_is_actually_animated():
+    """The demo is a flipbook of real frames, not a still.
+
+    Worth pinning because the failure is silent: a composed SVG that lost its
+    `<animate>` elements still renders — as one motionless frame — and looks
+    like a screenshot nobody thought to update.
+    """
+    import re
+    import xml.etree.ElementTree as ET
+
+    ns = "{http://www.w3.org/2000/svg}"
+    images = re.findall(r'<img[^>]+src="([^"]+)"', README)
+    demos = [n for n in images if n.endswith("demo.svg")]
+    assert demos, "the README no longer shows the demo"
+
+    root = ET.parse(ROOT / demos[0]).getroot()
+    frames = [g for g in root if g.tag == ns + "g"]
+    anims = root.findall(".//" + ns + "animate")
+    assert len(frames) >= 2, "a one-frame flipbook is a screenshot"
+    assert len(anims) == len(frames), "some frames never become visible"
+    # Discrete, so frames swap rather than dissolving through each other.
+    assert all(a.get("calcMode") == "discrete" for a in anims)
+    assert all(a.get("repeatCount") == "indefinite" for a in anims)
+    # Exactly one frame visible at a time.
+    for i, a in enumerate(anims):
+        values = a.get("values").split(";")
+        assert values.count("1") == 1 and values[i] == "1", f"frame {i}: {values}"
+
+
+def test_the_demo_carries_no_script():
+    """GitHub serves README images through a proxy that strips scripted SVG, so
+    a demo that needed one would silently stop moving. SMIL needs none."""
+    import re
+    import xml.etree.ElementTree as ET
+
+    ns = "{http://www.w3.org/2000/svg}"
+    demos = [n for n in re.findall(r'<img[^>]+src="([^"]+)"', README)
+             if n.endswith("demo.svg")]
+    root = ET.parse(ROOT / demos[0]).getroot()
+    assert not root.findall(".//" + ns + "script")
+    assert "onload" not in (ROOT / demos[0]).read_text(encoding="utf-8")[:2000]
