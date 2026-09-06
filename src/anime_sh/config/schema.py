@@ -54,6 +54,23 @@ class UiConfig(BaseModel):
     #: everyone, which is the whole reason it is a setting.
     episodes: str = "grid"
 
+    #: How tightly the home screen packs its sections. Every section spends
+    #: four rows on chrome — the heading, the plate's padding top and bottom,
+    #: and the gap to the next one — which on a 34-row laptop terminal is most
+    #: of the screen before any content.
+    density: str = "comfortable"
+
+    @field_validator("density")
+    @classmethod
+    def _known_density(cls, v: str) -> str:
+        from ..layout_names import DENSITIES
+
+        if v not in DENSITIES:
+            raise ValueError(
+                f"unknown density {v!r}; choose one of: " + ", ".join(DENSITIES)
+            )
+        return v
+
     @field_validator("episodes")
     @classmethod
     def _known_layout(cls, v: str) -> str:

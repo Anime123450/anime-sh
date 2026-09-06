@@ -79,6 +79,7 @@ _CHOICES: dict[str, tuple[str, ...]] = {
     "playback.quality": ("best", "1080p", "720p", "480p", "360p", "worst"),
     "playback.audio": ("sub", "dub"),
     "ui.episodes": ("grid", "list", "compact"),
+    "ui.density": ("comfortable", "compact"),
 }
 
 

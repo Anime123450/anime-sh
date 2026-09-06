@@ -2,6 +2,31 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.76] - 2026-09-06
+
+### Added
+
+- **A compact home density, on `v`.** Every section spends four rows on chrome —
+  the heading, the plate's padding above and below its rows, and the gap to the
+  next heading — plus three for the search box. On a 34-row laptop terminal that
+  is most of the screen before a single show appears.
+
+  Compact closes the vertical padding and flattens the search box's border.
+  Measured on a 34-row terminal with the same library: **19 body rows becomes
+  23**, and where comfortable reached Trending's heading, compact reaches the end
+  of Trending's rows.
+
+  The plate keeps its *sideways* padding. What makes a background change read as
+  a surface rather than a highlight is that the tint does not stop flush against
+  the text, and sideways is where that reads — so compact buys rows without
+  giving up the layering the whole screen is built on.
+
+  `v` means the same thing on both screens now: home density here, episode layout
+  on a show. Also `anime config set ui.density compact`.
+
+- `?` and the README list `v`, and `n` (next season), which was bound on the
+  detail screen and documented nowhere.
+
 ## [0.2.75] - 2026-09-06
 
 ### Added

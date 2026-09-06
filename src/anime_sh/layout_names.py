@@ -16,3 +16,12 @@ from __future__ import annotations
 EPISODE_LAYOUTS: tuple[str, ...] = ("grid", "list", "compact")
 
 DEFAULT_EPISODE_LAYOUT = "grid"
+
+
+#: How much room the home screen gives its chrome.
+#:
+#: ``comfortable``  the plate's padding and the space between sections
+#: ``compact``      both closed up, for a terminal that is short rather than wide
+DENSITIES: tuple[str, ...] = ("comfortable", "compact")
+
+DEFAULT_DENSITY = "comfortable"
