@@ -78,6 +78,7 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
 _CHOICES: dict[str, tuple[str, ...]] = {
     "playback.quality": ("best", "1080p", "720p", "480p", "360p", "worst"),
     "playback.audio": ("sub", "dub"),
+    "ui.episodes": ("grid", "list", "compact"),
 }
 
 

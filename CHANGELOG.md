@@ -2,6 +2,43 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.75] - 2026-09-06
+
+### Added
+
+- **Episode layouts — `grid`, `list` and `compact`, switched with `v`.** There is
+  no arrangement that suits everyone: a twelve-part season reads best as a block,
+  a four-figure series wants the tightest grid it can get, and some people would
+  rather have one episode per line with its state spelled out, which is what this
+  screen looked like before the grid. So it is a setting now, remembered across
+  runs like the theme.
+
+  | layout | ONE PIECE's 1175 episodes |
+  |---|---|
+  | `grid` | 18 across, 66 rows |
+  | `compact` | 23 across, 52 rows |
+  | `list` | one per line, each carrying its own state |
+
+  Also settable with `anime config set ui.episodes list`, and an unknown name is
+  refused where it is typed rather than silently falling back to the default.
+
+### Fixed
+
+- **The episode grid was strung across the whole window.** `grid_size_columns`
+  sets how many columns a Textual grid has, not how wide they are — the grid
+  shares its full width between them. Twelve columns on a 190-column terminal
+  came out fifteen cells wide holding five cells of content, so a twelve-episode
+  season sat with its numbers fourteen spaces apart and the season unreadable as
+  a group.
+
+  Columns are a fixed number of cells now, and no longer capped at twelve, so a
+  wide terminal gets more of them rather than wider ones.
+
+- `?` now lists `n` (next season), which has been bound on the detail screen and
+  documented nowhere. The guard that keeps the cheat sheet honest only knew about
+  the home screen and the app, so any detail-screen key could have named anything
+  at all without anything noticing; it covers all three now.
+
 ## [0.2.74] - 2026-09-05
 
 ### Changed

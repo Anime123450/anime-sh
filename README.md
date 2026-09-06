@@ -210,6 +210,8 @@ one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 | <kbd>Esc</kbd> | clear the search, or go back |
 | <kbd>l</kbd> | your AniList list |
 | <kbd>t</kbd> | theme picker |
+| <kbd>v</kbd> | episode layout — grid, list or compact (on a show) |
+| <kbd>n</kbd> | next season (on a show) |
 | <kbd>?</kbd> | every key, any time |
 | <kbd>q</kbd> | quit |
 

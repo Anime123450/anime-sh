@@ -58,6 +58,10 @@ class DetailScreen(Screen):
         Binding("k", "grid_up", "Up", show=False),
         Binding("right", "grid_next", "Next episode", show=False),
         Binding("left", "grid_prev", "Previous episode", show=False),
+        # `v` for view, not `g`: `g` is "first row" app-wide, and quietly
+        # stealing a key on one screen is worse than picking a duller letter —
+        # the same reason `h`/`l` are left alone above.
+        ("v", "cycle_layout", "Layout"),
     ]
 
     def _move_episode(self, delta: int) -> None:
@@ -120,6 +124,51 @@ class DetailScreen(Screen):
         # Which render is current. A render in flight stops as soon as a newer
         # one arrives, so a long grid is never mounted twice over.
         self._render_gen = 0
+        self._layout = self._configured_layout()
+
+    @staticmethod
+    def _configured_layout() -> str:
+        """The episode layout from config, or the default if it cannot be read.
+
+        Best-effort on purpose: an unreadable config file should cost you your
+        preferred arrangement, not the screen.
+        """
+        from ...layout_names import DEFAULT_EPISODE_LAYOUT, EPISODE_LAYOUTS
+
+        try:
+            from ...config import load_config
+
+            value = load_config().ui.episodes
+        except Exception:
+            return DEFAULT_EPISODE_LAYOUT
+        return value if value in EPISODE_LAYOUTS else DEFAULT_EPISODE_LAYOUT
+
+    def action_cycle_layout(self) -> None:
+        """Step to the next episode layout and remember it.
+
+        Switching costs a full re-render, which is why it is a keypress rather
+        than something that happens while you scroll: you choose an arrangement
+        once and it stays chosen, across screens and across runs.
+        """
+        from ...layout_names import EPISODE_LAYOUTS
+
+        nxt = EPISODE_LAYOUTS[
+            (EPISODE_LAYOUTS.index(self._layout) + 1) % len(EPISODE_LAYOUTS)
+        ]
+        self._layout = nxt
+        try:
+            from ...config import set_config_value
+
+            set_config_value("ui.episodes", nxt)
+        except Exception as e:
+            self.notify(f"Couldn't save the layout: {e}", severity="warning")
+        self.notify(f"Episode layout: {nxt}")
+        if self._numbers:
+            self._relayout_episodes()
+
+    @work(exclusive=True, group="episodes")
+    async def _relayout_episodes(self) -> None:
+        await self._render_episodes(self._numbers, available=self._available)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -138,12 +187,36 @@ class DetailScreen(Screen):
     # A cell is glyph + space + number, plus one column of gutter either side.
     _CELL_GAP = 3
 
-    def _episode_columns(self) -> int:
-        """How many episodes fit across, given the widest number in the series."""
+    def _cell_width(self) -> int:
+        """One episode cell: glyph, space, the widest number, and its gutter.
+
+        `compact` closes the gutter to a single column. On a series with four
+        figures of episodes that is the difference between fifteen across and
+        twenty-one, which is six fewer rows for every hundred episodes.
+        """
         digits = len(f"{max(self._numbers, default=1):g}")
-        cell = 3 + digits + self._CELL_GAP
+        gap = 1 if self._layout == "compact" else self._CELL_GAP
+        return 3 + digits + gap
+
+    def _episode_columns(self) -> int:
+        """How many episodes fit across.
+
+        Not capped at twelve any more. The cap did not make the grid twelve
+        cells wide — it made it twelve *columns*, and a Textual grid divides the
+        width it is given between however many columns it has. On a 190-column
+        terminal that meant twelve columns fifteen cells wide holding five cells
+        of content each: episode 1 and episode 2 sat fourteen spaces apart, and
+        a twelve-episode season was strung out across the whole window with the
+        numbers floating in the gaps.
+
+        Taking every column that fits is what makes the cells sit next to each
+        other. It also costs a long-runner far fewer rows: ONE PIECE's 1175
+        episodes come out at 23 across rather than 12.
+        """
+        if self._layout == "list":
+            return 1  # one episode per line; the cursor steps one row at a time
         usable = max(20, (self.size.width or 100) - 6)
-        return max(1, min(12, usable // cell))
+        return max(1, usable // self._cell_width())
 
     def _size_episode_grid(self) -> None:
         try:
@@ -151,8 +224,21 @@ class DetailScreen(Screen):
         except Exception:
             return
         columns = self._episode_columns()
+        # The class is what narrows the row padding; `_cell_width` narrows the
+        # column to match. Setting one without the other clips the numbers.
+        lv.set_class(self._layout == "compact", "-compact")
+        if self._layout == "list":
+            # Not a grid at all: one full-width row per episode, which is what
+            # the list layout is for.
+            lv.styles.layout = "vertical"
+            lv.columns = 1
+            return
         lv.styles.layout = "grid"
         lv.styles.grid_size_columns = columns
+        # Fixed, not fractional. Without this the grid shares its whole width
+        # out between the columns, so the cells stretch and the numbers drift
+        # apart instead of forming a block you can read as one shape.
+        lv.styles.grid_columns = str(self._cell_width())
         lv.columns = columns  # so its cursor steps a whole row, not one cell
 
     def on_resize(self) -> None:
@@ -416,6 +502,7 @@ class DetailScreen(Screen):
                 EpisodeItem(
                     number,
                     width=width,
+                    layout=self._layout,
                     downloaded=number in downloaded,
                     watched=is_watched,
                     resume_s=1 if number == resume else 0,
