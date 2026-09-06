@@ -93,7 +93,8 @@ class EpisodeItem(ListItem):
     def __init__(self, number: float, *, watched: bool = False, resume_s: int = 0,
                  available: bool = True, progress_pct: int | None = None,
                  air_label: str | None = None, is_next: bool = False,
-                 width: int = 4, downloaded: bool = False) -> None:
+                 width: int = 4, downloaded: bool = False,
+                 layout: str = "grid") -> None:
         self.number = number
         self.available = available
         self.watched = watched
@@ -111,10 +112,18 @@ class EpisodeItem(ListItem):
         )
         if downloaded:
             self.detail += "  [dim]· on disk[/dim]"
-        super().__init__(Label(self._cell(
-            number, watched, resume_s, available, progress_pct, is_next, width,
-            downloaded,
-        )))
+        # Both renderings already existed — the tiled cell, and the sentence
+        # under the grid. The `list` layout is that sentence promoted back into
+        # the row it came from, which is what the screen looked like before the
+        # grid and what some people would rather have: every episode's state
+        # spelled out, at the cost of one line each.
+        self.layout_name = layout
+        super().__init__(Label(
+            self.detail if layout == "list" else self._cell(
+                number, watched, resume_s, available, progress_pct, is_next,
+                width, downloaded,
+            )
+        ))
 
     @staticmethod
     def _cell(number, watched, resume_s, available, progress_pct, is_next, width,

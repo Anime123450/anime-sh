@@ -48,6 +48,23 @@ class ResolversConfig(BaseModel):
 
 class UiConfig(BaseModel):
     theme: str = "midnight"
+    #: How the detail screen lays its episodes out. A grid suits a twelve-part
+    #: season; a list suits someone who wants each episode's state spelled out;
+    #: compact suits a series with four figures of them. None is right for
+    #: everyone, which is the whole reason it is a setting.
+    episodes: str = "grid"
+
+    @field_validator("episodes")
+    @classmethod
+    def _known_layout(cls, v: str) -> str:
+        from ..layout_names import EPISODE_LAYOUTS
+
+        if v not in EPISODE_LAYOUTS:
+            raise ValueError(
+                f"unknown episode layout {v!r}; choose one of: "
+                + ", ".join(EPISODE_LAYOUTS)
+            )
+        return v
 
     @field_validator("theme")
     @classmethod

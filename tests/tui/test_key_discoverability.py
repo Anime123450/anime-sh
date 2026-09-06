@@ -72,7 +72,22 @@ def test_the_cheat_sheet_does_not_promise_keys_that_do_not_exist():
     """The other direction, and the one this project keeps getting wrong: a hint
     naming a key that does nothing is worse than no hint. `Esc` was documented
     as "back" while the home screen had nothing to go back to."""
-    bound = {b.key for b in HomeScreen.BINDINGS} | {b.key for b in AnimeShApp.BINDINGS}
+    # The detail screen's keys count too. The sheet says "every key, any time",
+    # and while this set held only the home screen and the app, a key documented
+    # for the detail screen could name anything at all and nothing would notice.
+    from anime_sh.tui.screens.detail import DetailScreen
+
+    def _keys(bindings):
+        # A BINDINGS list may hold `Binding` objects or bare tuples; the detail
+        # screen uses both, and reading `.key` off a tuple is an AttributeError
+        # rather than a missing key.
+        return {b.key if hasattr(b, "key") else b[0] for b in bindings}
+
+    bound = (
+        _keys(HomeScreen.BINDINGS)
+        | _keys(AnimeShApp.BINDINGS)
+        | _keys(DetailScreen.BINDINGS)
+    )
     written = {_AS_WRITTEN.get(k, k) for k in bound}
     # Every single-character key the sheet marks up as a key must be real.
     import re

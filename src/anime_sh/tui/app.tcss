@@ -142,6 +142,22 @@ ListView:focus > ListItem.-highlight {
     padding: 0 1 0 1;
 }
 
+/* The `compact` episode layout. `_CELL_GAP` is not a gutter drawn between
+   cells — it is this padding, which is why closing the gap without closing the
+   padding clipped every episode number to its first digit. The two have to move
+   together, so the layout that narrows the cell narrows the padding here.
+
+   The focused row still trades a cell of padding for its border, exactly as the
+   default rows do, so switching layout never changes a row's width. */
+#episodes.-compact > ListItem {
+    padding: 0 0 0 1;
+}
+
+#episodes.-compact:focus > ListItem.-highlight {
+    padding: 0 0 0 0;
+    border-left: thick $accent;
+}
+
 #results-empty {
     padding: 1 2;
     color: $text-muted;
