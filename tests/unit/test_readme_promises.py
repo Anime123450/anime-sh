@@ -115,18 +115,29 @@ def test_the_animated_demo_is_actually_animated():
     demos = [n for n in images if n.endswith("demo.svg")]
     assert demos, "the README no longer shows the demo"
 
+    text = (ROOT / demos[0]).read_text(encoding="utf-8")
     root = ET.parse(ROOT / demos[0]).getroot()
     frames = [g for g in root if g.tag == ns + "g"]
-    anims = root.findall(".//" + ns + "animate")
     assert len(frames) >= 2, "a one-frame flipbook is a screenshot"
-    assert len(anims) == len(frames), "some frames never become visible"
-    # Discrete, so frames swap rather than dissolving through each other.
-    assert all(a.get("calcMode") == "discrete" for a in anims)
-    assert all(a.get("repeatCount") == "indefinite" for a in anims)
-    # Exactly one frame visible at a time.
-    for i, a in enumerate(anims):
-        values = a.get("values").split(";")
-        assert values.count("1") == 1 and values[i] == "1", f"frame {i}: {values}"
+
+    # CSS keyframes, not SMIL. The SMIL version passed a structural check like
+    # this one and still rendered as a still: the timeline ran, but the computed
+    # opacity never left the frame it first landed on. Verified in a browser
+    # afterwards, which is the only place that question is actually answered.
+    assert "@keyframes" in text and "animation:" in text
+    assert "infinite" in text, "the loop would play once and stop"
+
+    # One rule per frame, each spelling out its own window. A shared rule
+    # offset by animation-delay was tried and was wrong in a way only a seek
+    # exposed: two frames opaque at one offset, none at another.
+    rules = re.findall(r"@keyframes (anime-sh-f\d+)", text)
+    assert len(rules) == len(frames), "a frame has no window of its own"
+    assert len(set(rules)) == len(rules)
+    # Frame 0 is opaque at the start, so the loop never begins on a blank.
+    assert re.search(r"@keyframes anime-sh-f0\{0\.000%,[^}]*\{opacity:1\}", text)
+
+    # Someone who has asked not to be moved gets a still, not a strobe.
+    assert "prefers-reduced-motion" in text
 
 
 def test_the_demo_carries_no_script():
