@@ -125,14 +125,16 @@ def test_the_animated_demo_is_actually_animated():
     # opacity never left the frame it first landed on. Verified in a browser
     # afterwards, which is the only place that question is actually answered.
     assert "@keyframes" in text and "animation:" in text
-    assert "steps(1" in text, "frames would cross-fade instead of cutting"
     assert "infinite" in text, "the loop would play once and stop"
 
-    # Each frame offset by its own slot, so exactly one is ever visible.
-    delays = re.findall(r"animation-delay:([0-9.]+)s", text)
-    assert len(delays) == len(frames), "a frame has no slot of its own"
-    assert len(set(delays)) == len(delays), f"frames share a slot: {delays}"
-    assert delays[0] == "0", "nothing is visible when the loop starts"
+    # One rule per frame, each spelling out its own window. A shared rule
+    # offset by animation-delay was tried and was wrong in a way only a seek
+    # exposed: two frames opaque at one offset, none at another.
+    rules = re.findall(r"@keyframes (anime-sh-f\d+)", text)
+    assert len(rules) == len(frames), "a frame has no window of its own"
+    assert len(set(rules)) == len(rules)
+    # Frame 0 is opaque at the start, so the loop never begins on a blank.
+    assert re.search(r"@keyframes anime-sh-f0\{0\.000%,[^}]*\{opacity:1\}", text)
 
     # Someone who has asked not to be moved gets a still, not a strobe.
     assert "prefers-reduced-motion" in text
