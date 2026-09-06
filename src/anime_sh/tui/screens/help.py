@@ -20,7 +20,7 @@ _HELP = """[b]anime-sh — keys[/b]
   [cyan]Esc[/cyan]              clear the search, or go back
   [cyan]l[/cyan]                my AniList list
   [cyan]t[/cyan]                theme — previews live, Esc keeps the old one
-  [cyan]v[/cyan]                episode layout — grid, list or compact (on a show)
+  [cyan]v[/cyan]                view — home density, or episode layout on a show
   [cyan]n[/cyan]                next season (on a show)
   [cyan]?[/cyan]                this help
   [cyan]q[/cyan]                quit

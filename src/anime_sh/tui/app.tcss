@@ -142,6 +142,31 @@ ListView:focus > ListItem.-highlight {
     padding: 0 1 0 1;
 }
 
+/* The `compact` density. Every section spends four rows on chrome — the
+   heading, the plate's padding above and below its rows, and the gap before the
+   next heading — plus three for the search box. On a 34-row laptop terminal that
+   is most of the screen before a single show appears.
+
+   The vertical padding goes and the horizontal padding stays, so the plate is
+   still a plate: what makes a background change read as a surface is that the
+   tint does not stop flush against the text, and sideways is where that reads.
+   The search box drops its tall border for a flat one, which is two more rows.
+
+   Three rows back per section, on a screen that has four of them. */
+HomeScreen.-dense .section {
+    margin: 0;
+}
+
+HomeScreen.-dense ListView {
+    padding: 0 1;
+}
+
+HomeScreen.-dense #search {
+    border: none;
+    margin: 0 2;
+    padding: 0 1;
+}
+
 /* The `compact` episode layout. `_CELL_GAP` is not a gutter drawn between
    cells — it is this padding, which is why closing the gap without closing the
    padding clipped every episode number to its first digit. The two have to move

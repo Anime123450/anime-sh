@@ -90,7 +90,47 @@ class HomeScreen(Screen):
         Binding("k", "cursor_up", "Up", show=False),
         Binding("g", "cursor_top", "Top", show=False),
         Binding("G", "cursor_bottom", "Bottom", show=False),
+        # `v` for view, matching the detail screen's `v`. Same idea on both —
+        # "change how this screen is laid out" — so it is one key to learn
+        # rather than two, and it means something on whichever screen you are.
+        Binding("v", "cycle_density", "Density"),
     ]
+
+    @staticmethod
+    def _configured_density() -> str:
+        """The home density from config, or the default if it cannot be read."""
+        from ...layout_names import DEFAULT_DENSITY, DENSITIES
+
+        try:
+            from ...config import load_config
+
+            value = load_config().ui.density
+        except Exception:
+            return DEFAULT_DENSITY
+        return value if value in DENSITIES else DEFAULT_DENSITY
+
+    def _apply_density(self) -> None:
+        self.set_class(self._density == "compact", "-dense")
+
+    def action_cycle_density(self) -> None:
+        """Swap the home screen between comfortable and compact, and remember
+        which. Re-cuts the grid afterwards: the plate's padding is part of the
+        room a row has, so the columns are measured against a width that has
+        just changed."""
+        from ...layout_names import DENSITIES
+
+        self._density = DENSITIES[
+            (DENSITIES.index(self._density) + 1) % len(DENSITIES)
+        ]
+        self._apply_density()
+        try:
+            from ...config import set_config_value
+
+            set_config_value("ui.density", self._density)
+        except Exception as e:
+            self.notify(f"Couldn't save the density: {e}", severity="warning")
+        self.notify(f"Density: {self._density}")
+        self.call_after_refresh(self._apply_grid)
 
     def action_clear_search(self) -> None:
         box = self.query_one("#search", Input)
@@ -455,6 +495,8 @@ class HomeScreen(Screen):
             self._load_continue()
 
     def on_mount(self) -> None:
+        self._density = self._configured_density()
+        self._apply_density()
         self._debounce = None
         self._continue_ids: set[int] = set()
         self._upcoming_source: list = []

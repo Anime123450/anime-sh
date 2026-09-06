@@ -141,3 +141,88 @@ def test_an_unknown_layout_is_refused_where_it_is_typed():
 def test_the_layout_names_and_the_screen_cannot_drift():
     """The picker cycles this tuple; the screen switches on these strings."""
     assert set(EPISODE_LAYOUTS) == {"grid", "list", "compact"}
+
+
+# -- home density ------------------------------------------------------------ #
+async def test_compact_density_gives_the_rows_back_that_chrome_was_taking(
+    monkeypatch,
+):
+    """Every section spends four rows on chrome — the heading, the plate's
+    padding above and below, and the gap to the next heading. On a 34-row laptop
+    terminal that is most of the screen before a single show appears; measured,
+    comfortable reached Trending's *heading* and compact reached the end of
+    Trending's rows.
+
+    Asserted on the padding rather than by counting rows in a render: the count
+    depends on how long the fixture titles happen to be, and would drift with
+    the fixtures rather than with the thing being tested.
+    """
+    import anime_sh.tui.screens.home as home_mod
+    from textual.widgets import ListView
+
+    from .test_app import _make_app
+
+    seen = {}
+    for density in ("comfortable", "compact"):
+        monkeypatch.setattr(
+            home_mod.HomeScreen, "_configured_density", staticmethod(lambda d=density: d)
+        )
+        app, _ = _make_app()
+        async with app.run_test(size=(150, 34)) as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            screen = app.screen
+            lv = screen.query_one("#continue", ListView)
+            pad = lv.styles.padding
+            seen[density] = (screen.has_class("-dense"), pad.top + pad.bottom)
+
+    assert seen["comfortable"][0] is False
+    assert seen["compact"][0] is True, "the compact class was never applied"
+    assert seen["compact"][1] < seen["comfortable"][1], (
+        f"compact is no tighter than comfortable ({seen})"
+    )
+
+
+async def test_the_plate_keeps_its_sideways_padding_when_compact(monkeypatch):
+    """What makes a background change read as a surface is that the tint does
+    not stop flush against the text, and sideways is where that reads. Compact
+    buys rows, not the layering the whole design rests on."""
+    import anime_sh.tui.screens.home as home_mod
+    from textual.widgets import ListView
+
+    from .test_app import _make_app
+
+    monkeypatch.setattr(
+        home_mod.HomeScreen, "_configured_density", staticmethod(lambda: "compact")
+    )
+    app, _ = _make_app()
+    async with app.run_test(size=(150, 34)) as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        pad = app.screen.query_one("#continue", ListView).styles.padding
+        assert pad.left >= 1 and pad.right >= 1, "the plate lost its edges"
+
+
+def test_an_unknown_density_is_refused_where_it_is_typed():
+    from anime_sh.config.schema import UiConfig
+
+    assert UiConfig(density="compact").density == "compact"
+    with pytest.raises(Exception, match="unknown density"):
+        UiConfig(density="airy")
+
+
+def test_view_means_the_same_thing_on_both_screens():
+    """`v` re-lays-out whichever screen you are on. One key to learn, not two —
+    and `g` was not available, being "first row" app-wide."""
+    import anime_sh.tui.screens.home as home_mod
+
+    def keys(bindings):
+        return {b.key if hasattr(b, "key") else b[0] for b in bindings}
+
+    assert "v" in keys(home_mod.HomeScreen.BINDINGS)
+    assert "v" in keys(detail_mod.DetailScreen.BINDINGS)
+    assert "g" not in keys(detail_mod.DetailScreen.BINDINGS), (
+        "the detail screen took `g`, which is 'first row' app-wide"
+    )
