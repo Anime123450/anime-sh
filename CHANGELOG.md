@@ -2,6 +2,29 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.79] - 2026-09-08
+
+### Added
+
+- **A provider picker on `p`.** Which sources anime-sh may search was only
+  reachable through `anime providers enable|disable` — a thing you had to know
+  existed, and the setting most worth reaching when nothing will play. It is in
+  the footer now, beside the theme picker.
+
+  Shows every installed provider highest-priority first, which is the order they
+  are actually tried in, with a glyph rather than only a colour so the on/off
+  state survives a terminal without one. `Enter` or `space` toggles; the choice
+  is written to `providers.disabled`.
+
+  Two things it refuses to do. It will not let you turn off the last provider —
+  a configuration with none enabled cannot find a single episode, and that is
+  better refused as a choice than discovered later as "no sources". And it opens
+  even when a plugin fails to import, because the picker is where you would go
+  to turn that plugin off.
+
+  The hint says "applies next launch", which is the truth: the provider list is
+  resolved once, when the container is built.
+
 ## [0.2.78] - 2026-09-08
 
 ### Fixed

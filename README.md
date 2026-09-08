@@ -225,6 +225,7 @@ one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 | <kbd>Esc</kbd> | clear the search, or go back |
 | <kbd>l</kbd> | your AniList list |
 | <kbd>t</kbd> | theme picker |
+| <kbd>p</kbd> | providers — which sources are searched |
 | <kbd>v</kbd> | view — home density, or episode layout on a show |
 | <kbd>n</kbd> | next season (on a show) |
 | <kbd>?</kbd> | every key, any time |
