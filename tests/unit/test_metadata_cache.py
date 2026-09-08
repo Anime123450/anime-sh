@@ -128,3 +128,55 @@ async def test_expired_entries_are_swept_without_a_maintenance_command(tmp_path)
         assert await cache.get("fresh") == {"ok": True}
     finally:
         await db.close()
+
+
+async def test_an_expired_entry_survives_the_read_that_finds_it_expired(cache):
+    """`get` used to delete the row when it noticed the TTL had passed.
+
+    That threw the last known value away at precisely the moment it becomes
+    valuable: the read that discovers an entry is stale is usually the read that
+    is about to go and ask the upstream, and if the upstream is down that stale
+    copy is the only thing left. Sweeping still happens — on a write cadence and
+    via `purge_expired` — so the file stays bounded either way.
+    """
+    from datetime import timedelta
+
+    await cache.set("trending:30", [{"id": 1}], ttl=timedelta(seconds=-1))
+    assert await cache.get("trending:30") is None, "an expired entry was served"
+    total, expired = await cache.stats()
+    assert (total, expired) == (1, 1), "the read destroyed the stale copy"
+
+
+async def test_a_stale_entry_is_served_while_it_is_still_worth_something(cache):
+    """Bounded on purpose: past a point "stale" and "wrong" are the same thing.
+    A week-old trending list is still roughly trending; a month-old one is a lie
+    with a timestamp on it."""
+    from datetime import timedelta
+
+    await cache.set("recent", ["a"], ttl=timedelta(days=-1))    # expired yesterday
+    await cache.set("ancient", ["b"], ttl=timedelta(days=-40))  # expired long ago
+
+    assert await cache.get_stale("recent", max_age=timedelta(days=7)) == ["a"]
+    assert await cache.get_stale("ancient", max_age=timedelta(days=7)) is None
+    assert await cache.get_stale("missing", max_age=timedelta(days=7)) is None
+
+
+async def test_the_last_known_answer_is_served_when_the_upstream_is_down(cache):
+    """The day AniList disabled its own public API, every browse section on the
+    home screen went blank. Nothing was wrong locally — the cache simply had no
+    way to say "I still have yesterday's".
+    """
+    from datetime import timedelta
+
+    await cache.set("k", ["yesterday"], ttl=timedelta(hours=-1))
+    meta = AniListMetadata(cache=cache)
+
+    async def down():
+        raise RuntimeError("The AniList API has been temporarily disabled")
+
+    assert await meta._cached("k", timedelta(hours=1), down) == ["yesterday"]
+
+    # With nothing cached at all the failure is still a failure — serving
+    # nothing quietly would be worse than saying the upstream is down.
+    with pytest.raises(RuntimeError):
+        await meta._cached("never-seen", timedelta(hours=1), down)

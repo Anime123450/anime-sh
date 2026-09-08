@@ -17,7 +17,7 @@ wheels = [
 
 [[package]]
 name = "anime-sh"
-version = "0.2.77"
+version = "0.2.78"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

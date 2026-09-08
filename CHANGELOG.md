@@ -2,6 +2,35 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.78] - 2026-09-08
+
+### Fixed
+
+- **The home screen went blank when AniList went down, and did not say why.**
+  On 08/09/2026 AniList disabled its own public API — `403`, with the message
+  "The AniList API has been temporarily disabled due to severe stability
+  issues". Continue Watching kept working because it reads the local database;
+  Airing This Season and Trending went empty, with a heading, no count, and a
+  blank plate underneath.
+
+  The failure *was* announced, once, in a toast — which is gone by the time
+  anyone looks. What is left reads as "nothing is trending", not as "we could
+  not reach AniList". A section that fails to load now says **unavailable** in
+  its heading and hides its empty plate, and keeps saying so: another worker
+  finishing afterwards used to overwrite the heading with an ordinary empty one.
+
+- **The cache threw away the last good answer at the worst possible moment.**
+  `KvCache.get` deleted an entry when it noticed the TTL had passed — and the
+  read that discovers an entry is stale is the read that is about to ask the
+  upstream. If the upstream is down, that deleted row was the only copy left.
+
+  Expired entries are kept now (the write-cadence sweep and `cache purge` still
+  bound the file), and when a fetch fails the last known value is served if it
+  expired less than seven days ago. Past that it is not served: stale and wrong
+  become the same thing eventually, and a month-old trending list is a lie with
+  a timestamp on it. Nothing stale is written back, so the real value takes over
+  the moment the upstream answers again.
+
 ## [0.2.77] - 2026-09-06
 
 ### Fixed

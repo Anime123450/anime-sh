@@ -39,8 +39,33 @@ class KvCache:
         if row is None:
             return None
         if datetime.fromisoformat(row["expires_at"]) < _now():
-            await conn.execute("DELETE FROM kv_cache WHERE key=?", (key,))
-            await conn.commit()
+            # Deliberately not deleted here. An expired entry is still the last
+            # thing the upstream said, and that is worth having the moment the
+            # upstream stops answering — which is exactly when the next read
+            # happens. Deleting on read threw that away at the worst possible
+            # time. `purge_expired` and the write-cadence sweep still keep the
+            # file bounded; this only stops the copy being destroyed by the
+            # read that discovers it is old.
+            return None
+        return json.loads(row["value_json"])
+
+    async def get_stale(self, key: str, *, max_age: timedelta) -> Any | None:
+        """The last value for ``key`` even though its TTL has passed, provided it
+        expired less than ``max_age`` ago.
+
+        For serving something rather than nothing while the upstream is down.
+        Bounded because "stale" and "wrong" are the same thing past a point: a
+        week-old trending list is still roughly trending, a year-old one is a
+        lie with a timestamp.
+        """
+        conn = await self._db.connect()
+        cur = await conn.execute(
+            "SELECT value_json, expires_at FROM kv_cache WHERE key=?", (key,)
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        if datetime.fromisoformat(row["expires_at"]) < _now() - max_age:
             return None
         return json.loads(row["value_json"])
 
