@@ -54,6 +54,10 @@ class AnimeShApp(App):
         Binding("/", "focus_search", "Search"),
         Binding("l", "my_list", "My List"),
         Binding("t", "themes", "Theme"),
+        # Which sources are searched was only reachable through
+        # `anime providers enable|disable` — a thing you had to know existed,
+        # and the setting most worth reaching when nothing will play.
+        Binding("p", "providers", "Providers"),
         # priority so `?` opens help even while the search box has focus.
         Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
@@ -121,6 +125,11 @@ class AnimeShApp(App):
         # Don't stack multiple help modals.
         if not isinstance(self.screen, HelpScreen):
             self.push_screen(HelpScreen())
+
+    def action_providers(self) -> None:
+        from .screens.providers import ProvidersScreen
+
+        self.push_screen(ProvidersScreen())
 
     def action_themes(self) -> None:
         from .screens.themes import ThemesScreen
