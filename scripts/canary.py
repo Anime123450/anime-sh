@@ -35,9 +35,22 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
     started = time.monotonic()
     result = {"status": "unknown", "detail": "", "playable": False, "candidates": 0}
     try:
-        hits = await metadata.search(CHECK_TITLE, limit=1)
-        if not hits:
-            raise RuntimeError("metadata search returned nothing")
+        # The identity lookup is a *precondition* of the probe, not part of it.
+        # Failing it means the provider was never contacted, so it cannot be a
+        # verdict on the provider — and reporting one anyway is not a harmless
+        # over-report: on 07/09/2026 AniList disabled its own public API and this
+        # canary filed "anikoto provider is failing" and "anizone provider is
+        # failing" against a repo whose providers were both fine.
+        try:
+            hits = await metadata.search(CHECK_TITLE, limit=1)
+            if not hits:
+                raise RuntimeError("metadata search returned nothing")
+        except Exception as e:
+            result.update(
+                status="blocked",
+                detail=f"metadata unavailable, provider not reached: {e}",
+            )
+            return _timed(result, started)
         anime = hits[0]
 
         ref = await provider.match(anime, Audio.SUB)
