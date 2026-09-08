@@ -2,6 +2,26 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.80] - 2026-09-08
+
+### Fixed
+
+- **The canary blamed the providers for someone else's outage.** It resolves a
+  show through AniList before it ever contacts a provider, and a failure in that
+  lookup fell through to the provider's verdict. When AniList disabled its own
+  public API on 07/09/2026 the nightly run filed *"anikoto provider is failing"*
+  and *"anizone provider is failing"* against a repo whose providers were both
+  fine, two mornings running.
+
+  The identity lookup is a precondition of the probe, not part of it: failing it
+  means the provider was never reached, so it cannot be a verdict on the
+  provider. It now reports `blocked` — the status that already existed for "this
+  is the environment, not a regression" — which exits 0 and files nothing.
+
+  This is the failure mode the `blocked` status was invented for. A canary that
+  cries wolf is worse than no canary: it trains everyone to ignore the one alert
+  that would have mattered.
+
 ## [0.2.79] - 2026-09-08
 
 ### Added

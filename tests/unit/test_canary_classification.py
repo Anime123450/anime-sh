@@ -44,3 +44,29 @@ def test_the_message_is_a_fallback_when_the_chain_is_lost():
 def test_a_real_failure_is_still_a_failure():
     assert not _is_cloudflare(ValueError("boom"))
     assert not _is_cloudflare(ProviderError("anizone: no episodes returned"))
+
+
+async def test_a_metadata_outage_is_not_reported_as_a_provider_failure():
+    """The identity lookup is a precondition of the probe, not part of it.
+
+    On 07/09/2026 AniList disabled its own public API and this canary filed
+    "anikoto provider is failing" and "anizone provider is failing" against a
+    repo whose providers were both fine. `blocked` exits 0 and files nothing,
+    which is the whole point of that status existing.
+    """
+    import scripts.canary as canary
+
+    class _DeadMetadata:
+        async def search(self, *a, **k):
+            raise RuntimeError("AniList request failed: POST https://graphql.anilist.co -> 403")
+
+    class _Provider:
+        name = "anikoto"
+        async def match(self, *a, **k):
+            raise AssertionError("the provider must not be contacted at all")
+
+    result = await canary.check_provider(
+        "anikoto", _Provider(), _DeadMetadata(), []
+    )
+    assert result["status"] == "blocked", result
+    assert "metadata unavailable" in result["detail"]
