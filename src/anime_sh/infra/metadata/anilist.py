@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 API = "https://graphql.anilist.co"
 
 # How long each kind of catalog response stays fresh. Metadata drifts slowly and
+# How far past its TTL an entry may be and still be served when the upstream is
+# unreachable. A week-old trending list is still roughly trending; a month-old
+# one is a lie with a timestamp on it.
+STALE_MAX_AGE = timedelta(days=7)
+
 # cache.db is disposable, so these are generous; airing data is kept shorter.
 # Countdowns render from absolute timestamps, so a slightly stale schedule still
 # counts down correctly.
@@ -277,7 +282,23 @@ class AniListMetadata:
             hit = await self._cache.get(key)
             if hit is not None:
                 return hit
-        value = await produce()
+        try:
+            value = await produce()
+        except Exception:
+            # The upstream is down. An expired entry is the last thing it said,
+            # and showing that beats showing an empty screen — which is what
+            # happened the day AniList disabled its own API and every browse
+            # section on the home screen went blank with no count.
+            #
+            # Bounded by STALE_MAX_AGE: past a point "stale" and "wrong" are the
+            # same thing. Never written back, so the moment the upstream answers
+            # again the real value takes over.
+            if self._cache is not None:
+                stale = await self._cache.get_stale(key, max_age=STALE_MAX_AGE)
+                if stale is not None:
+                    return stale
+            raise
+
         worth_keeping = cache_if is None or cache_if(value)
         if self._cache is not None and value is not None and worth_keeping:
             await self._cache.set(key, value, ttl=ttl)

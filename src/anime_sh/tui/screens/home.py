@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import date, datetime, timezone
 
 from textual import work
@@ -754,9 +755,12 @@ class HomeScreen(Screen):
             animes = await self.app.services.metadata.seasonal(season, year)
         except Exception as e:
             self.notify(f"Couldn't load this season: {e}", severity="warning")
+            self._mark_section_unavailable("#sec-seasonal", "Airing This Season",
+                                           "#seasonal")
             return
         finally:
             lv.loading = False
+        self._clear_section_unavailable("#sec-seasonal", "#seasonal")
         # Soonest-airing first, so the next release to drop sits at the top.
         far = datetime.max.replace(tzinfo=timezone.utc)
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
@@ -778,9 +782,11 @@ class HomeScreen(Screen):
             animes = await self.app.services.metadata.trending(limit=20)
         except Exception as e:
             self.notify(f"Couldn't load trending: {e}", severity="warning")
+            self._mark_section_unavailable("#sec-trending", "Trending", "#trending")
             return
         finally:
             lv.loading = False
+        self._clear_section_unavailable("#sec-trending", "#trending")
         await lv.clear()
         built = [(a, browse_cells(a)) for a in animes]
         cols = self._cols_for([r for _, r in built], "trending")
@@ -990,6 +996,45 @@ class HomeScreen(Screen):
         except Exception:
             return False
 
+    def _clear_section_unavailable(self, sec_id: str, list_id: str) -> None:
+        """A section that has just loaded is no longer unavailable."""
+        getattr(self, "_unavailable", set()).discard(sec_id)
+        with contextlib.suppress(Exception):
+            self.query_one(list_id).display = True
+
+    def _mark_section_unavailable(self, sec_id: str, base: str, list_id: str) -> None:
+        """Say a section could not be loaded, instead of leaving it blank.
+
+        The failure was already announced — once, in a toast, which is gone by
+        the time anyone looks. What was left behind was a heading with no count
+        above an empty plate, and an empty "Trending" does not read as "we could
+        not reach AniList", it reads as "nothing is trending".
+
+        Learned the day AniList disabled its own public API: two sections went
+        silently empty and the app looked broken rather than blocked.
+        """
+        try:
+            label = self.query_one(sec_id, Label)
+        except Exception:
+            return
+        # Recorded, because another worker gets there afterwards. Continue
+        # Watching finishes last and calls `_hide_seasonal_duplicates`, which
+        # re-runs `_set_section` — which quietly overwrote this heading with an
+        # ordinary empty one, so seasonal went back to looking merely empty.
+        if not hasattr(self, "_unavailable"):
+            self._unavailable: set[str] = set()
+        self._unavailable.add(sec_id)
+        room = max(12, self._row_space() - 2)
+        tail = "unavailable"
+        rule = max(1, room - len(base) - len(tail) - 4)
+        label.update(
+            f"[b]{base}[/b]  [dim]{'─' * rule}[/dim]  [$warning]{tail}[/$warning]"
+        )
+        # Hide the plate rather than leave an empty one: a blank surface reads
+        # as a list that happens to have no rows.
+        with contextlib.suppress(Exception):
+            self.query_one(list_id).display = False
+
     def _set_section(self, sec_id: str, base: str, count: int) -> None:
         """Draw a section header: a name, a rule to the plate's edge, a count.
 
@@ -999,6 +1044,8 @@ class HomeScreen(Screen):
         end where it can be found in the same place every time instead of
         floating wherever the name happens to stop.
         """
+        if sec_id in getattr(self, "_unavailable", ()):
+            return  # the section could not load; do not relabel it as empty
         try:
             label = self.query_one(sec_id, Label)
         except Exception:

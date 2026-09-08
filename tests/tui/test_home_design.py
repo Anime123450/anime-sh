@@ -278,3 +278,39 @@ async def test_a_toast_does_not_land_on_top_of_the_rail():
             "toasts are back on the right, over the rail"
         )
         assert rack.styles.align_vertical == "bottom"
+
+
+async def test_a_section_that_could_not_load_says_so_instead_of_going_blank():
+    """The day AniList disabled its own public API, Airing This Season and
+    Trending went empty: a heading with no count above a blank plate. The
+    failure *was* announced — once, in a toast, which is gone by the time
+    anyone looks — and an empty "Trending" reads as "nothing is trending",
+    not as "we could not reach AniList".
+    """
+    from textual.widgets import Label
+
+    from .test_app import _make_app
+
+    class _Down:
+        name = "down"
+        async def trending(self, *, limit=30):
+            raise RuntimeError("The AniList API has been temporarily disabled")
+        async def seasonal(self, season, year):
+            raise RuntimeError("The AniList API has been temporarily disabled")
+        async def get(self, *a, **k):
+            return None
+
+    app, _ = _make_app()
+    app.services.metadata = _Down()
+    async with app.run_test(size=(150, 40)) as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        for sec, lst in (("#sec-trending", "#trending"),
+                         ("#sec-seasonal", "#seasonal")):
+            heading = str(app.screen.query_one(sec, Label).content)
+            assert "unavailable" in heading, f"{sec} is silently blank: {heading!r}"
+            assert app.screen.query_one(lst).display is False, (
+                f"{lst} left an empty plate on screen"
+            )
