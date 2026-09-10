@@ -26,7 +26,21 @@ DEFAULT_UA = (
 
 
 class HttpError(Exception):
-    """Any non-recoverable HTTP failure."""
+    """Any non-recoverable HTTP failure.
+
+    ``status`` and ``body`` are set when the server actually answered. The body
+    is kept because it is often the only place the *reason* lives: on 07/09/2026
+    AniList answered every request with a 403 whose body said, in plain English,
+    that its API was temporarily disabled — and users were shown
+    ``POST https://graphql.anilist.co -> 403`` instead.
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, body: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
 
 
 class RateLimited(HttpError):
@@ -177,11 +191,11 @@ class HttpClient:
                     await asyncio.sleep(delay)
                     continue
                 if status >= 500:
-                    last = HttpError(f"{method} {url} -> {status}")
+                    last = HttpError(f"{method} {url} -> {status}", status=status, body=text)
                     await asyncio.sleep(0.4 * (attempt + 1))
                     continue
                 if status >= 400:
-                    raise HttpError(f"{method} {url} -> {status}")
+                    raise HttpError(f"{method} {url} -> {status}", status=status, body=text)
                 return text
         assert last is not None
         raise last
