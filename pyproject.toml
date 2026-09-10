@@ -1,6 +1,6 @@
 [project]
 name = "anime-sh"
-version = "0.2.80"
+version = "0.2.81"
 description = "The terminal-native anime client — providers, mirrors and resolvers, handled for you."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -64,10 +64,12 @@ anime-sh = "anime_sh.cli.main:main"
 [project.entry-points."anime_sh.providers"]
 anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
 anizone = "anime_sh.providers.anizone:AnizoneProvider"
+hianime = "anime_sh.providers.hianime:HianimeProvider"
 
 [project.entry-points."anime_sh.resolvers"]
 mp4upload = "anime_sh.resolvers.mp4upload:Mp4UploadResolver"
 megaplay = "anime_sh.resolvers.vidtube:VidtubeResolver"
+zoko = "anime_sh.resolvers.zoko:ZokoResolver"
 filemoon = "anime_sh.resolvers.filemoon:FilemoonResolver"
 streamwish = "anime_sh.resolvers.streamwish:StreamwishResolver"
 generic = "anime_sh.resolvers.generic:GenericStreamResolver"

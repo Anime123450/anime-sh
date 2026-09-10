@@ -82,6 +82,23 @@ load, never fatal.
   hostname; `_OBFUSCATED_HOSTS` is only a fallback for unflagged streams. If
   playback ever dies with "didn't play, trying next…" on every anikoto title,
   check that flag is still being set before touching the host list.
+- **hianime** (hianime.at, 10/09/2026): same family as anikoto but shorter —
+  `/search?keyword=` (server-rendered `flw-item` cards) → `/api/theme/episode/
+  list/<id>` → `/api/theme/episode/servers?episodeId=<id>`, each server
+  carrying `data-hash`, base64 of the embed URL. Note `/api/theme/…`, **not**
+  `/ajax/…` — those 404 here; the routes came off the site's own player.
+  Its servers split two ways: **ZokoAnime** hands out clean, plaintext HLS
+  (verified: `0x47` sync bytes, `video/mp2t`, no PNG decoy — so `obfuscated`
+  stays False), while HD-1/Vidstream-2 (megaplay.buzz `s-2/<id>`) answer
+  `getSources` with an `enc` blob instead of `sources.file` and are left
+  unresolved on purpose. Both are still emitted; the fan-out absorbs it.
+  The zoko player page is a 1.6 KB shell holding `window.__P` — base64 of the
+  config JSON XOR'd with a repeating key (`otaku-embed-v1` today). The
+  resolver **recovers the key from the payload** via the known `{"download_url"`
+  prefix rather than hardcoding it, so a rotation costs nothing.
+- Title matching for both HiAnime-family providers lives in
+  `providers/_matching.py`. The airing-status inversion in `rank_items` is
+  load-bearing — read its docstring before touching it.
 
 ## Status
 

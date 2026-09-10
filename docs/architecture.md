@@ -163,6 +163,30 @@ returns a plaintext m3u8 + subtitles + skip times. Verified live end-to-end:
 `Smoking Behind the Supermarket with You` — which AllAnime only has a 1-episode
 "mini" of — matches on anikoto, resolves to a real `.m3u8`, and plays in mpv.
 
+**Third provider** — `HianimeProvider` (hianime.at), the same family reached by
+a shorter path: `/search?keyword=` (server-rendered cards) →
+`/api/theme/episode/list/<id>` → `/api/theme/episode/servers?episodeId=<id>`,
+with the embed URL arriving base64'd in each server's `data-hash` rather than
+behind a fourth token exchange. Its routes are `/api/theme/…`, not `/ajax/…`.
+
+Its servers are not equal, and the design leans on that. **ZokoAnime** resolves
+via `ZokoResolver` (`resolvers/zoko`) to clean, plaintext HLS — real MPEG-TS
+segments, no PNG decoy, so `Stream.obfuscated` stays False and the proxy leaves
+them alone. The megaplay-clone servers answer `getSources` with an encrypted
+blob, and are deliberately left unresolved. **Both are still emitted as
+candidates:** what is playable is the resolver chain's judgement, not the
+provider's, and an unresolvable candidate is exactly what the fan-out exists to
+absorb. Verified live end-to-end in both audios, down to fetching the master
+playlist.
+
+`ZokoResolver` recovers its XOR key from the payload — the config JSON begins
+`{"download_url"`, so the key falls out of a crib — rather than carrying a
+constant that a silent site update would invalidate.
+
+Title matching for both HiAnime-family providers lives in
+`providers/_matching.py`; the ranking heuristics were tuned against real
+mismatches and are shared rather than copied.
+
 **Circuit breakers** (`domain/health.py`, pure) — a provider that fails
 `threshold` times in a row trips OPEN for a cooldown; the `ProviderManager` skips
 it and stops paying its timeout. After the cooldown, one half-open probe
