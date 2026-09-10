@@ -2,6 +2,39 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.81] - 2026-09-10
+
+### Added
+
+- **A third provider: HiAnime** (hianime.at), plus the `zoko` resolver that
+  plays it. It is the same family as anikoto but a shorter road to a stream —
+  three requests instead of four, with the embed URL arriving base64'd in the
+  markup rather than behind another token exchange. Its catalogue is deep
+  (One Piece lists all 1177 episodes) and both sub and dub resolve.
+
+  Its routes are `/api/theme/…`, not the `/ajax/…` the rest of the family uses;
+  those 404 here. They were read off the site's own player rather than guessed,
+  after route-guessing produced six 404s in a row.
+
+  Not every server is playable: HD-1 and Vidstream-2 answer with an encrypted
+  blob, which this project decided years ago is not a maintenance burden worth
+  carrying. They are still emitted as candidates — deciding what is playable is
+  the resolver chain's job, and the fan-out makes an unresolvable candidate
+  harmless. ZokoAnime carries the load, on every title tried, in both audios.
+
+- **The zoko resolver recovers its decoding key instead of hardcoding it.** The
+  player config is XOR'd with a short repeating key; because the plaintext is
+  JSON beginning `{"download_url"`, the key falls out of the payload itself. A
+  hardcoded key would be one silent site update away from every episode failing.
+  The tests build payloads with keys the code has never seen.
+
+### Changed
+
+- Title matching moved to `providers/_matching.py`, shared by both
+  HiAnime-family providers. The ranking heuristics — particularly the
+  airing-status inversion that stops a finished spin-off outranking the show you
+  asked for — were tuned against real mismatches, and a second copy would drift.
+
 ## [0.2.80] - 2026-09-08
 
 ### Fixed

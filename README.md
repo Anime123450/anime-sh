@@ -364,9 +364,9 @@ restored and the query's distinctive words, then fuzzy-ranks what comes back
 against what you typed.
 
 **Multiple providers, merged.** anime-sh fans out across providers (currently
-**anikoto + AniZone**) and falls through to whichever one actually has your
-show, so a title missing from one source still plays from another with no action
-from you.
+**anikoto, HiAnime and AniZone**) and falls through to whichever one actually
+has your show, so a title missing from one source still plays from another with
+no action from you. Press **`p`** to see them and switch any of them off.
 
 > Streaming providers break and get Cloudflare-gated constantly — that is the
 > normal operating state, not a bug. The **Providers** badge above is a nightly

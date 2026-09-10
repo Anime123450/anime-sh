@@ -34,15 +34,12 @@ from ...domain.models import (
     StreamCandidate,
 )
 from ...infra.http import CloudflareChallenge, HttpClient, HttpError
+from .._matching import norm, rank_items, scored_matches, search_terms, to_float
 
 log = logging.getLogger(__name__)
 
 BASE = "https://anikototv.to"
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
-
-
-def _norm(s: str) -> str:
-    return "".join(ch.lower() for ch in s if ch.isalnum())
 
 
 class AnikotoProvider:
@@ -91,9 +88,9 @@ class AnikotoProvider:
 
     async def find_sources(self, anime: Anime, audio: Audio) -> list[SourceOption]:
         seen: dict[str, dict] = {}
-        for query in _search_terms(anime):
+        for query in search_terms(anime):
             html = await self._get_text("/search", {"keyword": query})
-            for item in _scored_matches(anime, parse_search(html)):
+            for item in scored_matches(anime, parse_search(html)):
                 seen.setdefault(item["id"], item)  # dedupe across query terms
             if seen:
                 break
@@ -102,7 +99,7 @@ class AnikotoProvider:
                 provider=self.name, anime_key=it["id"], title=it["title"],
                 episode_count=it.get("sub_eps"), audio=audio, confidence=it["_score"],
             )
-            for it in _rank_items(anime, list(seen.values()))
+            for it in rank_items(anime, list(seen.values()))
         ]
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
@@ -198,7 +195,7 @@ def parse_episodes(result_html: str) -> list[dict]:
     eps: list[dict] = []
     for m in _EP_ANCHOR_RE.finditer(result_html):
         attrs = dict(_ATTR_RE.findall(m.group(1)))
-        num = _to_float(attrs.get("data-num"))
+        num = to_float(attrs.get("data-num"))
         ids = attrs.get("data-ids")
         if num is None or not ids:
             continue
@@ -238,86 +235,6 @@ def parse_servers(result_html: str) -> list[dict]:
     return servers
 
 
-def _search_terms(anime: Anime) -> list[str]:
-    terms = [anime.title.romaji, anime.title.english, *anime.title.synonyms]
-    seen, out = set(), []
-    for t in terms:
-        if t and t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out or [anime.title.preferred]
-
-
-# Fuzzy gate: keep near-matches, not just exact titles, so alternate entries
-# (a "[Mini]" batch, a slightly different romanisation) still surface.
-_MATCH_THRESHOLD = 0.55
-
-
-def _scored_matches(anime: Anime, items: list[dict]) -> list[dict]:
-    """Items whose title fuzzily matches the show, each tagged with ``_score``
-    (title similarity). Not ranked — see :func:`_rank_items`."""
-    targets = [
-        _norm(t)
-        for t in (anime.title.romaji, anime.title.english, *anime.title.synonyms)
-        if t
-    ]
-    out: list[dict] = []
-    for item in items:
-        names = [item.get("title"), item.get("jp")]
-        sim = max(
-            (
-                SequenceMatcher(None, _norm(n), tgt).ratio()
-                for n in names if n for tgt in targets
-            ),
-            default=0.0,
-        )
-        if sim >= _MATCH_THRESHOLD:
-            item = dict(item)
-            item["_score"] = round(sim, 3)
-            out.append(item)
-    return out
-
-
-def _rank_items(anime: Anime, items: list[dict]) -> list[dict]:
-    """Order matches best-first: among genuinely-similar titles, prefer the one
-    whose available episode count is closest to AniList's planned total (or the
-    most complete when unknown) — so a full "[Mini]" batch outranks a same-named
-    TV run that Anikoto has stalled on.
-
-    While the show is still AIRING that heuristic inverts: no entry can have the
-    planned total yet, so one that does (e.g. a finished "[Mini]" spin-off with
-    the same name) is a *different* production. There the closest title wins,
-    tie-broken by the most-stocked entry within the planned total."""
-    if not items:
-        return []
-    best_sim = max(it["_score"] for it in items)
-    releasing = anime.status is Status.RELEASING
-
-    def rank(item: dict) -> tuple:
-        strong = item["_score"] >= best_sim - 0.15
-        eps = item.get("sub_eps")
-        want = anime.episode_count
-        if releasing:
-            within = eps if strong and eps and (want is None or eps <= want) else 0
-            return (-item["_score"], -within)
-        if strong and want and eps:
-            ep_key = abs(eps - want)
-        elif strong and eps:
-            ep_key = -eps
-        else:
-            ep_key = 10_000
-        return (ep_key, -item["_score"])
-
-    return sorted(items, key=rank)
-
-
 def _best_match(anime: Anime, items: list[dict]) -> dict | None:
-    ranked = _rank_items(anime, _scored_matches(anime, items))
+    ranked = rank_items(anime, scored_matches(anime, items))
     return ranked[0] if ranked else None
-
-
-def _to_float(value) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
