@@ -152,3 +152,29 @@ def test_the_demo_carries_no_script():
     root = ET.parse(ROOT / demos[0]).getroot()
     assert not root.findall(".//" + ns + "script")
     assert "onload" not in (ROOT / demos[0]).read_text(encoding="utf-8")[:2000]
+
+
+def test_every_table_row_has_the_right_number_of_columns():
+    """A row with fewer cells than its header renders as a broken table.
+
+    Adding an icon column to the troubleshooting table produced exactly this:
+    five rows kept the glyph and the symptom in one cell, and every other check
+    here stayed green because the *text* was all still present.
+    """
+    lines = README.splitlines()
+    ragged, i = [], 0
+    while i < len(lines):
+        divider = i + 1 < len(lines) and re.fullmatch(r"\|[\s\-:|]+\|", lines[i + 1].strip())
+        if not (lines[i].startswith("|") and divider):
+            i += 1
+            continue
+        width, i = _columns(lines[i]), i + 2
+        while i < len(lines) and lines[i].startswith("|"):
+            if _columns(lines[i]) != width:
+                ragged.append(lines[i])
+            i += 1
+    assert not ragged, f"table rows with the wrong column count: {ragged}"
+
+
+def _columns(row: str) -> int:
+    return len(row.strip().strip("|").split("|"))
