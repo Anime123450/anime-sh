@@ -2,6 +2,35 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.82] - 2026-09-10
+
+### Fixed
+
+- **Only `play` survived an AniList outage.** It already fell back to your
+  local library to identify a show, but `sources`, `download`, `favorite add`
+  and `favorite rm` asked AniList directly, so on a day AniList was down
+  `anime play Frieren` worked and `anime sources Frieren`, one command over,
+  failed on the same show. All four now use the same fallback.
+
+  `search` gained one too: a title search answers from the shows on this
+  machine, with a notice on stderr so `--json` stays parseable. Filtered
+  browsing (`--genre`, `--year`, …) deliberately does not; it is a question
+  about AniList's whole catalogue, and "the shows you happen to have watched" is
+  a wrong answer to it, not a degraded one.
+
+  Left alone on purpose: `next`, `recommend` and `related` need AniList's
+  relations after identifying the show, so an offline identity gains them
+  nothing; `mark` writes to AniList; and `unmark` clears progress with no
+  confirmation, which is not something to do on a best guess.
+
+- **The error said where, not why.** AniList explained its outage in the
+  response body — *"The AniList API has been temporarily disabled due to severe
+  stability issues."* — and the HTTP client threw the body away, so you saw
+  `POST https://graphql.anilist.co -> 403`. Errors now carry the status and
+  body, and AniList's own sentence is what gets shown. It also says
+  *unavailable* rather than *unreachable*: the server was answering fine, it had
+  just switched its API off.
+
 ## [0.2.81] - 2026-09-10
 
 ### Added

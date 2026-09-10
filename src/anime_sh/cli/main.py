@@ -866,8 +866,17 @@ async def _search(query, genre, year, fmt, status, sort, limit, as_json) -> None
         else:
             animes = [r.anime for r in await c.search.search(query, limit=limit)]
     except AnimeShError as e:
-        err.print(f"[red]{e}[/]")
-        raise typer.Exit(code=2)
+        # A title search can still be answered from the shows on this machine:
+        # the same set `play` falls back to, and the only ones you could play
+        # offline anyway. Filtered browsing is a query over AniList's whole
+        # catalogue, so it has nothing local to fall back to.
+        local = [] if filtered else await c.library.find_anime_by_title(query)
+        if not local:
+            err.print(f"[red]{e}[/]")
+            raise typer.Exit(code=2)
+        err.print(f"[yellow]AniList is unavailable[/] [dim]({e})[/]")
+        err.print("[dim]Showing matches from your local library instead.[/]")
+        animes = local[:limit]
     finally:
         await c.aclose()
 
@@ -1349,7 +1358,7 @@ async def _identify(c, query: str):
         local = await c.library.find_anime_by_title(query)
         if not local:
             raise
-        err.print(f"[yellow]AniList is unreachable[/] [dim]({e})[/]")
+        err.print(f"[yellow]AniList is unavailable[/] [dim]({e})[/]")
         err.print(f"[dim]Using your local library: {local[0].title.preferred}[/]")
         return local[0]
 
@@ -1649,7 +1658,7 @@ async def _history(limit: int, as_json: bool) -> None:
 async def _favorite_add(query: str) -> None:
     c = build_container()
     try:
-        anime = await c.search.best_match(query)
+        anime = await _identify(c, query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
@@ -1662,7 +1671,7 @@ async def _favorite_add(query: str) -> None:
 async def _favorite_rm(query: str) -> None:
     c = build_container()
     try:
-        anime = await c.search.best_match(query)
+        anime = await _identify(c, query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
@@ -1677,7 +1686,7 @@ async def _sources(query, dub, as_json) -> None:
     c = build_container(config)
     audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
     try:
-        anime = await c.search.best_match(query)
+        anime = await _identify(c, query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)
@@ -1734,7 +1743,7 @@ async def _download(query, episode, dub, quality) -> None:
         if not c.download.available():
             err.print("[red]ffmpeg not found on PATH.[/] Install it (see `anime doctor`).")
             raise typer.Exit(code=1)
-        anime = await c.search.best_match(query)
+        anime = await _identify(c, query)
         if anime is None:
             err.print(f"[red]No anime found for[/] {query!r}")
             raise typer.Exit(code=1)

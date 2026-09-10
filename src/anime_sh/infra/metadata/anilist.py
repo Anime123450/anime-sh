@@ -228,6 +228,22 @@ def _enum(enum_cls, value):
         return enum_cls.UNKNOWN if hasattr(enum_cls, "UNKNOWN") else None
 
 
+def graphql_error_message(body: str | None) -> str | None:
+    """The first ``errors[].message`` in a GraphQL response body, if any.
+
+    Best-effort by design: this only ever improves an error message that is
+    already being raised, so anything unparseable means "no better wording".
+    """
+    if not body:
+        return None
+    try:
+        errors = json.loads(body).get("errors")
+        message = errors[0].get("message") if errors else None
+    except (ValueError, AttributeError, TypeError, IndexError):
+        return None
+    return message.strip() if isinstance(message, str) and message.strip() else None
+
+
 class AniListMetadata:
     name = "anilist"
 
@@ -257,6 +273,11 @@ class AniListMetadata:
             # prefixing it with "is rate-limiting requests" said it twice.
             raise MetadataError(f"AniList {e}") from e
         except HttpError as e:
+            # AniList explains itself in a GraphQL error body even on an HTTP
+            # error status. Its sentence is the useful part; the URL is not.
+            reason = graphql_error_message(e.body)
+            if reason:
+                raise MetadataError(f"AniList: {reason}") from e
             raise MetadataError(f"AniList request failed: {e}") from e
         if "errors" in data:
             raise MetadataError(f"AniList error: {data['errors']}")
