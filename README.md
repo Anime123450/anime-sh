@@ -30,7 +30,7 @@ scoop install anime-sh
 
 ## 📖 Contents
 
-[Install](#-install) · [What you get](#-what-you-get) · [Themes](#-themes) · [Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [Keys](#%EF%B8%8F-keys) · [First run](#-first-run) · [AniList](#-linking-anilist-optional) · [Commands](#-command-reference) · [How it behaves](#-how-it-behaves) · [Troubleshooting](#-troubleshooting) · [Develop](#%EF%B8%8F-develop)
+[⚡ Install](#-install) · [🎬 What you get](#-what-you-get) · [🎨 Themes](#-themes) · [🖼️ Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [⌨️ Keys](#%EF%B8%8F-keys) · [🚀 First run](#-first-run) · [🔗 AniList](#-linking-anilist-optional) · [📋 Commands](#-command-reference) · [🧠 How it behaves](#-how-it-behaves) · [🩺 Troubleshooting](#-troubleshooting) · [🛠️ Develop](#%EF%B8%8F-develop)
 
 ---
 
@@ -53,10 +53,17 @@ itself — the same code you install, not a mockup of it.
 
 ### Windows — one command
 
-Nothing to set up first. Both of these install **mpv** alongside it, which is
+Nothing to set up first. Each of these installs **mpv** alongside it, which is
 what actually plays the video.
 
-**[Scoop](https://scoop.sh)** — available now:
+| | channel | status |
+|---|---|---|
+| 🥄 | **Scoop** | live |
+| 🍫 | **Chocolatey** | live |
+| 📦 | **WinGet** | in review |
+| 🐍 | **PyPI** (`uv tool install`) | live |
+
+🥄 **[Scoop](https://scoop.sh)** — live:
 
 ```powershell
 # Only if you don't have Scoop yet — these two lines are Scoop's own quickstart.
@@ -77,7 +84,7 @@ scoop install anime-sh
 > `RemoteSigned` still requires anything downloaded to be signed — it is the
 > setting Microsoft ships on Windows Server. Answer `Y` when it asks.
 
-**WinGet** — [pending review](https://github.com/microsoft/winget-pkgs/pull/426448); winget already ships with Windows 10 and 11:
+📦 **WinGet** — [in review](https://github.com/microsoft/winget-pkgs/pull/426448); winget already ships with Windows 10 and 11:
 
 ```powershell
 winget install AnimeshSharma.anime-sh
@@ -87,7 +94,7 @@ winget install AnimeshSharma.anime-sh
 > changed your `PATH` and this terminal still has the old copy. Open a new one.
 > Scoop needs no restart.
 
-**Chocolatey** — pending moderation:
+🍫 **[Chocolatey](https://community.chocolatey.org/packages/anime-sh)** — live:
 
 ```powershell
 choco install anime-sh
@@ -141,11 +148,11 @@ uv run anime
 
 ### What you need alongside it
 
-| | Why | Required? |
-|---|---|---|
-| **[mpv](https://mpv.io)** | plays the video | **yes** — installed for you by scoop/winget/choco |
-| **[ffmpeg](https://ffmpeg.org)** | saves downloads | only for `anime download` |
-| **Python 3.11+** | runs the app | only for the PyPI and source installs |
+| | | Why | Required? |
+|---|---|---|---|
+| 🎥 | **[mpv](https://mpv.io)** | plays the video | **yes** — installed for you by scoop/winget/choco |
+| ✂️ | **[ffmpeg](https://ffmpeg.org)** | saves downloads | only for `anime download` |
+| 🐍 | **Python 3.11+** | runs the app | only for the PyPI and source installs |
 
 Not sure? Run **`anime doctor`** — it checks every one of these and prints the
 exact command to install whatever is missing, for the package manager you
@@ -165,6 +172,7 @@ actually have.
 | 🧩 **Multiple providers** | fanned out with circuit breakers; one site dying is not an outage |
 | 🖼️ **Cover art in the terminal** | unicode block sextants — no special terminal required |
 | 🎨 **Nine themes** | previewed live as you arrow through them |
+| 🧱 **Layouts that fit you** | episodes as a grid, a list or compact; two home densities |
 | ⬇️ **Downloads** | ffmpeg-backed, resumable, and played back offline automatically |
 | 🔌 **Plugin providers** | a provider is an entry point; adding one needs no fork |
 
@@ -215,21 +223,21 @@ one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 
 ## ⌨️ Keys
 
-| Key | Does |
-|---|---|
-| <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move within a list |
-| <kbd>g</kbd> / <kbd>G</kbd> | first / last row |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous section |
-| <kbd>Enter</kbd> | open a show, or play the highlighted episode |
-| <kbd>/</kbd> | search |
-| <kbd>Esc</kbd> | clear the search, or go back |
-| <kbd>l</kbd> | your AniList list |
-| <kbd>t</kbd> | theme picker |
-| <kbd>p</kbd> | providers — which sources are searched |
-| <kbd>v</kbd> | view — home density, or episode layout on a show |
-| <kbd>n</kbd> | next season (on a show) |
-| <kbd>?</kbd> | every key, any time |
-| <kbd>q</kbd> | quit |
+| | Key | Does |
+|---|---|---|
+| 🕹️ | <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move within a list |
+| ⤒ | <kbd>g</kbd> / <kbd>G</kbd> | first / last row |
+| ↹ | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous section |
+| ▶️ | <kbd>Enter</kbd> | open a show, or play the highlighted episode |
+| 🔎 | <kbd>/</kbd> | search |
+| ↩️ | <kbd>Esc</kbd> | clear the search, or go back |
+| 📺 | <kbd>l</kbd> | your AniList list |
+| 🎨 | <kbd>t</kbd> | theme picker |
+| 🧩 | <kbd>p</kbd> | providers — which sources are searched |
+| 🧱 | <kbd>v</kbd> | view — home density, or episode layout on a show |
+| ⏭️ | <kbd>n</kbd> | next season (on a show) |
+| ❓ | <kbd>?</kbd> | every key, any time |
+| 🚪 | <kbd>q</kbd> | quit |
 
 ---
 
@@ -284,7 +292,7 @@ about your account is stored in this project.
 <br>
 
 ```bash
-# Watch
+# ▶️  Watch
 anime                        # launch the TUI
 anime "Frieren"              # search + best match + play episode 1
 anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
@@ -293,7 +301,7 @@ anime resume                 # jump back into the most recent one
 anime next "Mob Psycho 100"  # find + play the next season
 anime sources "Frieren"      # every provider entry that matches, before playing
 
-# Discover
+# 🔭  Discover
 anime search "frieren"       # AniList search (instant; no providers touched)
 anime search --genre action --year 2024 --sort score
 anime trending
@@ -303,7 +311,7 @@ anime random                 # picked from what's trending
 anime recommend "Frieren"    # shows for people who liked it
 anime related "Attack on Titan"  # prequels, sequels, side stories, movies
 
-# Library & tracking
+# 📚  Library & tracking
 anime mark "Frieren" -e 12    # mark eps 1–12 watched; sets AniList progress to 12
 anime mark "Frieren" -e 12 --single   # just that episode, locally, no AniList
 anime unmark "Frieren"        # clear local progress for a show
@@ -312,22 +320,22 @@ anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
 anime stats                   # episodes, hours, top genres & providers
 anime rate "Frieren" 9        # set a score;  anime status "X" completed
 
-# AniList
+# 🔗  AniList
 anime auth login              # link AniList (one-time); status / logout
 anime sync pull | push        # import your list / send yours up
 anime list --status watching  # your AniList list
 
-# Downloads
+# ⬇️  Downloads
 anime download "Frieren" -e 1-12  # save a range (ffmpeg); resumes, skips done
 anime download "Frieren" -e 1,3,5 # or a list;  also: anime downloads
 anime play "Frieren" -e 1          # plays your download if you have it
 anime play "Frieren" -e 1 --stream # ignore the local copy, fetch it anyway
 
-# Appearance
+# 🎨  Appearance
 anime themes                  # list themes, marking the current one
 anime themes --set ember      # change it without opening the TUI
 
-# Housekeeping
+# 🧹  Housekeeping
 anime doctor                  # player, ffmpeg, config, database, plugins
 anime --version
 anime config get              # dump settings;  config get playback.quality
@@ -375,14 +383,14 @@ expired, `cache clear` empties it and hands the disk space back.
 
 ## 🩺 Troubleshooting
 
-| Symptom | What's happening |
-|---|---|
-| **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (winget), or run `uv tool update-shell` (uv). |
-| **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
-| **A show won't play — "trying next…" on every source** | Providers get Cloudflare-gated or geo-blocked. Try later, or another title; search and your library are unaffected. |
-| **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/winget, or the `uv` block above. |
-| **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |
-| **Nothing in Continue Watching from your phone** | Link AniList (`anime auth login`), then `anime sync pull`. |
+| | Symptom | What's happening |
+|---|---|---|
+| 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (winget), or run `uv tool update-shell` (uv). |
+| 🎥 | **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
+| 🚧 | **A show won't play — "trying next…" on every source** | Providers get Cloudflare-gated or geo-blocked. Try later, or another title; search and your library are unaffected. |
+| 🐍 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/winget, or the `uv` block above. |
+| 🛡️ | **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |
+| 📱 | **Nothing in Continue Watching from your phone** | Link AniList (`anime auth login`), then `anime sync pull`. |
 
 **Updating and removing:**
 
