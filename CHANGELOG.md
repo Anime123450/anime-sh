@@ -2,6 +2,38 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [0.2.83] - 2026-09-17
+
+### Fixed
+
+- **The canary called a provider healthy while nothing it offered could be
+  played.** anikoto spent five days serving 28 episodes across two hosts,
+  resolving none of them, and every nightly run reported *"All checked providers
+  healthy"*. Any resolve failure was being written off as host flakiness — true
+  of one host among several, false when it is all of them.
+
+  There is now a `degraded` status for "the read path works, nothing watchable
+  came out of it": every host failed to resolve, no installed resolver handles
+  the hosts on offer, or a stream resolved and then would not load. It exits
+  non-zero and opens the tracking issue, the same as a hard failure, because
+  from where a viewer sits there is no difference.
+
+- **"Playable" meant a resolver returned a URL, not that the URL served
+  anything.** The canary now fetches what it resolves. On the day this was
+  written hianime resolved perfectly while every playlist behind it answered
+  HTTP 522 — its CDN was down — and the old check called that a healthy
+  provider.
+
+- **hianime could never open a tracking issue.** The workflow's alerting matrix
+  still listed only `anizone` and `anikoto`; the job that did check hianime
+  swallows its own failures. It is in the matrix now.
+
+- **A live test followed AniList's search ranking onto the wrong show.** It
+  looked up "Frieren: Beyond Journey's End" by title; AniList began returning a
+  spin-off first, and the test reported a hianime regression that did not exist.
+  It pins the AniList id instead — which show is meant was never the thing under
+  test.
+
 ## [0.2.82] - 2026-09-10
 
 ### Fixed

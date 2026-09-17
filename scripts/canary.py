@@ -1,13 +1,20 @@
 """Provider canary — hits real providers and reports which still work.
 
 For each installed provider it runs the full read path (match → episodes →
-candidates) against a known title, and, where possible, tries to resolve one
-candidate to a playable stream. Writes ``provider-status.json`` and exits
-non-zero if any *checked* provider is broken (candidates empty / errored) — host
-flakiness alone (candidates OK but nothing resolves) is reported, not failed,
-because that is the resolver chain's job, not a provider regression. A
-Cloudflare challenge is reported as ``blocked`` for the same reason: it is a
-property of the IP the check ran from, not of the provider.
+candidates) against a known title, resolves a candidate, and fetches what that
+resolves to. Writes ``provider-status.json`` and exits non-zero when a provider
+is ``fail`` (candidates empty / errored) or ``degraded``.
+
+``degraded`` means the read path works but nothing watchable came out of it:
+every host failed to resolve, no installed resolver handles the hosts on offer,
+or a stream resolved and then would not load. That used to be reported as
+healthy on the grounds that hosts are flaky and that is the resolver chain's
+problem — until anikoto spent five days offering episodes it could not play and
+every morning's run said "All checked providers healthy". One flaky host among
+several is noise; nothing playable at all is the outage this exists to catch.
+
+A Cloudflare challenge is still ``blocked``, not a failure: it is a property of
+the IP the check ran from, not of the provider.
 
 Run locally:   uv run python scripts/canary.py
 One provider:  uv run python scripts/canary.py --provider anikoto
@@ -24,16 +31,45 @@ from datetime import datetime, timezone
 
 from anime_sh.domain.models import Audio
 from anime_sh.infra import registry
-from anime_sh.infra.http import CloudflareChallenge
+from anime_sh.infra.http import CloudflareChallenge, HttpClient, HttpError
 from anime_sh.infra.metadata import AniListMetadata
 
 # A title each provider should carry. Extend as providers are added.
 CHECK_TITLE = "Frieren"
 
 
+async def _playlist_serves(stream) -> str | None:
+    """``None`` if the stream actually loads, else why it did not.
+
+    A resolver returning a URL is not the same as a stream a user can watch.
+    On 17/09/2026 hianime resolved perfectly while every one of its playlists
+    answered HTTP 522 — the CDN behind it was down — and the canary called that
+    provider "playable" because it had a string in its hand. One request is a
+    small price for the difference between a URL and a stream.
+    """
+    http = HttpClient(headers=dict(stream.headers), retries=0)
+    try:
+        body = await http.get_text(stream.url)
+    except HttpError as e:
+        # The status is the actionable part, and a URL this long buries it.
+        # 522 is Cloudflare failing to reach the origin — the stream host is
+        # down, which is a different problem from a 403 aimed at us.
+        return f"HTTP {e.status}" if e.status else f"unreachable ({type(e).__name__})"
+    except Exception as e:
+        return f"{type(e).__name__}"
+    finally:
+        await http.aclose()
+    if ".m3u8" in stream.url and "#EXTM3U" not in body[:64]:
+        return "not a playlist"
+    return None
+
+
 async def check_provider(name, provider, metadata, resolvers) -> dict:
     started = time.monotonic()
-    result = {"status": "unknown", "detail": "", "playable": False, "candidates": 0}
+    result = {
+        "status": "unknown", "detail": "", "playable": False,
+        "candidates": 0, "resolvable_hosts": 0,
+    }
     try:
         # The identity lookup is a *precondition* of the probe, not part of it.
         # Failing it means the provider was never contacted, so it cannot be a
@@ -69,24 +105,59 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
             result.update(status="fail", detail="no stream candidates")
             return _timed(result, started)
 
-        # Best-effort: can any host actually resolve? Informational only.
+        # Can any host actually resolve, and does what it resolves to load?
+        # That is the difference between a provider that works and one that
+        # merely answers.
+        tried = 0
+        resolved = False
+        dead_stream = ""
         for cand in candidates:
             resolver = next((r for r in resolvers if r.handles(cand)), None)
             if resolver is None:
                 continue
+            tried += 1
             try:
                 streams = await resolver.resolve(cand)
             except Exception:
                 continue
-            if streams:
+            if not streams:
+                continue
+            resolved = True
+            why = await _playlist_serves(streams[0])
+            if why is None:
                 result["playable"] = True
                 break
+            dead_stream = why
+        result["resolvable_hosts"] = tried
 
-        result.update(
-            status="ok",
-            detail=f"{len(episodes)} eps, {len(candidates)} hosts"
-            + ("" if result["playable"] else ", no host resolved (hosts flaky)"),
-        )
+        detail = f"{len(episodes)} eps, {len(candidates)} hosts"
+        if result["playable"]:
+            result.update(status="ok", detail=detail)
+        elif resolved:
+            # Resolved fine, but nothing came back down the wire. The provider's
+            # own protocol is healthy; the stream host behind it is not.
+            result.update(
+                status="degraded",
+                detail=f"{detail}, resolved but the stream did not load ({dead_stream})",
+            )
+        elif tried == 0:
+            # Every host is one no installed resolver claims. Not flakiness: the
+            # provider has moved to hosts this build cannot read at all.
+            result.update(
+                status="degraded",
+                detail=f"{detail}, no resolver handles any of them",
+            )
+        else:
+            # This was reported as `ok` with "(hosts flaky)". One failing host
+            # among several is flakiness; *every* host failing is a provider
+            # nobody can watch. anikoto sat in exactly this state from
+            # 13/09/2026 — its megaplay hosts moved to an encrypted payload —
+            # and the canary said "All checked providers healthy" for five
+            # mornings while nothing it offered could be played.
+            result.update(
+                status="degraded",
+                detail=f"{detail}, 0 of {tried} resolved — nothing playable",
+            )
     except Exception as e:
         if _is_cloudflare(e):
             # A datacenter IP meeting a Cloudflare interstitial says nothing
@@ -153,7 +224,9 @@ def main() -> int:
         json.dump(payload, f, indent=2)
 
     for name, r in report.items():
-        mark = {"ok": "OK  ", "fail": "FAIL", "blocked": "BLKD"}.get(r["status"], "????")
+        mark = {
+            "ok": "OK  ", "fail": "FAIL", "blocked": "BLKD", "degraded": "DEGR",
+        }.get(r["status"], "????")
         play = "playable" if r["playable"] else "unresolved"
         print(f"[{mark}] {name}: {r['detail']} ({play}, {r['latency_ms']}ms)", file=sys.stderr)
 
@@ -166,8 +239,18 @@ def main() -> int:
             file=sys.stderr,
         )
     broken = [n for n, r in report.items() if r["status"] == "fail"]
-    if broken:
-        print(f"\nBROKEN: {', '.join(broken)}", file=sys.stderr)
+    unplayable = [n for n, r in report.items() if r["status"] == "degraded"]
+    if broken or unplayable:
+        if broken:
+            print(f"\nBROKEN: {', '.join(broken)}", file=sys.stderr)
+        if unplayable:
+            # Worth a tracking issue even though the read path is fine: from
+            # where the user sits, a provider that can never produce a stream is
+            # broken, whatever its search endpoint says.
+            print(
+                f"\nUNPLAYABLE (episodes found, no stream): {', '.join(unplayable)}",
+                file=sys.stderr,
+            )
         return 1
     print("\nAll checked providers healthy.", file=sys.stderr)
     return 0
