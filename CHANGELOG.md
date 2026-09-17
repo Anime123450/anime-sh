@@ -6,6 +6,22 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Added
 
+- **`anime prefetch`** — download what you are about to watch next, before you
+  need it. It walks Continue Watching and saves the next unwatched episode of
+  each show; `-n 3` stocks three each, `--dry-run` shows what it would take.
+
+  A part-watched episode counts as the next one you want — you stopped in the
+  middle of it — and it never runs past the finale of a show whose length is
+  known. Episodes already on disk are skipped, so running it twice costs
+  nothing and it is safe in a shell alias. One show's provider being down does
+  not cost you the rest.
+
+  The argument for it is the week this shipped: a downloaded episode needs no
+  provider, no resolver and no network, and it was the only thing still working
+  the day every CDN was down.
+
+### Added
+
 - **`anime doctor --streams`** — "can I actually watch right now?" It resolves a
   real episode through every installed provider, from your machine, and names
   the CDN that answered:
