@@ -15,7 +15,7 @@ import os
 import pytest
 
 from anime_sh.domain.errors import MetadataError
-from anime_sh.domain.models import Audio, StreamKind
+from anime_sh.domain.models import AnimeId, Audio, StreamKind
 from anime_sh.infra.http import HttpClient
 from anime_sh.infra.metadata import AniListMetadata
 from anime_sh.providers.hianime import HianimeProvider
@@ -25,6 +25,9 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("ANIME_SH_LIVE") != "1",
     reason="live hianime test; set ANIME_SH_LIVE=1",
 )
+
+# Frieren: Beyond Journey's End — 28 episodes, finished, sub and dub everywhere.
+FRIEREN_ANILIST_ID = 154587
 
 
 @pytest.mark.parametrize("audio", [Audio.SUB, Audio.DUB])
@@ -38,12 +41,17 @@ async def test_hianime_resolves_a_playable_stream(audio):
         # AniList disabled its own public API on 07/09/2026; failing here would
         # report "hianime is broken" about a provider never contacted — the exact
         # false alarm the canary's `blocked` status was added for.
+        #
+        # Fetched by id, not by title. This test searched for "Frieren: Beyond
+        # Journey's End" until 17/09/2026, when AniList's own ranking put a
+        # spin-off first and the test followed it onto an entry with no dub —
+        # reporting a hianime regression that did not exist. Which show we mean
+        # is not the thing under test, so it is stated rather than searched for.
         try:
-            hits = await md.search("Frieren: Beyond Journey's End", limit=1)
+            anime = await md.get(AnimeId(anilist=FRIEREN_ANILIST_ID))
         except MetadataError as e:
             pytest.skip(f"AniList unavailable, provider not reached: {e}")
-        assert hits, "AniList returned no match for the check title"
-        anime = hits[0]
+        assert anime.id.anilist == FRIEREN_ANILIST_ID
         ref = await provider.match(anime, audio)
         assert ref is not None, "hianime should match the show"
 

@@ -96,6 +96,15 @@ load, never fatal.
   config JSON XOR'd with a repeating key (`otaku-embed-v1` today). The
   resolver **recovers the key from the payload** via the known `{"download_url"`
   prefix rather than hardcoding it, so a rotation costs nothing.
+- **anikoto is unplayable as of 13/09/2026.** Its megaplay hosts (`s-2/<id>`)
+  now answer `getSources` with an `enc` blob instead of `sources.file`, and the
+  vidtube.site host that used to carry it is gone from its server list. The read
+  path is fine; nothing resolves. Same encrypted payload hianime's HD-1 and
+  Vidstream-2 serve, and the same reason AllAnime was dropped — so this is a
+  watch-and-wait, not a decrypt-it.
+- **hianime's CDN (`hls2.aniwatchtv.uk`) answered HTTP 522 all day 17/09/2026.**
+  Provider and resolver were correct throughout; Cloudflare could not reach the
+  origin. If playback dies everywhere at once, check the CDN before the code.
 - Title matching for both HiAnime-family providers lives in
   `providers/_matching.py`. The airing-status inversion in `rank_items` is
   load-bearing — read its docstring before touching it.
