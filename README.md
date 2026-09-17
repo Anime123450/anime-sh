@@ -177,6 +177,7 @@ or is it me?" from your own connection.
 | 🧱 **Layouts that fit you** | episodes as a grid, a list or compact; two home densities |
 | ⬇️ **Downloads** | ffmpeg-backed, resumable, and played back offline automatically |
 | 🎒 **Stocks up before you ask** | `prefetch` saves the next episode of everything you're watching |
+| 📊 **Your year, wrapped** | streaks, top shows, busiest day — and an SVG card to share |
 | 🔌 **Plugin providers** | a provider is an entry point; adding one needs no fork |
 
 ---
@@ -321,6 +322,8 @@ anime unmark "Frieren"        # clear local progress for a show
 anime history                 # what you've watched
 anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
 anime stats                   # episodes, hours, top genres & providers
+anime wrapped                 # your year: streaks, top shows, busiest day
+anime wrapped --year 2026 -o card.svg   # ...as a shareable card
 anime rate "Frieren" 9        # set a score;  anime status "X" completed
 
 # 🔗  AniList
