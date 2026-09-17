@@ -172,6 +172,32 @@ class ProviderManager:
             )
         return out
 
+    async def record_playback(self, provider_name: str, *, playable: bool) -> None:
+        """Record whether this provider actually produced something watchable.
+
+        Matching used to be the only thing the breaker heard about, so a
+        provider that answered searches promptly and then never yielded a
+        playable stream stayed "healthy" for ever and kept being tried first.
+        anikoto spent five days from 13/09/2026 in exactly that state: its hosts
+        moved to an encrypted payload, every play paid the full fan-out into it,
+        and only then fell through to a provider that worked.
+
+        Not carrying a show is still not a failure — that is a miss, and the
+        caller only reports an outcome for an episode the provider *does* carry
+        and has offered candidates for.
+        """
+        if self._health is None:
+            return
+        health = await self._health_for(provider_name)
+        now = _now()
+        updated = (
+            self._breaker.record_success(health, now)
+            if playable
+            else self._breaker.record_failure(health, now)
+        )
+        if updated != health:
+            await self._health.save(updated)
+
     # -- health helpers ----------------------------------------------------- #
     async def _health_for(self, name: str) -> ProviderHealth:
         if self._health is None:

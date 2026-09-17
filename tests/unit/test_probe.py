@@ -17,7 +17,7 @@ def _stream(url: str) -> Stream:
 
 @pytest.fixture
 def server():
-    """Local server: /dead -> 403, /gone -> 404, /boom -> 500, anything else 200."""
+    """/dead -> 403, /gone -> 404, /boom -> 500, /cf -> 522, else 200."""
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # silence
             pass
@@ -25,7 +25,8 @@ def server():
         def do_GET(self):
             code = (403 if "dead" in self.path else
                     404 if "gone" in self.path else
-                    500 if "boom" in self.path else 200)
+                    500 if "boom" in self.path else
+                    522 if "cf" in self.path else 200)
             body = b"ok"
             self.send_response(code)
             self.send_header("Content-Length", str(len(body)))
@@ -72,5 +73,22 @@ async def test_network_error_is_treated_as_live():
     probe = HttpStreamProbe(timeout=1)
     try:
         assert await probe.is_live(_stream("http://127.0.0.1:9/x.m3u8")) is True
+    finally:
+        await probe.aclose()
+
+
+async def test_cloudflare_origin_failures_are_rejected(server):
+    """520-527 are Cloudflare saying it could not reach the origin at all —
+    nothing behind that edge is serving media, so the next host is a better bet
+    than the player.
+
+    hianime's CDN answered 522 for every episode of every show on 17/09/2026.
+    The probe waved it through on the "a 5xx might be transient" rule and mpv
+    was handed a URL that could not play, while a working provider sat one place
+    behind it in the fan-out.
+    """
+    probe = HttpStreamProbe(timeout=3)
+    try:
+        assert await probe.is_live(_stream(f"{server}/cf.m3u8")) is False
     finally:
         await probe.aclose()
