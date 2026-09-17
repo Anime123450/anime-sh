@@ -156,7 +156,9 @@ uv run anime
 
 Not sure? Run **`anime doctor`** — it checks every one of these and prints the
 exact command to install whatever is missing, for the package manager you
-actually have.
+actually have. **`anime doctor --streams`** goes further and actually plays
+something through each provider, so you get a straight answer to "is it broken,
+or is it me?" from your own connection.
 
 ---
 
@@ -337,6 +339,7 @@ anime themes --set ember      # change it without opening the TUI
 
 # 🧹  Housekeeping
 anime doctor                  # player, ffmpeg, config, database, plugins
+anime doctor --streams        # can I actually watch right now? (hits the sites)
 anime --version
 anime config get              # dump settings;  config get playback.quality
 anime config set playback.quality 1080p
@@ -387,7 +390,7 @@ expired, `cache clear` empties it and hands the disk space back.
 |---|---|---|
 | 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (winget), or run `uv tool update-shell` (uv). |
 | 🎥 | **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
-| 🚧 | **A show won't play — "trying next…" on every source** | Providers get Cloudflare-gated or geo-blocked. Try later, or another title; search and your library are unaffected. |
+| 🚧 | **A show won't play — "trying next…" on every source** | Run `anime doctor --streams`: it says which providers work from *your* connection. Providers get Cloudflare-gated or geo-blocked constantly; search and your library are unaffected. |
 | 🐍 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/winget, or the `uv` block above. |
 | 🛡️ | **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |
 | 📱 | **Nothing in Continue Watching from your phone** | Link AniList (`anime auth login`), then `anime sync pull`. |

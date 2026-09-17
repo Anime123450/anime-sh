@@ -4,6 +4,29 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [0.2.83] - 2026-09-18
 
+### Added
+
+- **`anime doctor --streams`** — "can I actually watch right now?" It resolves a
+  real episode through every installed provider, from your machine, and names
+  the CDN that answered:
+
+  ```
+  [DEAD] stream anikoto: found the show, but no host played
+  [OK  ] stream hianime: playable via hls.1embed.buzz (1.5s)
+
+  You can watch right now — working: hianime.
+  ```
+
+  The nightly status badge cannot answer this for you — it runs from a
+  datacenter IP, where anizone serves a Cloudflare interstitial it never shows a
+  home connection. When your machine and the badge disagree, your machine is the
+  one that matters.
+
+  It never fails the command: a dead provider is the normal operating state, not
+  a broken install. It also goes through the app's own resolve path rather than
+  a copy of it, because a diagnostic that takes a different route to the answer
+  can pass while the thing it diagnoses is broken.
+
 ### Fixed
 
 - **A dead CDN was handed to the player instead of being skipped.** The
