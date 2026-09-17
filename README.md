@@ -176,6 +176,7 @@ or is it me?" from your own connection.
 | 🎨 **Nine themes** | previewed live as you arrow through them |
 | 🧱 **Layouts that fit you** | episodes as a grid, a list or compact; two home densities |
 | ⬇️ **Downloads** | ffmpeg-backed, resumable, and played back offline automatically |
+| 🎒 **Stocks up before you ask** | `prefetch` saves the next episode of everything you're watching |
 | 🔌 **Plugin providers** | a provider is an entry point; adding one needs no fork |
 
 ---
@@ -330,6 +331,8 @@ anime list --status watching  # your AniList list
 # ⬇️  Downloads
 anime download "Frieren" -e 1-12  # save a range (ffmpeg); resumes, skips done
 anime download "Frieren" -e 1,3,5 # or a list;  also: anime downloads
+anime prefetch                    # stock the next episode of everything you're watching
+anime prefetch -n 3 --dry-run     # three each; show what it would fetch, fetch nothing
 anime play "Frieren" -e 1          # plays your download if you have it
 anime play "Frieren" -e 1 --stream # ignore the local copy, fetch it anyway
 

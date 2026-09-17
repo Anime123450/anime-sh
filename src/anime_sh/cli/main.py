@@ -746,6 +746,27 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
 
 
 @app.command()
+def prefetch(
+    count: int = typer.Option(1, "-n", "--count", min=1, max=20,
+                              help="Episodes to stock per show."),
+    shows: int = typer.Option(5, "--shows", min=1, max=50,
+                              help="How many Continue Watching shows to cover."),
+    dub: bool = typer.Option(False, "--dub"),
+    dry_run: bool = typer.Option(False, "--dry-run",
+                                 help="List what would be fetched, download nothing."),
+) -> None:
+    """Download what you're about to watch next, before you need it.
+
+    Walks Continue Watching and saves the next unwatched episode of each show.
+    Episodes already on disk are skipped, so running it twice costs nothing.
+
+    Useful before a flight, and on the days a provider's CDN is down — a
+    downloaded episode needs no provider, no resolver and no network at all.
+    """
+    _run(_prefetch(count, shows, dub, dry_run))
+
+
+@app.command()
 def next(
     query: str = typer.Argument(..., help="Title to find the sequel of."),
     as_json: bool = typer.Option(False, "--json", help="Show the sequel; don't play."),
@@ -1787,6 +1808,80 @@ async def _download(query, episode, dub, quality) -> None:
             + (f", {skipped} skipped" if skipped else "")
             + (f", [red]{failed} failed[/]" if failed else "")
         )
+    if failed and not saved:
+        raise typer.Exit(code=2)
+
+
+def next_unwatched(progress, episode_count: int | None) -> float | None:
+    """The episode to stock next for a show you are part-way through.
+
+    A part-watched episode is the next one you want — you stopped in the middle
+    of it. Only once it is finished does "next" mean the one after. Returns None
+    past the end of a finished show, so a completed series is not endlessly
+    re-offered an episode that does not exist.
+    """
+    nxt = progress.episode + 1 if progress.completed else progress.episode
+    if episode_count is not None and nxt > episode_count:
+        return None
+    return nxt
+
+
+async def _prefetch(count: int, shows: int, dub: bool, dry_run: bool) -> None:
+    config = load_config()
+    c = build_container(config)
+    audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
+    saved = skipped = failed = 0
+    try:
+        if not dry_run and not c.download.available():
+            err.print("[red]ffmpeg not found on PATH.[/] Install it (see `anime doctor`).")
+            raise typer.Exit(code=1)
+
+        items = await c.library_service.continue_watching(limit=shows)
+        if not items:
+            console.print(
+                "[yellow]Nothing in Continue Watching yet.[/] "
+                "Watch something first, or use `anime download` for a specific show."
+            )
+            return
+
+        for item in items:
+            anime = item.anime
+            start = next_unwatched(item.progress, anime.episode_count)
+            if start is None:
+                continue
+            # Never run past the end of a show whose length we know.
+            wanted = [start + i for i in range(count)]
+            if anime.episode_count is not None:
+                wanted = [n for n in wanted if n <= anime.episode_count]
+            for n in wanted:
+                if c.download.local_path(anime, n) is not None:
+                    skipped += 1
+                    continue
+                if dry_run:
+                    console.print(f"[dim]would fetch[/] {anime.title.preferred} — ep {n:g}")
+                    saved += 1
+                    continue
+                try:
+                    with console.status(
+                        f"{anime.title.preferred} ep {n:g}: resolving & downloading…",
+                        spinner="dots",
+                    ):
+                        dest = await c.download.download(anime, n, audio=audio)
+                    console.print(f"[green]✓[/] {anime.title.preferred} ep {n:g} → {dest}")
+                    saved += 1
+                except AnimeShError as e:
+                    # One show's provider being down must not cost you the rest.
+                    console.print(f"[red]✗[/] {anime.title.preferred} ep {n:g}: {e}")
+                    failed += 1
+    finally:
+        await c.aclose()
+
+    verb = "would fetch" if dry_run else "saved"
+    console.print(
+        f"[bold]Done.[/] {saved} {verb}"
+        + (f", {skipped} already on disk" if skipped else "")
+        + (f", [red]{failed} failed[/]" if failed else "")
+    )
     if failed and not saved:
         raise typer.Exit(code=2)
 
