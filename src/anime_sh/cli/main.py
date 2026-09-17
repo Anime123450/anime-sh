@@ -746,6 +746,20 @@ def downloads(as_json: bool = typer.Option(False, "--json")) -> None:
 
 
 @app.command()
+def wrapped(
+    year: int = typer.Option(None, "--year", help="One year (default: all time)."),
+    out: str = typer.Option(None, "-o", "--out", help="Also write a shareable SVG card."),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Your watching, summed up — episodes, hours, streaks, top shows.
+
+    With -o it writes a self-contained SVG card you can drop into a message or
+    a README.
+    """
+    _run(_wrapped(year, out, as_json))
+
+
+@app.command()
 def prefetch(
     count: int = typer.Option(1, "-n", "--count", min=1, max=20,
                               help="Episodes to stock per show."),
@@ -1810,6 +1824,78 @@ async def _download(query, episode, dub, quality) -> None:
         )
     if failed and not saved:
         raise typer.Exit(code=2)
+
+
+def _day_label(when) -> str:
+    """"3 Mar", no leading zero, on every platform — `%-d` is glibc-only and
+    raises on Windows."""
+    return f"{when.day} {when:%b}"
+
+
+async def _wrapped(year: int | None, out: str | None, as_json: bool) -> None:
+    c = build_container()
+    try:
+        data = await c.library_service.wrapped(year=year)
+    finally:
+        await c.aclose()
+
+    if as_json:
+        json.dump(
+            {
+                "year": data.year,
+                "episodes": data.episodes,
+                "shows": data.shows,
+                "hours": data.hours,
+                "top_shows": [{"title": t, "episodes": n} for t, n in data.top_shows],
+                "top_genres": [{"genre": g, "episodes": n} for g, n in data.top_genres],
+                "longest_streak_days": data.longest_streak,
+                "busiest_day": data.busiest_day.isoformat() if data.busiest_day else None,
+                "busiest_day_episodes": data.busiest_day_episodes,
+                "by_month": list(data.by_month),
+            },
+            sys.stdout,
+        )
+        sys.stdout.write("\n")
+        return
+
+    if data.empty:
+        where = f" in {year}" if year else ""
+        console.print(f"[yellow]No watch history{where} yet.[/] Go watch something.")
+        return
+
+    heading = f"{data.year} in anime" if data.year else "Everything, ever"
+    console.print(f"\n[bold]{heading}[/]")
+    console.print(
+        f"  [cyan]{data.episodes:,}[/] episodes · "
+        f"[cyan]{data.hours:,g}[/] hours · "
+        f"[cyan]{data.shows:,}[/] shows"
+    )
+    if data.top_shows:
+        console.print("\n  [dim]Top shows[/]")
+        for title, n in data.top_shows:
+            console.print(f"    {n:>4}  {title}")
+    if data.top_genres:
+        genres = " · ".join(f"{g} ({n})" for g, n in data.top_genres)
+        console.print(f"\n  [dim]Top genres[/]  {genres}")
+    if data.longest_streak > 1:
+        ended = f", to {_day_label(data.streak_ended)}" if data.streak_ended else ""
+        console.print(f"  [dim]Longest streak[/]  {data.longest_streak} days{ended}")
+    if data.busiest_day and data.busiest_day_episodes > 1:
+        console.print(
+            f"  [dim]Biggest day[/]  {_day_label(data.busiest_day)} — "
+            f"{data.busiest_day_episodes} episodes"
+        )
+
+    if out:
+        from .wrapped_svg import render
+
+        path = Path(out)
+        try:
+            path.write_text(render(data), encoding="utf-8")
+        except OSError as e:
+            err.print(f"[red]Couldn't write {out}:[/] {e}")
+            raise typer.Exit(code=1)
+        console.print(f"\n[green]✓[/] Card written to [bold]{path}[/]")
 
 
 def next_unwatched(progress, episode_count: int | None) -> float | None:

@@ -99,6 +99,14 @@ class LibraryService:
     async def history(self, *, limit: int = 50) -> list[HistoryItem]:
         return await self._library.list_history(limit=limit)
 
+    async def wrapped(self, *, year: int | None = None):
+        """The year in review. Pure computation lives in the domain; this only
+        fetches the rows it needs."""
+        from ..domain.wrapped import summarise
+
+        history = await self._library.list_history(limit=1_000_000)
+        return summarise(history, year=year)
+
     async def stats(self) -> WatchStats:
         """Summarize watch history: episodes, hours, top providers and genres.
 

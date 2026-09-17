@@ -6,6 +6,22 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Added
 
+- **`anime wrapped`** — your watching, summed up: episodes, hours, shows, top
+  titles and genres, longest streak, biggest day, and a month-by-month shape.
+  `-o card.svg` writes a self-contained card you can drop into a message or a
+  README; `--year` narrows it; `--json` is there for scripts.
+
+  The counting is pure and lives in the domain, because every interesting case
+  is an edge case: a binge is one day however many episodes it was, a streak
+  spans a month boundary, and dates are read in *local* time — a 01:00 UTC
+  session is the previous evening for much of the world, and a streak that
+  breaks on a timezone is a wrong answer about someone's habits.
+
+  The card carries no script and no external fonts. GitHub strips scripted SVG,
+  and that is exactly the kind of place this file is meant to be pasted.
+
+### Added
+
 - **`anime prefetch`** — download what you are about to watch next, before you
   need it. It walks Continue Watching and saves the next unwatched episode of
   each show; `-n 3` stocks three each, `--dry-run` shows what it would take.
