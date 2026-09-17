@@ -2,6 +2,25 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+
+- **Homebrew and AUR packaging.** Three of the four install channels were
+  Windows-only; everyone else was told to install Python first.
+  `brew tap Anime123450/anime-sh && brew install anime-sh` covers macOS and
+  Linux, and `packaging/aur/` carries a PKGBUILD for Arch.
+
+  Both are generated rather than hand-maintained — the formula pins a sha256
+  for 31 transitive dependencies, and the PKGBUILD's two fields are exactly the
+  ones that go wrong silently. Both generators download the real sdist and hash
+  what they actually received rather than trusting a published digest.
+
+  Neither can be built on Windows, so CI is the verification: the tap's own repo
+  installs the formula from source on macOS and Linux, and a new workflow here
+  builds the Arch package in a container, installs it, and checks `.SRCINFO`
+  still matches the PKGBUILD.
+
 ## [0.2.83] - 2026-09-18
 
 ### Added
