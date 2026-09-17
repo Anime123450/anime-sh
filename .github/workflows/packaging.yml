@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build tooling
-        run: pacman -Syu --noconfirm git sudo python-build python-installer python-hatchling
+        run: pacman -Syu --noconfirm git sudo
 
       - name: makepkg refuses to run as root, so build as a normal user
         run: |

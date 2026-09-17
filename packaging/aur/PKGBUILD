@@ -36,7 +36,7 @@ optdepends=(
   'python-pillow: cover art in the TUI'
   'python-textual-image: sharper cover art on Sixel/kitty terminals (AUR)'
 )
-makedepends=('python-build' 'python-installer' 'python-hatchling')
+makedepends=('python-build' 'python-installer' 'python-uv-build')
 source=("https://files.pythonhosted.org/packages/source/a/anime-sh/anime_sh-$pkgver.tar.gz")
 sha256sums=('1afe3257b838f71c30d6dcac18afc60b0ca0b902cecd011a0b9323a190bef601')
 
