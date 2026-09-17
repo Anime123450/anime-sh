@@ -232,8 +232,30 @@ class PlaybackService:
             if episode is None:
                 continue
             candidates = await self._providers.candidates_for(episode)
+            # Tell the breaker how this provider actually did. Matching was the
+            # only signal it ever got, so one whose hosts had all gone dead
+            # stayed healthy and kept being tried first on every play.
+            produced = False
             async for stream, host in self._resolve_candidates(candidates):
+                if not produced:
+                    produced = True
+                    # Recorded before the yield: the consumer stops here the
+                    # moment it has something to play, and anything after the
+                    # loop would never run on the one path that matters.
+                    await self._record_playback(ref.provider, playable=True)
                 yield episode, stream, ref.provider, host
+            if not produced and candidates:
+                await self._record_playback(ref.provider, playable=False)
+
+    async def _record_playback(self, provider: str, *, playable: bool) -> None:
+        """Best-effort: a bookkeeping failure must never cost you the episode."""
+        recorder = getattr(self._providers, "record_playback", None)
+        if recorder is None:
+            return
+        try:
+            await recorder(provider, playable=playable)
+        except Exception as e:
+            log.debug("recording playback health for %s failed: %s", provider, e)
 
     async def _local_candidate(self, anime: Anime, episode_number: float,
                                audio: Audio):

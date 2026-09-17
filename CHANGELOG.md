@@ -2,9 +2,31 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
-## [0.2.83] - 2026-09-17
+## [0.2.83] - 2026-09-18
 
 ### Fixed
+
+- **A dead CDN was handed to the player instead of being skipped.** The
+  pre-flight probe treated every 5xx as "might be transient, let mpv try". But
+  Cloudflare's 520-527 are not the origin answering badly, they are Cloudflare
+  saying it could not reach the origin at all — and on 17/09/2026 hianime's CDN
+  answered 522 for every episode of every show. Nothing behind that edge was
+  serving media, so the fan-out should have moved on; instead mpv was handed a
+  URL that could not play while a working provider sat one place behind it.
+  Those statuses now count as dead. A plain 5xx still does not.
+
+- **The circuit breaker never heard whether anything actually played.** Only
+  *matching* fed it, so a provider whose hosts had all gone dead stayed healthy
+  for ever and kept sorting first. anikoto spent five days from 13/09/2026 like
+  that — matching instantly, resolving nothing — and every single play paid the
+  full fan-out into it before falling through to a provider that worked.
+
+  Playback outcomes now feed the same breaker, so a provider that cannot produce
+  a stream demotes itself and recovers on its own when its hosts come back.
+  Not carrying a show is still a miss, not a failure. Measured on a warm
+  library: 6.7s to start an episode, down to 4s.
+
+### Tooling
 
 - **The canary called a provider healthy while nothing it offered could be
   played.** anikoto spent five days serving 28 episodes across two hosts,
