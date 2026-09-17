@@ -231,11 +231,20 @@ def version() -> None:
 
 
 @app.command()
-def doctor() -> None:
-    """Check the environment: player, ffmpeg, config, database, plugins."""
+def doctor(
+    streams: bool = typer.Option(
+        False, "--streams",
+        help="Also try to play something through each provider, from this machine.",
+    ),
+) -> None:
+    """Check the environment: player, ffmpeg, config, database, plugins.
+
+    Add --streams to answer "can I actually watch right now?" — it resolves a
+    real episode through every provider. Slower, and it hits the real sites.
+    """
     from .doctor import run_doctor
 
-    raise typer.Exit(code=run_doctor())
+    raise typer.Exit(code=run_doctor(check_streams=streams))
 
 
 @config_app.command("path")
