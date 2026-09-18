@@ -100,23 +100,27 @@ def main() -> int:
         f'  sha256 "{sha}"',
         '  license "MIT"',
         "",
-        # `brew audit` requires dependencies in alphabetical order.
-        "  # Homebrew builds every resource from its sdist, so the toolchains",
-        "  # those sdists need are dependencies too. pydantic-core is Rust (via",
-        "  # maturin) and Pillow is C against the image libraries - without these",
-        "  # the build ran for 23 minutes and then died trying to build maturin.",
+        # `brew audit` wants every `=> :build` dependency first, each group
+        # sorted alphabetically. Grouping them by topic instead reads better and
+        # fails the lint, so the explanations sit above the groups.
+        #
+        # Homebrew builds every resource from its sdist, so the toolchains those
+        # sdists need are dependencies too: pydantic-core is Rust (via maturin),
+        # Pillow is C against the image libraries. Without them the build ran for
+        # 23 minutes and then died trying to build maturin.
         '  depends_on "freetype" => :build',
         '  depends_on "jpeg-turbo" => :build',
         '  depends_on "libtiff" => :build',
         '  depends_on "little-cms2" => :build',
+        '  depends_on "openjpeg" => :build',
+        '  depends_on "rust" => :build',
+        '  depends_on "webp" => :build',
+        "",
         "  # mpv plays the video, so it is a hard runtime dependency. ffmpeg is",
         "  # only needed by `anime download`, and it is a heavy install - Homebrew",
         "  # dropped formula options, so it is a caveat rather than an optional.",
         '  depends_on "mpv"',
-        '  depends_on "openjpeg" => :build',
         '  depends_on "python@3.12"',
-        '  depends_on "rust" => :build',
-        '  depends_on "webp" => :build',
         "",
     ]
     for name, version, res_url, res_sha in resources:
