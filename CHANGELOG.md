@@ -2,7 +2,7 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
-## [Unreleased]
+## [0.2.84] - 2026-09-18
 
 ### Changed
 
