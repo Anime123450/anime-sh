@@ -21,7 +21,6 @@ version = "0.2.83"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
-    { name = "curl-cffi" },
     { name = "httpx" },
     { name = "platformdirs" },
     { name = "pydantic" },
@@ -32,6 +31,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "curl-cffi" },
     { name = "pillow" },
     { name = "textual" },
     { name = "textual-image", version = "0.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -46,6 +46,9 @@ dev = [
     { name = "pyyaml" },
     { name = "textual" },
 ]
+impersonate = [
+    { name = "curl-cffi" },
+]
 tui = [
     { name = "pillow" },
     { name = "textual" },
@@ -57,7 +60,8 @@ tui = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "anyio", marker = "extra == 'dev'", specifier = ">=4.3" },
-    { name = "curl-cffi", specifier = ">=0.7" },
+    { name = "curl-cffi", marker = "extra == 'all'", specifier = ">=0.7" },
+    { name = "curl-cffi", marker = "extra == 'impersonate'", specifier = ">=0.7" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=10.0" },
@@ -77,7 +81,7 @@ requires-dist = [
     { name = "textual-image", marker = "extra == 'tui'", specifier = ">=0.7" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["tui", "all", "dev"]
+provides-extras = ["tui", "impersonate", "all", "dev"]
 
 [[package]]
 name = "annotated-doc"

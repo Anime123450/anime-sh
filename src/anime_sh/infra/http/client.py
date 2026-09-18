@@ -222,7 +222,18 @@ class HttpClient:
 
     async def _send_cffi(self, method, url, params, json, headers):
         if self._cffi is None:
-            from curl_cffi.requests import AsyncSession
+            try:
+                from curl_cffi.requests import AsyncSession
+            except ImportError as e:
+                # An extra since 0.2.84: curl-cffi is a C extension that fetches
+                # a libcurl-impersonate binary while it builds, and no bundled
+                # provider asks for impersonation. A plugin that does deserves a
+                # sentence it can act on, not an ImportError three frames down.
+                raise HttpError(
+                    f"impersonate={self._impersonate!r} needs curl-cffi, which "
+                    "is not installed. Install it with: "
+                    'uv tool install "anime-sh[impersonate]"'
+                ) from e
 
             self._cffi = AsyncSession(
                 impersonate=self._impersonate, timeout=self._timeout
