@@ -61,7 +61,7 @@ what actually plays the video.
 | 🥄 | **Scoop** | Windows | live |
 | 🍫 | **Chocolatey** | Windows | live |
 | 📦 | **WinGet** | Windows | in review |
-| 🍺 | **Homebrew** | macOS | live (builds from source, ~25 min) |
+| 🍺 | **Homebrew** | macOS · Linux | live (builds from source — see below) |
 | 🐧 | **AUR** | Arch | ready to publish |
 | 🐍 | **PyPI** (`uv tool install`) | any | live |
 
@@ -104,7 +104,7 @@ choco install anime-sh
 
 > mpv comes with it. For downloads, add ffmpeg: `choco install ffmpeg`.
 
-### macOS — Homebrew
+### macOS and Linux — Homebrew
 
 ```bash
 brew tap Anime123450/anime-sh
@@ -113,10 +113,11 @@ brew install anime-sh
 
 > mpv comes with it. For downloads, add ffmpeg: `brew install ffmpeg`.
 >
-> **Budget about 25 minutes the first time.** A tap has no prebuilt bottles, so
-> Homebrew compiles every dependency from source and two of them are slow
-> (`pydantic-core` is Rust, `Pillow` is C). Upgrades reuse what is already
-> built. If you would rather not wait, the `uv` block below takes seconds.
+> **It builds from source: about 30 minutes on macOS, an hour on Linux.** Those
+> are measured, not guessed. A tap has no prebuilt bottles, so Homebrew compiles
+> every dependency itself and two of them are slow (`pydantic-core` is Rust,
+> `Pillow` is C). Upgrades reuse what is already built — but if you would rather
+> not wait at all, the `uv` block below takes seconds.
 
 ### Any OS — with Python
 
