@@ -6,7 +6,7 @@ people who have no Python and shouldn't need to care.
 ```bash
 uv run --with pyinstaller python -m PyInstaller --onefile --name anime --console \
   --collect-all textual --collect-all textual_image --collect-all rich --collect-all typer \
-  --collect-all curl_cffi --collect-all pydantic --collect-all aiosqlite --collect-all platformdirs \
+  --collect-all pydantic --collect-all aiosqlite --collect-all platformdirs \
   --collect-submodules anime_sh --collect-data anime_sh --copy-metadata anime-sh \
   --distpath dist/bundle --workpath build/pyi --specpath build/pyi \
   packaging/launcher.py

@@ -26,7 +26,6 @@ dependencies = [
     "pydantic-settings>=2.2",
     "aiosqlite>=0.20",
     "httpx>=0.27",
-    "curl-cffi>=0.7",
     "platformdirs>=4.2",
 ]
 
@@ -36,7 +35,13 @@ tui = [
     "pillow>=10.0",              # renders cover art (optional at runtime)
     "textual-image>=0.7",        # sharp Sixel/kitty cover art when the terminal supports it
 ]
-all = ["textual>=8.0", "pillow>=10.0", "textual-image>=0.7"]
+# Browser-TLS impersonation for a provider behind a TLS fingerprint check.
+# Nothing in this repo turns it on — HttpClient(impersonate=...) is the only way
+# in, and no bundled provider passes it — so it is an extra rather than weight
+# in every install: curl-cffi is a C extension that fetches a
+# libcurl-impersonate binary while it builds.
+impersonate = ["curl-cffi>=0.7"]
+all = ["textual>=8.0", "pillow>=10.0", "textual-image>=0.7", "curl-cffi>=0.7"]
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",

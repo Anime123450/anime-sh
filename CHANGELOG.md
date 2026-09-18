@@ -2,6 +2,22 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Changed
+
+- **curl-cffi is an optional extra now, not part of every install.** It is a C
+  extension that fetches a libcurl-impersonate binary while it builds, and
+  nothing in the project turns it on: `HttpClient(impersonate=...)` is the only
+  way in, no bundled provider passes it, and anizone explicitly does not — with
+  a comment explaining the cold-start cost. It was weight in every install and
+  in the standalone `.exe`, and the hardest single thing to package for Homebrew
+  and the AUR.
+
+  A plugin that wants browser-TLS impersonation installs
+  `anime-sh[impersonate]`. Without it, asking for impersonation fails with that
+  sentence rather than an ImportError three frames down.
+
 ## [0.2.83] - 2026-09-18
 
 ### Added
