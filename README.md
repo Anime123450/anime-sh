@@ -56,12 +56,14 @@ itself — the same code you install, not a mockup of it.
 Nothing to set up first. Each of these installs **mpv** alongside it, which is
 what actually plays the video.
 
-| | channel | status |
-|---|---|---|
-| 🥄 | **Scoop** | live |
-| 🍫 | **Chocolatey** | live |
-| 📦 | **WinGet** | in review |
-| 🐍 | **PyPI** (`uv tool install`) | live |
+| | channel | platform | status |
+|---|---|---|---|
+| 🥄 | **Scoop** | Windows | live |
+| 🍫 | **Chocolatey** | Windows | live |
+| 📦 | **WinGet** | Windows | in review |
+| 🍺 | **Homebrew** | macOS · Linux | live |
+| 🐧 | **AUR** | Arch | ready to publish |
+| 🐍 | **PyPI** (`uv tool install`) | any | live |
 
 🥄 **[Scoop](https://scoop.sh)** — live:
 
@@ -101,6 +103,15 @@ choco install anime-sh
 ```
 
 > mpv comes with it. For downloads, add ffmpeg: `choco install ffmpeg`.
+
+### macOS and Linux — Homebrew
+
+```bash
+brew tap Anime123450/anime-sh
+brew install anime-sh
+```
+
+> mpv comes with it. For downloads, add ffmpeg: `brew install ffmpeg`.
 
 ### Any OS — with Python
 
