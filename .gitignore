@@ -15,3 +15,9 @@ provider-status*.json
 # Local agent/editor scratch
 .claude/
 CLAUDE.md
+
+# Coverage data, written by `pytest --cov`.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
