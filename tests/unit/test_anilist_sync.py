@@ -29,12 +29,16 @@ def test_authorize_url_implicit_variant():
 
 
 async def test_exchange_code_posts_and_returns_token():
+    # Obviously-fake credentials on purpose. This test carried a real AniList
+    # client id for months, because it was the handiest value to type while
+    # writing it. anime-sh ships no credentials of its own and every user
+    # registers their own app, so none belong here either.
     http = _FakeHttp([{"access_token": "T.O.K", "token_type": "Bearer"}])
-    tok = await exchange_code("46250", "sekret", "the-code", http=http)
+    tok = await exchange_code("00000", "sekret", "the-code", http=http)
     assert tok == "T.O.K"
     sent = http.calls[0]
     assert sent["grant_type"] == "authorization_code"
-    assert sent["client_id"] == "46250" and sent["client_secret"] == "sekret"
+    assert sent["client_id"] == "00000" and sent["client_secret"] == "sekret"
     assert sent["code"] == "the-code"
 
 
