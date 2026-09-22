@@ -48,6 +48,33 @@ from .._matching import rank_items, scored_matches, search_terms, to_float
 log = logging.getLogger(__name__)
 
 BASE = "https://hianime.at"
+
+
+def configured_base(default: str = BASE) -> str:
+    """The host to talk to, from config, falling back to the built-in one.
+
+    HiAnime runs behind a rotating set of mirrors, and which of them answer
+    depends on where you are — from the machine this was written on, every
+    mirror but one is blocked by the ISP, and that could as easily be the other
+    way round for someone else. Waiting for a release to change a hostname is a
+    poor answer to "this domain stopped working for me today".
+
+    Deliberately not a hardcoded fallback list: an unreachable mirror costs a
+    timeout on every search, and a list I cannot verify is a guess shipped as a
+    feature. ``anime config set providers.hianime_base https://…`` is a fact the
+    user actually has.
+    """
+    try:
+        from ...config import load_config
+
+        chosen = load_config().providers.hianime_base
+    except Exception:
+        # A broken config must not take the provider down with it; the default
+        # host is right for almost everyone.
+        return default
+    return (chosen or default).rstrip("/")
+
+
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 
 
@@ -58,12 +85,15 @@ class HianimeProvider:
     priority = 80
     api_version = 1
 
-    def __init__(self, http: HttpClient | None = None) -> None:
+    def __init__(self, http: HttpClient | None = None, *, base: str | None = None) -> None:
+        # Resolved once per instance rather than read per request: the host must
+        # not change underneath a search that is already walking its results.
+        self._base = (base or configured_base()).rstrip("/")
         self._http = http or HttpClient(
             headers={
                 "User-Agent": AGENT,
                 "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{BASE}/",
+                "Referer": f"{self._base}/",
             }
         )
 
@@ -73,7 +103,7 @@ class HianimeProvider:
     # -- transport ---------------------------------------------------------- #
     async def _get_text(self, path: str, params: dict | None = None) -> str:
         try:
-            return await self._http.get_text(f"{BASE}{path}", params=params)
+            return await self._http.get_text(f"{self._base}{path}", params=params)
         except CloudflareChallenge as e:
             raise ProviderUnavailable(f"hianime: {e}") from e
         except HttpError as e:
@@ -82,7 +112,7 @@ class HianimeProvider:
     async def _get_html_payload(self, path: str, params: dict | None = None) -> str:
         """These endpoints answer ``{"status": true, "html": "<markup>"}``."""
         try:
-            data = await self._http.get_json(f"{BASE}{path}", params=params)
+            data = await self._http.get_json(f"{self._base}{path}", params=params)
         except CloudflareChallenge as e:
             raise ProviderUnavailable(f"hianime: {e}") from e
         except HttpError as e:
@@ -152,7 +182,7 @@ class HianimeProvider:
                 host=server["name"],
                 url=server["url"],
                 audio=ref.audio,
-                headers={"Referer": f"{BASE}/"},
+                headers={"Referer": f"{self._base}/"},
             )
             for server in parse_servers(html)
             if server["type"] == want

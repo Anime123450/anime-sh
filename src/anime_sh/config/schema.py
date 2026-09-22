@@ -40,6 +40,11 @@ class ProvidersConfig(BaseModel):
     )
     disabled: list[str] = Field(default_factory=list)
     timeout_s: float = Field(default=8.0, gt=0)
+    #: Override the host the hianime provider talks to. It runs behind a
+    #: rotating set of mirrors and which of them answer depends on where you
+    #: are, so "this domain stopped working for me today" should not need a new
+    #: release. Empty means the provider's built-in default.
+    hianime_base: str = ""
 
 
 class ResolversConfig(BaseModel):
