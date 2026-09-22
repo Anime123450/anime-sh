@@ -1924,11 +1924,23 @@ def next_unwatched(progress, episode_count: int | None) -> float | None:
     return nxt
 
 
+def has_aired(anime, episode: float) -> bool:
+    """Whether this episode exists yet.
+
+    ``next_airing_episode`` is the first one that has *not* aired, so anything
+    at or past it is still in the future. Unknown means we cannot tell, and the
+    honest answer there is to try: a show with no airing data is usually one
+    that finished years ago.
+    """
+    upcoming = getattr(anime, "next_airing_episode", None)
+    return upcoming is None or episode < upcoming
+
+
 async def _prefetch(count: int, shows: int, dub: bool, dry_run: bool) -> None:
     config = load_config()
     c = build_container(config)
     audio = Audio.DUB if (dub or config.playback.audio == "dub") else Audio.SUB
-    saved = skipped = failed = 0
+    saved = skipped = failed = waiting = 0
     try:
         if not dry_run and not c.download.available():
             err.print("[red]ffmpeg not found on PATH.[/] Install it (see `anime doctor`).")
@@ -1952,6 +1964,15 @@ async def _prefetch(count: int, shows: int, dub: bool, dry_run: bool) -> None:
             if anime.episode_count is not None:
                 wanted = [n for n in wanted if n <= anime.episode_count]
             for n in wanted:
+                if not has_aired(anime, n):
+                    # Continue Watching deliberately keeps a show you are caught
+                    # up on — that is how it tells you what you are waiting for.
+                    # Asking a provider for next week's episode fails, and
+                    # counting that as a failure meant a library that was
+                    # entirely up to date reported nothing but errors and exited
+                    # 2, which is enough to break an alias or a cron entry.
+                    waiting += 1
+                    continue
                 if c.download.local_path(anime, n) is not None:
                     skipped += 1
                     continue
@@ -1978,8 +1999,11 @@ async def _prefetch(count: int, shows: int, dub: bool, dry_run: bool) -> None:
     console.print(
         f"[bold]Done.[/] {saved} {verb}"
         + (f", {skipped} already on disk" if skipped else "")
+        + (f", [dim]{waiting} not aired yet[/]" if waiting else "")
         + (f", [red]{failed} failed[/]" if failed else "")
     )
+    # Waiting is not failing: being caught up on everything is the good case,
+    # and it must not exit non-zero.
     if failed and not saved:
         raise typer.Exit(code=2)
 

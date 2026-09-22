@@ -6,6 +6,17 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **`prefetch` reported a failure for every show you were caught up on.**
+  Continue Watching deliberately keeps a show whose latest episode you have
+  finished — that is how it tells you what you are waiting for — so `prefetch`
+  asked providers for next week's episode, which does not exist yet.
+
+  Those are now counted as "not aired yet" rather than failures. It matters
+  beyond the wording: a library that was entirely up to date reported nothing
+  but errors and exited 2, which is enough to break the shell alias or cron
+  entry this command was written to live in.
+
+
 - **A sequel written "… S2" read as season 1, so it could be offered as a
   source for its own prequel.** `season_number` understood "Season 2", "2nd
   Season" and trailing roman numerals, but not the `S2` shorthand AniList uses
