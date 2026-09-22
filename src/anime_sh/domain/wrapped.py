@@ -15,7 +15,19 @@ from datetime import date, timedelta
 
 @dataclass(frozen=True, slots=True)
 class Wrapped:
-    """One year of watching, ready to print or draw."""
+    """One year of watching, ready to print or draw.
+
+    ``episodes`` and ``shows`` count what was *played through anime-sh*, because
+    hours, streaks and the busiest day can only be computed from playback
+    sessions — nothing else records how long you watched or when.
+
+    That is not the same number as `anime stats` reports, which counts progress
+    rows and therefore includes everything marked watched or imported from
+    AniList. On a real library the two differed threefold, with both labelled
+    "episodes", which reads as one of them being broken. ``marked_episodes`` and
+    ``marked_shows`` carry the wider figure so the difference can be shown
+    rather than left to look like a bug.
+    """
 
     year: int | None  # None means "everything, ever"
     episodes: int
@@ -28,6 +40,15 @@ class Wrapped:
     busiest_day: date | None = None
     busiest_day_episodes: int = 0
     by_month: tuple[int, ...] = field(default=(0,) * 12)
+    #: Episodes/shows marked watched by any route, playback included. Zero when
+    #: the caller did not supply progress rows.
+    marked_episodes: int = 0
+    marked_shows: int = 0
+
+    @property
+    def has_wider_total(self) -> bool:
+        """Whether the marked total says materially more than playback does."""
+        return self.marked_episodes > self.episodes
 
     @property
     def hours(self) -> float:
@@ -42,20 +63,30 @@ class Wrapped:
         return self.episodes == 0
 
 
-def summarise(history, *, year: int | None = None, local_dates=True) -> Wrapped:
+def summarise(history, *, year: int | None = None, local_dates=True,
+              progress=None) -> Wrapped:
     """Fold history rows into a :class:`Wrapped`.
 
     ``history`` is any iterable of objects with ``anime``, ``watched_at`` and
     ``seconds_watched`` — the shape ``list_history`` returns.
+
+    ``progress`` is optional and only used for the wider "marked watched"
+    totals: rows with ``completed`` and ``anime_id``, as ``all_progress_rows``
+    returns. Those cannot replace the history counts, because a progress row
+    records no duration and no timestamp of viewing.
 
     Dates are taken in local time when ``local_dates`` is set, because "what did
     I watch on Saturday" means the user's Saturday. A session at 01:00 UTC is
     the previous evening for most of the world, and a streak that breaks because
     of a timezone is a wrong answer to a question about someone's habits.
     """
+    marked_eps, marked_shows = _marked(progress)
     rows = [h for h in history if year is None or _day(h, local_dates).year == year]
     if not rows:
-        return Wrapped(year=year, episodes=0, shows=0, seconds=0)
+        return Wrapped(
+            year=year, episodes=0, shows=0, seconds=0,
+            marked_episodes=marked_eps, marked_shows=marked_shows,
+        )
 
     shows: Counter[str] = Counter()
     genres: Counter[str] = Counter()
@@ -89,7 +120,22 @@ def summarise(history, *, year: int | None = None, local_dates=True) -> Wrapped:
         busiest_day=busiest,
         busiest_day_episodes=busiest_count,
         by_month=tuple(months),
+        marked_episodes=marked_eps,
+        marked_shows=marked_shows,
     )
+
+
+def _marked(progress) -> tuple[int, int]:
+    """Episodes and shows marked watched by any route, playback included.
+
+    Counted over *all* progress rows rather than the requested year: a progress
+    row carries no viewing timestamp, so filtering it by year would be guessing.
+    """
+    if not progress:
+        return 0, 0
+    rows = [p for p in progress if getattr(p, "completed", False)]
+    shows = {getattr(p.anime_id, "anilist", None) or id(p) for p in rows}
+    return len(rows), len(shows)
 
 
 def _day(item, local_dates: bool) -> date:
