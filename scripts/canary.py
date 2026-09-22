@@ -205,8 +205,23 @@ async def run(only: str | None) -> dict:
                 provider.name, provider, metadata, resolvers
             )
     finally:
-        await metadata.aclose()
+        # Providers and resolvers each own an HTTP client too; only metadata was
+        # being closed. The process exits straight afterwards so nothing leaked
+        # for long, but an unclosed session is the kind of thing that prints a
+        # warning into a log someone is trying to read a verdict out of.
+        await _close_all([metadata, *providers, *resolvers])
     return report
+
+
+async def _close_all(things) -> None:
+    for thing in things:
+        close = getattr(thing, "aclose", None)
+        if close is None:
+            continue  # a plugin need not hold anything that closes
+        try:
+            await close()
+        except Exception as e:  # never let cleanup lose the report
+            print(f"  (closing {thing!r} failed: {e})", file=sys.stderr)
 
 
 def main() -> int:
