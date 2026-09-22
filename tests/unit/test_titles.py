@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from anime_sh.domain.titles import season_number
+from anime_sh.domain.titles import same_season, season_number
 
 
 @pytest.mark.parametrize(
@@ -59,3 +59,40 @@ def test_the_reported_case_separates_the_two_seasons():
 )
 def test_unicode_season_markers(title, expected):
     assert season_number(title) == expected
+
+
+# -- the "S2" shorthand ------------------------------------------------------ #
+def test_the_s2_shorthand_is_a_season():
+    """AniList writes some sequels this way — "Full-Time Magister S2" — and
+    without it the sequel read as season 1, which made it a candidate source
+    for its own prequel: you watch season 2 while progress is written against
+    season 1's AniList id."""
+    assert season_number("Full-Time Magister S2") == 2
+    assert season_number("Show S02") == 2
+    assert season_number("Show s3") == 3
+    assert season_number("Show S10") == 10
+
+
+def test_the_prequel_and_its_s2_are_not_the_same_season():
+    assert not same_season("Full-Time Magister", "Full-Time Magister S2")
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Full-Time Magister",
+        "Yu-Gi-Oh! 5Ds",       # digits-then-s, the shape most likely to misfire
+        "Steins;Gate 0",
+        "Macross 7",
+        "Mobile Suit Gundam SEED",
+        "86 EIGHTY-SIX",
+        "Plus Sized Elf",
+        "Bus Gamer",
+        "Kids on the Slope",
+        "Wolf's Rain",
+    ],
+)
+def test_the_shorthand_does_not_misfire_on_ordinary_titles(title):
+    """The pattern is anchored at the end and needs a word boundary before the
+    S. A title that merely contains an S and a digit must stay season 1."""
+    assert season_number(title) == 1

@@ -21,6 +21,12 @@ _ROMAN = {
 _SEASON_N = re.compile(r"\bseason\s+(\d{1,2})\b")
 _NTH_SEASON = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+season\b")
 _TRAILING_ROMAN = re.compile(r"\b([ivx]{1,5})\s*$")
+# "… S2" / "… S02". AniList uses this shorthand for some sequels — "Full-Time
+# Magister S2" — and without it the sequel read as season 1, which made it a
+# candidate source for its own prequel. Anchored at the end and requiring a word
+# boundary before the S, so it cannot fire on a title that merely contains one:
+# "Yu-Gi-Oh! 5Ds" is digits-then-s, not s-then-digits.
+_TRAILING_S_N = re.compile(r"\bs0*(\d{1,2})\s*$")
 
 
 def season_number(title: str | None) -> int:
@@ -37,7 +43,7 @@ def season_number(title: str | None) -> int:
     # ASCII pattern, so the sequel read as season 1 and could be offered as a
     # source for its own prequel.
     low = unicodedata.normalize("NFKC", title).strip().lower()
-    for pattern in (_SEASON_N, _NTH_SEASON):
+    for pattern in (_SEASON_N, _NTH_SEASON, _TRAILING_S_N):
         m = pattern.search(low)
         if m:
             return int(m.group(1))
