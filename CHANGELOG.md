@@ -6,6 +6,21 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **A sequel written "… S2" read as season 1, so it could be offered as a
+  source for its own prequel.** `season_number` understood "Season 2", "2nd
+  Season" and trailing roman numerals, but not the `S2` shorthand AniList uses
+  for some titles — "Full-Time Magister S2" among them.
+
+  The consequence is the one the season filter exists to prevent: the sequel
+  passes the same-season check, gets offered as a source for season 1, and you
+  watch season 2's episodes while progress is written against season 1's
+  AniList id.
+
+  The pattern is anchored at the end and needs a word boundary before the S, so
+  a title that merely contains one — "Yu-Gi-Oh! 5Ds", digits-then-s — is
+  untouched. Checked against twenty real titles for false positives.
+
+
 - **A single `mark` could name an episode that does not exist, and the tracker
   would believe it.** `mark --single` skipped every ceiling check, so
   `anime mark "Frieren" -e 99999 --single` was accepted on a 28-episode show.
