@@ -105,7 +105,11 @@ class LibraryService:
         from ..domain.wrapped import summarise
 
         history = await self._library.list_history(limit=1_000_000)
-        return summarise(history, year=year)
+        # Progress too, for the "marked watched" total. `stats` counts those and
+        # `wrapped` counted only playback, so the same library reported two very
+        # different episode counts with no hint why.
+        progress = await self._library.all_progress_rows()
+        return summarise(history, year=year, progress=progress)
 
     async def stats(self) -> WatchStats:
         """Summarize watch history: episodes, hours, top providers and genres.
@@ -126,6 +130,10 @@ class LibraryService:
         return WatchStats(
             episodes_completed=sum(1 for p in progress if p.completed),
             shows=len({p.anime_id.anilist for p in progress if p.anime_id.anilist}),
+            shows_completed=len(
+                {p.anime_id.anilist for p in progress
+                 if p.completed and p.anime_id.anilist}
+            ),
             sessions=len(history),
             total_seconds=total_seconds,
             top_providers=tuple(providers.most_common(5)),

@@ -1166,6 +1166,7 @@ async def _stats(as_json: bool) -> None:
     if as_json:
         json.dump(
             {"episodes_completed": s.episodes_completed, "shows": s.shows,
+             "shows_completed": s.shows_completed,
              "sessions": s.sessions, "hours": s.hours,
              "total_seconds": s.total_seconds,
              "top_providers": [list(p) for p in s.top_providers],
@@ -1180,7 +1181,8 @@ async def _stats(as_json: bool) -> None:
     console.print(
         f"[b]Your anime-sh stats[/b]\n"
         f"  [cyan]{s.episodes_completed}[/cyan] episodes finished across "
-        f"[cyan]{s.shows}[/cyan] shows\n"
+        f"[cyan]{s.shows_completed}[/cyan] shows "
+        f"[dim](of {s.shows} started)[/dim]\n"
         f"  [cyan]{s.hours}[/cyan] hours watched over [cyan]{s.sessions}[/cyan] sessions"
     )
     if s.top_genres:
@@ -1848,6 +1850,8 @@ async def _wrapped(year: int | None, out: str | None, as_json: bool) -> None:
                 "hours": data.hours,
                 "top_shows": [{"title": t, "episodes": n} for t, n in data.top_shows],
                 "top_genres": [{"genre": g, "episodes": n} for g, n in data.top_genres],
+                "marked_episodes": data.marked_episodes,
+                "marked_shows": data.marked_shows,
                 "longest_streak_days": data.longest_streak,
                 "busiest_day": data.busiest_day.isoformat() if data.busiest_day else None,
                 "busiest_day_episodes": data.busiest_day_episodes,
@@ -1866,10 +1870,18 @@ async def _wrapped(year: int | None, out: str | None, as_json: bool) -> None:
     heading = f"{data.year} in anime" if data.year else "Everything, ever"
     console.print(f"\n[bold]{heading}[/]")
     console.print(
-        f"  [cyan]{data.episodes:,}[/] episodes · "
+        f"  [cyan]{data.episodes:,}[/] episodes played here · "
         f"[cyan]{data.hours:,g}[/] hours · "
         f"[cyan]{data.shows:,}[/] shows"
     )
+    if data.has_wider_total:
+        # Without this line the number above looks wrong next to `anime stats`.
+        console.print(
+            f"  [dim]{data.marked_episodes:,} episodes marked watched across "
+            f"{data.marked_shows:,} shows, counting what you synced from "
+            f"AniList — hours and streaks need a playback session, so they "
+            f"only count the {data.episodes:,} above.[/]"
+        )
     if data.top_shows:
         console.print("\n  [dim]Top shows[/]")
         for title, n in data.top_shows:

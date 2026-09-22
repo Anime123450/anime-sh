@@ -2,6 +2,27 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Fixed
+
+- **`stats` and `wrapped` disagreed about the same library, and neither said
+  what it counted.** On a real library they read *"137 episodes finished across
+  76 shows"* and *"46 episodes · 15 shows"*. Both said "episodes", which makes
+  one of them look broken. Two separate defects were hiding in that:
+
+  `stats` paired "episodes finished" with a count of every show that had *any*
+  progress. Those 137 episodes spanned 59 shows; the other 17 were started and
+  abandoned. It now reads "137 episodes finished across 59 shows (of 76
+  started)", which is a true sentence, and `--json` gains `shows_completed`
+  without changing what `shows` has always meant.
+
+  `wrapped` counts playback sessions, because hours, streaks and the busiest
+  day cannot be computed from anything else — a progress row records neither a
+  duration nor when you watched. It now says "episodes played here" and, when
+  the two differ, prints the wider marked total alongside, so the smaller
+  headline reads as a different question rather than a wrong answer.
+
 ## [0.2.84] - 2026-09-18
 
 ### Changed

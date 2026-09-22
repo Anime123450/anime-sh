@@ -300,9 +300,15 @@ class WatchStats:
     """Aggregate view of the user's watch history — for ``anime stats``."""
 
     episodes_completed: int
+    #: Shows with *any* progress row — including ones started and abandoned.
     shows: int
     sessions: int
     total_seconds: int
+    #: Shows with at least one finished episode. Kept separate from ``shows``
+    #: because pairing ``episodes_completed`` with ``shows`` read as "137
+    #: episodes finished across 76 shows", which was not true: those 137
+    #: spanned 59 shows, and the other 17 were started and never finished.
+    shows_completed: int = 0
     top_providers: tuple[tuple[str, int], ...] = ()
     top_genres: tuple[tuple[str, int], ...] = ()
 
