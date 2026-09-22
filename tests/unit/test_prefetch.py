@@ -177,3 +177,61 @@ def test_a_finished_show_is_not_offered_a_nonexistent_episode(run):
     downloads = _Downloads()
     run(items, downloads)
     assert downloads.fetched == []
+
+
+# -- episodes that have not aired yet ---------------------------------------- #
+def _airing(title: str, episodes: int | None, next_ep: int | None) -> Anime:
+    return Anime(
+        id=AnimeId(anilist=1), title=Title(romaji=title),
+        episode_count=episodes, next_airing_episode=next_ep,
+    )
+
+
+def test_has_aired_reads_next_airing_as_the_first_unaired_one():
+    from anime_sh.cli.main import has_aired
+
+    show = _airing("A", 12, 9)          # eps 1-8 exist, 9 is next week's
+    assert has_aired(show, 8)
+    assert not has_aired(show, 9)
+    assert not has_aired(show, 10)
+
+
+def test_has_aired_is_true_when_nothing_is_scheduled():
+    """A finished show has no next_airing_episode, and guessing "not aired"
+    there would refuse to fetch anything at all."""
+    from anime_sh.cli.main import has_aired
+
+    assert has_aired(_airing("A", 12, None), 12)
+
+
+def test_a_caught_up_show_is_waiting_not_failing(run):
+    """Continue Watching deliberately keeps shows you are up to date on — that
+    is how it tells you what you are waiting for. Asking a provider for next
+    week's episode fails, and counting that as a failure made a fully caught-up
+    library report nothing but errors."""
+    items = [
+        ResumeItem(anime=_airing("A", 12, 9), progress=_progress(8, completed=True)),
+    ]
+    downloads = _Downloads()
+    run(items, downloads)
+    assert downloads.fetched == [], "episode 9 has not aired"
+
+
+def test_being_caught_up_on_everything_still_exits_zero(run):
+    """Otherwise `anime prefetch` in a cron entry or a shell alias fails on the
+    days when there is simply nothing new."""
+    items = [
+        ResumeItem(anime=_airing("A", 12, 9), progress=_progress(8, completed=True)),
+        ResumeItem(anime=_airing("B", 24, 5), progress=_progress(4, completed=True)),
+    ]
+    run(items, _Downloads())  # no typer.Exit raised
+
+
+def test_aired_episodes_are_still_fetched_on_an_airing_show(run):
+    items = [
+        ResumeItem(anime=_airing("A", 12, 9), progress=_progress(5, completed=True)),
+    ]
+    downloads = _Downloads()
+    run(items, downloads, count=5)
+    # 6, 7, 8 exist; 9 and 10 have not aired.
+    assert downloads.fetched == [6.0, 7.0, 8.0]
