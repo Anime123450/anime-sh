@@ -6,6 +6,22 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **A single `mark` could name an episode that does not exist, and the tracker
+  would believe it.** `mark --single` skipped every ceiling check, so
+  `anime mark "Frieren" -e 99999 --single` was accepted on a 28-episode show.
+
+  That is not just an odd local row. `sync push` sends the *furthest* episode
+  per show, so the next push set AniList to 99999 for that title — the same
+  shape of damage this project has done once already, reachable through one
+  mistyped number.
+
+  A single mark is now bounded too. The ceiling is deliberately generous,
+  because a single mark legitimately can exceed a known total: AniList's count
+  lags an airing season and specials are sometimes numbered past the finale.
+  Episode 0 still works, so does the finale, so does a count that has gone
+  stale — 99999 does not.
+
+
 - **`stats` and `wrapped` disagreed about the same library, and neither said
   what it counted.** On a real library they read *"137 episodes finished across
   76 shows"* and *"46 episodes · 15 shows"*. Both said "episodes", which makes

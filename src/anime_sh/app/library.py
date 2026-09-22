@@ -45,6 +45,12 @@ class LibraryService:
     #: a typo literally is what made `-e 99999` sit there for six minutes.
     MAX_CATCH_UP = 2000
 
+    #: How far past a *known* episode count a single mark may still be real.
+    #: AniList's count lags an airing season and specials get numbered past the
+    #: finale, so an exact ceiling would refuse legitimate marks; this catches
+    #: the typo without arguing about the edge cases.
+    SINGLE_MARK_HEADROOM = 100
+
     def _check_mark_bounds(self, anime: Anime, up_to: float, *, single: bool) -> None:
         """Refuse a mark that cannot mean what it says.
 
@@ -57,9 +63,35 @@ class LibraryService:
             raise AnimeShError(
                 f"episode must be {floor:g} or higher (got {up_to:g})"
             )
-        if single:
-            return
         total = anime.episode_count
+        if single:
+            # A single mark used to skip every ceiling, which made
+            # `mark "Frieren" -e 99999 --single` legal on a 28-episode show. That
+            # is not merely an odd local row: `sync push` sends the *furthest*
+            # episode per show, so the next push would set the tracker to 99999
+            # — the same shape of damage this project has already done once.
+            #
+            # The ceiling is generous rather than exact, because a single mark
+            # legitimately can exceed a known total: AniList's count lags an
+            # airing season, and specials are sometimes numbered past the
+            # finale. Orders of magnitude beyond it is a typo.
+            ceiling = (
+                total + self.SINGLE_MARK_HEADROOM
+                if total is not None
+                else self.MAX_CATCH_UP
+            )
+            if up_to > ceiling:
+                where = (
+                    f"{anime.title.preferred} has {total} episodes"
+                    if total is not None
+                    else f"the limit is {self.MAX_CATCH_UP} when the count is unknown"
+                )
+                raise AnimeShError(
+                    f"refusing to mark episode {up_to:g}: {where}. "
+                    "A tracker push sends your furthest episode, so a typo here "
+                    "would follow you to AniList."
+                )
+            return
         if total is not None and up_to > total:
             raise AnimeShError(
                 f"{anime.title.preferred} has {total} episodes "
