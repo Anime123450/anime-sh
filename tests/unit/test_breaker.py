@@ -126,6 +126,49 @@ async def test_manager_skips_open_provider():
     assert "match" not in dead.calls  # never called
 
 
+# -- every breaker open at once --------------------------------------------- #
+# Skipping a dead provider is only a win because another one is still standing.
+# When all of them are open there is nothing left to fall back to, so skipping
+# buys nothing and costs the search entirely: `resolve_sources` returned [] for
+# the whole cooldown without making a single request. The usual cause is not
+# that every anime site died at the same moment — it is the user's own
+# connection dropping for a minute, which fails every provider together.
+async def test_all_breakers_open_still_probes_rather_than_giving_up():
+    store = MemHealthStore()
+    just_now = datetime.now(timezone.utc)
+    for name in ("a", "b"):
+        store.data[name] = ProviderHealth(name, BreakerState.OPEN, 5, just_now)
+    # Both are fine now — the outage was the connection, and it is back.
+    a = FakeProvider("a", priority=20)
+    b = FakeProvider("b", priority=10)
+    mgr = ProviderManager([a, b], match_timeout_s=1, health_store=store)
+    refs = await mgr.resolve_sources(make_anime())
+    assert [r.provider for r in refs] == ["a", "b"], "gave up without trying"
+
+
+async def test_a_successful_forced_probe_closes_the_breakers():
+    """Otherwise the app stays dead for the rest of the cooldown anyway."""
+    store = MemHealthStore()
+    store.data["a"] = ProviderHealth("a", BreakerState.OPEN, 5, datetime.now(timezone.utc))
+    mgr = ProviderManager([FakeProvider("a")], match_timeout_s=1, health_store=store)
+    await mgr.resolve_sources(make_anime())
+    assert store.data["a"].state is BreakerState.CLOSED
+
+
+async def test_one_healthy_provider_is_enough_to_keep_skipping_the_open_one():
+    """The fallback must not become a way for dead providers to sneak back in
+    on every search — that would undo the breaker."""
+    store = MemHealthStore()
+    store.data["dead"] = ProviderHealth(
+        "dead", BreakerState.OPEN, 5, datetime.now(timezone.utc)
+    )
+    dead = FakeProvider("dead", priority=20, raise_on="match")
+    alive = FakeProvider("alive", priority=10)
+    mgr = ProviderManager([dead, alive], match_timeout_s=1, health_store=store)
+    await mgr.resolve_sources(make_anime())
+    assert "match" not in dead.calls
+
+
 async def test_manager_success_resets_failures():
     store = MemHealthStore()
     store.data["p"] = ProviderHealth("p", BreakerState.CLOSED, 1, None)
