@@ -59,6 +59,18 @@ query ($userId: Int) {
 }
 """
 
+# Just the statuses, for deciding what a progress push may overwrite. Kept
+# separate from _LIST_Q on purpose: that one pulls descriptions, cover art and
+# studios for every show, which is a lot of response to download when the only
+# field wanted is one enum per entry.
+_STATUSES_Q = """
+query ($userId: Int) {
+  MediaListCollection(userId: $userId, type: ANIME) {
+    lists { entries { status media { id } } }
+  }
+}
+"""
+
 _SAVE_STATUS_M = """
 mutation ($id: Int, $status: MediaListStatus) {
   SaveMediaListEntry(mediaId: $id, status: $status) { id status }
@@ -143,8 +155,35 @@ def extract_token(pasted: str) -> str | None:
     return None
 
 
-def _status_for(progress: int, total: int | None) -> str:
-    return "COMPLETED" if total and progress >= total else "CURRENT"
+# Statuses a progress push must never overwrite. Dropping, pausing and
+# rewatching are all deliberate states the user set on AniList; a catch-up push
+# is about the episode number, and has no business deciding a show you dropped
+# is one you are currently watching. REPEATING is here for a second reason: the
+# site increments the rewatch counter when a repeat finishes, and this mutation
+# does not touch that counter, so ending a rewatch here would lose the count.
+_PRESERVED = frozenset({"DROPPED", "PAUSED", "REPEATING"})
+
+
+def _status_for(progress: int, total: int | None, current: str | None = None) -> str:
+    """The status to send with a progress push.
+
+    ``current`` is the entry's existing status on AniList, when known.
+
+    The finale is the one case that legitimately changes a plain status: you
+    watched the last episode, the show is completed. Everything else either
+    keeps a status the user chose, or — for an entry already COMPLETED whose
+    episode count we do not know locally — keeps COMPLETED rather than
+    reopening it. Without that last rule a show missing ``episode_count`` in the
+    local cache came back as CURRENT on every push, so a finished series
+    reappeared in the user's Watching list.
+    """
+    if current in _PRESERVED:
+        return current
+    if total and progress >= total:
+        return "COMPLETED"
+    if current == "COMPLETED":
+        return "COMPLETED"
+    return "CURRENT"
 
 
 class AniListTracker:
@@ -162,6 +201,9 @@ class AniListTracker:
             }
         )
         self._viewer_id: int | None = None
+        # media id -> existing MediaListStatus, filled lazily on the first push
+        # so a push knows which statuses it must leave alone. None = not fetched.
+        self._statuses: dict[int, str] | None = None
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -189,19 +231,52 @@ class AniListTracker:
     async def push(self, progress: WatchProgress, *, total: int | None = None) -> None:
         """Set the user's AniList progress for one anime to ``progress.episode``.
 
-        Marks the entry COMPLETED when the episode is the known finale, else
-        CURRENT. Best-effort: only whole-numbered episodes with an AniList id
-        are pushed (AniList counts integers)."""
+        Marks the entry COMPLETED when the episode is the known finale, and
+        otherwise leaves a status the user chose (dropped, paused, rewatching,
+        or an already-completed entry) as it is. Best-effort: only
+        whole-numbered episodes with an AniList id are pushed (AniList counts
+        integers)."""
         media_id = progress.anime_id.anilist
         if media_id is None:
             return
         ep = int(progress.episode)
         if ep <= 0:
             return
+        status = _status_for(ep, total, (await self._existing_statuses()).get(media_id))
         await self._query(
             _SAVE_M,
-            {"mediaId": media_id, "progress": ep, "status": _status_for(ep, total)},
+            {"mediaId": media_id, "progress": ep, "status": status},
         )
+        # Keep the cache honest for the rest of this session: a tracker lives
+        # as long as the process, and during playback that is many episodes.
+        if self._statuses is not None:
+            self._statuses[media_id] = status
+
+    async def _existing_statuses(self) -> dict[int, str]:
+        """The user's current status per media id, fetched once per tracker.
+
+        Best-effort by design: if the list cannot be read, an empty mapping
+        means pushes fall back to the old finale-or-CURRENT rule rather than
+        failing outright. A push that sends the right episode with a status
+        that is merely no better than before beats a push that sends nothing.
+        """
+        if self._statuses is None:
+            found: dict[int, str] = {}
+            try:
+                if self._viewer_id is None:
+                    await self.viewer()
+                data = await self._query(_STATUSES_Q, {"userId": self._viewer_id})
+                lists = (data.get("MediaListCollection") or {}).get("lists") or []
+                for lst in lists:
+                    for entry in lst.get("entries") or []:
+                        mid = (entry.get("media") or {}).get("id")
+                        status = entry.get("status")
+                        if mid and status:
+                            found[int(mid)] = status
+            except Exception:
+                found = {}
+            self._statuses = found
+        return self._statuses
 
     async def pull(self) -> list[WatchProgress]:
         """The user's AniList list as domain progress rows (episode = list

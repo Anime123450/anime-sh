@@ -132,7 +132,11 @@ class Tracker(Protocol):
 
     async def push(self, progress: WatchProgress, *, total: int | None = None) -> None:
         """Push one show's progress. ``total`` (the planned episode count, when
-        known) lets the tracker mark an entry COMPLETED on its finale."""
+        known) lets the tracker mark an entry COMPLETED on its finale.
+
+        Progress is the only thing a push owns. A status the user chose —
+        dropped, paused, rewatching — is theirs, and an implementation must
+        leave it alone."""
 
     async def pull(self) -> list[WatchProgress]: ...
 

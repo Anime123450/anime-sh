@@ -6,6 +6,18 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **Syncing progress to AniList rewrote statuses you had set yourself.** A push
+  sent "COMPLETED if this is the finale, else CURRENT" without ever reading what
+  the entry already said, so a show you had dropped, paused or were rewatching
+  came back as Watching the moment anything pushed progress for it — and
+  `sync push` did that across the whole library in one go. Two consequences
+  beyond the wrong label: a rewatch ended this way skips AniList's repeat
+  counter, and a finished show whose episode count is missing from the local
+  cache could not be recognised as finished, so it was reopened on every single
+  push. A push now reads your current statuses once (a status-only query, not
+  the full list) and changes one thing only: reaching the known finale of a
+  show you were watching completes it.
+
 - **`providers.timeout_s` only reached half of what it names.** It was wired to
   the candidate-listing step; the match step kept a hardcoded four seconds. So
   raising it on a slow connection changed nothing that mattered — matching runs
