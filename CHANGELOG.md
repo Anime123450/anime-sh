@@ -6,6 +6,20 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **The providers badge was permanently red over an expected casualty.** The
+  nightly canary failed its run whenever any single provider was unhealthy, and
+  anikoto's hosts moved to an encrypted payload and are not coming back — so
+  every night went red on a project that works, which is how a badge stops
+  meaning anything. The workflow's own comment already said a broken provider
+  is the normal operating state and should be reported rather than failed on;
+  it just did not do that. Probes now report and open their tracking issue
+  without failing the run, and the aggregate step is the gate: it fails only
+  when *no* provider can play anything, which is the question a user actually
+  has. A run that checked nothing now fails too, so a canary that has quietly
+  stopped checking cannot keep reporting green. The aggregate also merges what
+  the probe matrix already found instead of hitting every site a second time,
+  halving the nightly traffic sent to these providers.
+
 - **A brief network drop could leave search dead for ten minutes.** Losing your
   connection fails every provider at once, and once they had all tripped their
   breakers `resolve_sources` returned nothing for the whole cooldown without
