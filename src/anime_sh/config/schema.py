@@ -39,7 +39,15 @@ class ProvidersConfig(BaseModel):
         default_factory=lambda: ["anizone", "anikoto"]
     )
     disabled: list[str] = Field(default_factory=list)
+    #: How long one provider gets to list an episode's stream candidates.
+    #: Separate from the match budget below because the two sit at different
+    #: points: matching runs on every search, across providers in parallel,
+    #: with someone waiting on it.
     timeout_s: float = Field(default=8.0, gt=0)
+    #: How long one provider gets to match a title. Was hardcoded, so raising
+    #: `timeout_s` on a slow connection still left matching cut off at four
+    #: seconds - and matching is the step that has to succeed first.
+    match_timeout_s: float = Field(default=4.0, gt=0)
     #: Override the host the hianime provider talks to. It runs behind a
     #: rotating set of mirrors and which of them answer depends on where you
     #: are, so "this domain stopped working for me today" should not need a new

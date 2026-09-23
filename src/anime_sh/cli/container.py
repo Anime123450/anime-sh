@@ -112,6 +112,7 @@ class Container:
             parallel=self.config.providers.parallel,
             preferred=self.config.providers.preferred,
             candidates_timeout_s=self.config.providers.timeout_s,
+            match_timeout_s=self.config.providers.match_timeout_s,
             health_store=SqliteHealthStore(self.user_db),
         )
 
