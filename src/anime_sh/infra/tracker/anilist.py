@@ -59,14 +59,15 @@ query ($userId: Int) {
 }
 """
 
-# Just the statuses, for deciding what a progress push may overwrite. Kept
+# Just the status and progress of each entry, for deciding what a push may
+# overwrite. Kept
 # separate from _LIST_Q on purpose: that one pulls descriptions, cover art and
 # studios for every show, which is a lot of response to download when the only
 # field wanted is one enum per entry.
 _STATUSES_Q = """
 query ($userId: Int) {
   MediaListCollection(userId: $userId, type: ANIME) {
-    lists { entries { status media { id } } }
+    lists { entries { status progress media { id } } }
   }
 }
 """
@@ -201,9 +202,10 @@ class AniListTracker:
             }
         )
         self._viewer_id: int | None = None
-        # media id -> existing MediaListStatus, filled lazily on the first push
-        # so a push knows which statuses it must leave alone. None = not fetched.
-        self._statuses: dict[int, str] | None = None
+        # media id -> (existing MediaListStatus, existing progress), filled
+        # lazily on the first push so a push knows what it must not overwrite.
+        # None = not fetched yet, which is not the same as "the list is empty".
+        self._entries: dict[int, tuple[str, int]] | None = None
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -231,37 +233,45 @@ class AniListTracker:
     async def push(self, progress: WatchProgress, *, total: int | None = None) -> None:
         """Set the user's AniList progress for one anime to ``progress.episode``.
 
-        Marks the entry COMPLETED when the episode is the known finale, and
-        otherwise leaves a status the user chose (dropped, paused, rewatching,
-        or an already-completed entry) as it is. Best-effort: only
-        whole-numbered episodes with an AniList id are pushed (AniList counts
-        integers)."""
+        Never moves the entry backwards, and marks it COMPLETED when the
+        episode is the known finale; a status the user chose (dropped, paused,
+        rewatching, or an already-completed entry) is left alone. Best-effort:
+        only whole-numbered episodes with an AniList id are pushed (AniList
+        counts integers)."""
         media_id = progress.anime_id.anilist
         if media_id is None:
             return
         ep = int(progress.episode)
         if ep <= 0:
             return
-        status = _status_for(ep, total, (await self._existing_statuses()).get(media_id))
+        existing = (await self._existing_entries()).get(media_id)
+        if existing is not None and ep < existing[1]:
+            # AniList sets progress to whatever you send, lower included. The
+            # episode you just watched is not a statement about how far you are
+            # overall, so rewatching episode 3 of a show you finished must not
+            # report you as three episodes in. Equal is not backwards: pushing
+            # the finale again is how a list stuck at CURRENT gets corrected.
+            return
+        status = _status_for(ep, total, existing[0] if existing else None)
         await self._query(
             _SAVE_M,
             {"mediaId": media_id, "progress": ep, "status": status},
         )
         # Keep the cache honest for the rest of this session: a tracker lives
         # as long as the process, and during playback that is many episodes.
-        if self._statuses is not None:
-            self._statuses[media_id] = status
+        if self._entries is not None:
+            self._entries[media_id] = (status, ep)
 
-    async def _existing_statuses(self) -> dict[int, str]:
-        """The user's current status per media id, fetched once per tracker.
+    async def _existing_entries(self) -> dict[int, tuple[str, int]]:
+        """``{media id: (status, progress)}`` for the user, fetched once.
 
         Best-effort by design: if the list cannot be read, an empty mapping
         means pushes fall back to the old finale-or-CURRENT rule rather than
         failing outright. A push that sends the right episode with a status
         that is merely no better than before beats a push that sends nothing.
         """
-        if self._statuses is None:
-            found: dict[int, str] = {}
+        if self._entries is None:
+            found: dict[int, tuple[str, int]] = {}
             try:
                 if self._viewer_id is None:
                     await self.viewer()
@@ -272,11 +282,11 @@ class AniListTracker:
                         mid = (entry.get("media") or {}).get("id")
                         status = entry.get("status")
                         if mid and status:
-                            found[int(mid)] = status
+                            found[int(mid)] = (status, int(entry.get("progress") or 0))
             except Exception:
                 found = {}
-            self._statuses = found
-        return self._statuses
+            self._entries = found
+        return self._entries
 
     async def pull(self) -> list[WatchProgress]:
         """The user's AniList list as domain progress rows (episode = list
