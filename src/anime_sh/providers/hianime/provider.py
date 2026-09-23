@@ -80,8 +80,9 @@ AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Fire
 
 class HianimeProvider:
     name = "hianime"
-    # Below anikoto: the catalogue is deeper and the search more exact, but only
-    # one of its servers resolves, so it succeeds less often per episode.
+    # Deep catalogue, exact search, and — as of 2026-09 — the only provider
+    # that reliably produces a playable stream. Only one of its servers
+    # resolves, which is why it does not outrank anizone's direct m3u8.
     priority = 80
     api_version = 1
 
