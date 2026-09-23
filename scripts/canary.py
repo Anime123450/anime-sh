@@ -16,14 +16,23 @@ several is noise; nothing playable at all is the outage this exists to catch.
 A Cloudflare challenge is still ``blocked``, not a failure: it is a property of
 the IP the check ran from, not of the provider.
 
+Exit codes say which question you asked. By default a single unhealthy provider
+is a failure, which is what you want at a terminal. ``--require-any`` asks the
+other question — "can anime-sh still play anything at all?" — and fails only
+when no provider is ``ok``. That is the one CI gates on, because a provider
+dying is the normal operating state here and a badge that is permanently red
+over an expected casualty is a badge everyone learns to ignore.
+
 Run locally:   uv run python scripts/canary.py
 One provider:  uv run python scripts/canary.py --provider anikoto
+Merge in CI:   uv run python scripts/canary.py --merge "artifacts/**/*.json" --require-any
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import glob
 import json
 import sys
 import time
@@ -224,13 +233,54 @@ async def _close_all(things) -> None:
             print(f"  (closing {thing!r} failed: {e})", file=sys.stderr)
 
 
+def _merge(pattern: str) -> dict:
+    """Combine per-provider status files written by the probe matrix.
+
+    The matrix has already hit every site once. Probing a second time to build
+    the aggregate doubled the requests these providers get from us each night,
+    and let a flake in the second pass contradict the run that actually
+    reported."""
+    report: dict = {}
+    for path in sorted(glob.glob(pattern, recursive=True)):
+        try:
+            with open(path, encoding="utf-8") as f:
+                report.update(json.load(f).get("providers") or {})
+        except (OSError, ValueError) as e:
+            print(f"  (skipping unreadable {path}: {e})", file=sys.stderr)
+    if not report:
+        print(f"no status files matched {pattern!r}", file=sys.stderr)
+    return report
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", help="check only this provider")
     ap.add_argument("--output", default="provider-status.json")
+    ap.add_argument(
+        "--merge",
+        help="glob of per-provider status files to combine instead of probing "
+             "again; the matrix already hit every site once",
+    )
+    ap.add_argument(
+        "--require-any",
+        action="store_true",
+        help="fail only when no provider is healthy, rather than when any is "
+             "unhealthy",
+    )
     args = ap.parse_args()
 
-    report = asyncio.run(run(args.provider))
+    report = _merge(args.merge) if args.merge else asyncio.run(run(args.provider))
+    if not report:
+        # Zero providers checked is not zero providers broken. Reporting "all
+        # checked providers healthy" on an empty report is how a canary that
+        # has stopped checking anything — a renamed artifact, a glob that
+        # matches nothing, every provider filtered out — goes on looking green.
+        print(
+            "\nNO PROVIDERS WERE CHECKED. This is a broken canary, not a "
+            "healthy one.",
+            file=sys.stderr,
+        )
+        return 1
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "providers": report,
@@ -255,6 +305,28 @@ def main() -> int:
         )
     broken = [n for n, r in report.items() if r["status"] == "fail"]
     unplayable = [n for n, r in report.items() if r["status"] == "degraded"]
+    if args.require_any:
+        healthy = [n for n, r in report.items() if r["status"] == "ok"]
+        if healthy:
+            others = broken + unplayable
+            note = f" ({', '.join(others)} still broken)" if others else ""
+            print(f"\nPlayable via: {', '.join(healthy)}{note}", file=sys.stderr)
+            return 0
+        # `blocked` is deliberately not counted as healthy: it says this IP got
+        # a Cloudflare page, which is no evidence the provider can serve
+        # anyone. It is still worth naming, because "nothing here could be
+        # checked" and "nothing here works" want different responses.
+        if blocked:
+            print(
+                "\nNOTHING PLAYABLE, and the only providers not already broken "
+                f"were blocked from this IP ({', '.join(blocked)}) — rerun from "
+                "somewhere else before treating this as an outage.",
+                file=sys.stderr,
+            )
+        else:
+            print("\nNO PROVIDER CAN PLAY ANYTHING — this one is an outage.",
+                  file=sys.stderr)
+        return 1
     if broken or unplayable:
         if broken:
             print(f"\nBROKEN: {', '.join(broken)}", file=sys.stderr)

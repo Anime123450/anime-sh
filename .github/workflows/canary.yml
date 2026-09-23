@@ -30,6 +30,12 @@ jobs:
       - run: uv sync
       - name: Probe ${{ matrix.provider }}
         id: probe
+        # Reports without failing the job. One provider dying is the normal
+        # operating state here, and a red run for it left the providers badge
+        # permanently red over an expected casualty — which teaches everyone
+        # to ignore the badge, including on a run that means something. The
+        # tracking issue below is the alert; `aggregate` is the gate.
+        continue-on-error: true
         run: uv run python scripts/canary.py --provider ${{ matrix.provider }}
              --output provider-status-${{ matrix.provider }}.json
       - name: Upload status
@@ -39,7 +45,7 @@ jobs:
           name: provider-status-${{ matrix.provider }}
           path: provider-status-${{ matrix.provider }}.json
       - name: Open / update tracking issue on failure
-        if: failure()
+        if: steps.probe.outcome == 'failure'
         uses: JasonEtco/create-an-issue@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +55,9 @@ jobs:
           update_existing: true # dedupe: reuse the open issue instead of spamming
 
   publish-status:
-    # Aggregate status for all providers into one artifact the client can fetch.
+    # Aggregate status for all providers into one artifact the client can fetch,
+    # and the one job whose result the badge reflects. It fails only when *no*
+    # provider can play anything, which is the question a user actually has.
     runs-on: ubuntu-latest
     needs: probe
     if: always()
@@ -59,8 +67,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: uv run python scripts/canary.py --output provider-status.json || true
+      - name: Collect the probe results
+        uses: actions/download-artifact@v7
+        with:
+          pattern: provider-status-*
+          path: probe-results
+      # Merging what the matrix already found, rather than probing every site a
+      # second time: that doubled the nightly traffic we send these providers,
+      # and let a flake in the second pass contradict the run that reported.
+      - name: Aggregate, and fail only on a total outage
+        run: uv run python scripts/canary.py --merge "probe-results/**/*.json"
+             --require-any --output provider-status.json
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: provider-status
           path: provider-status.json
