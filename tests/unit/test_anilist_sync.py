@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from anime_sh.app.sync import SyncService
 from anime_sh.domain.models import Anime, AnimeId, Title, WatchProgress
 from anime_sh.infra.tracker.anilist import (
@@ -65,25 +67,114 @@ class _FakeHttp:
         pass
 
 
-async def test_push_sets_progress_and_completed_status():
-    http = _FakeHttp([{"data": {"SaveMediaListEntry": {"id": 1, "progress": 12, "status": "COMPLETED"}}}])
+def _statuses(*entries):
+    """The two responses a push reads before its mutation: the viewer lookup and
+    the status-only list query. ``entries`` are ``(media_id, status)`` pairs."""
+    return [
+        {"data": {"Viewer": {"id": 7, "name": "Ani"}}},
+        {"data": {"MediaListCollection": {"lists": [{"entries": [
+            {"status": s, "media": {"id": i}} for i, s in entries
+        ]}]}}},
+    ]
+
+
+def _saved(http):
+    """The variables of the SaveMediaListEntry mutation a push sent."""
+    saves = [c for c in http.calls if "SaveMediaListEntry" in c["query"]]
+    assert len(saves) == 1, f"expected one save, got {len(saves)}"
+    return saves[0]["variables"]
+
+
+async def _push(http, media_id, episode, total):
     tracker = AniListTracker("tok", http=http)
     await tracker.push(
-        WatchProgress(AnimeId(anilist=196187), 12.0, 0, 0, datetime.now(timezone.utc), completed=True),
-        total=12,
+        WatchProgress(AnimeId(anilist=media_id), float(episode), 0, 0,
+                      datetime.now(timezone.utc), completed=True),
+        total=total,
     )
-    vars_ = http.calls[0]["variables"]
-    assert vars_ == {"mediaId": 196187, "progress": 12, "status": "COMPLETED"}
+    return tracker
+
+
+async def test_push_sets_progress_and_completed_status():
+    http = _FakeHttp(_statuses((196187, "CURRENT")) + [
+        {"data": {"SaveMediaListEntry": {"id": 1, "progress": 12, "status": "COMPLETED"}}}
+    ])
+    await _push(http, 196187, 12, 12)
+    assert _saved(http) == {"mediaId": 196187, "progress": 12, "status": "COMPLETED"}
 
 
 async def test_push_uses_current_status_mid_season():
-    http = _FakeHttp([{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    http = _FakeHttp(_statuses((196187, "CURRENT")) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 3, 12)
+    assert _saved(http)["status"] == "CURRENT"
+
+
+# -- a push must not undo a status the user chose ---------------------------- #
+# `_status_for` answered "COMPLETED if this is the finale, else CURRENT" without
+# ever looking at what the entry already said. So pushing progress for a show
+# you had dropped, paused or were rewatching silently moved it into Watching,
+# and `sync push` did that across the whole library in one go.
+
+@pytest.mark.parametrize("existing", ["DROPPED", "PAUSED", "REPEATING"])
+async def test_push_keeps_a_status_the_user_deliberately_set(existing):
+    http = _FakeHttp(_statuses((196187, existing)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 3, 12)
+    assert _saved(http)["status"] == existing, "a progress push rewrote the user's status"
+
+
+async def test_finishing_a_show_still_completes_it():
+    """The one status change a progress push is entitled to make."""
+    http = _FakeHttp(_statuses((196187, "CURRENT")) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 12, 12)
+    assert _saved(http)["status"] == "COMPLETED"
+
+
+async def test_a_rewatch_is_not_ended_by_reaching_the_finale():
+    """AniList bumps the repeat counter when a rewatch completes and this
+    mutation does not touch that counter, so ending one here would lose it."""
+    http = _FakeHttp(_statuses((196187, "REPEATING")) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 12, 12)
+    assert _saved(http)["status"] == "REPEATING"
+
+
+async def test_a_completed_show_is_not_reopened_when_the_total_is_unknown():
+    """`total` comes from the locally cached `episode_count`. When that is
+    missing the finale cannot be recognised, and the old rule fell through to
+    CURRENT — pulling finished shows back into Watching on every push."""
+    http = _FakeHttp(_statuses((196187, "COMPLETED")) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 12, None)
+    assert _saved(http)["status"] == "COMPLETED"
+
+
+async def test_a_show_not_yet_on_the_list_starts_as_watching():
+    http = _FakeHttp(_statuses((999, "DROPPED")) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 3, 12)
+    assert _saved(http)["status"] == "CURRENT"
+
+
+async def test_the_status_lookup_happens_once_per_tracker():
+    """Pushing the whole library must not re-download the list per show."""
+    http = _FakeHttp(_statuses((1, "DROPPED"), (2, "CURRENT")) + [
+        {"data": {"SaveMediaListEntry": {"id": 1}}},
+        {"data": {"SaveMediaListEntry": {"id": 2}}},
+    ])
     tracker = AniListTracker("tok", http=http)
-    await tracker.push(
-        WatchProgress(AnimeId(anilist=196187), 3.0, 0, 0, datetime.now(timezone.utc)),
-        total=12,
-    )
-    assert http.calls[0]["variables"]["status"] == "CURRENT"
+    for media_id in (1, 2):
+        await tracker.push(
+            WatchProgress(AnimeId(anilist=media_id), 3.0, 0, 0, datetime.now(timezone.utc)),
+            total=12,
+        )
+    lookups = [c for c in http.calls if "MediaListCollection" in c["query"]]
+    assert len(lookups) == 1
+    sent = [c["variables"]["status"] for c in http.calls if "SaveMediaListEntry" in c["query"]]
+    assert sent == ["DROPPED", "CURRENT"]
+
+
+async def test_a_failed_status_lookup_does_not_block_the_push():
+    """Best-effort: the episode number is the point, the status is the refinement."""
+    http = _FakeHttp([{"data": {"Viewer": None}}, {"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 12, 12)
+    assert _saved(http) == {"mediaId": 196187, "progress": 12, "status": "COMPLETED"}
 
 
 async def test_push_skips_when_no_anilist_id():
