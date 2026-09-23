@@ -35,9 +35,15 @@ class ProvidersConfig(BaseModel):
     # Provider order preference (highest first). Names not listed keep their
     # built-in priority, ordered after the preferred ones. Unknown names are
     # ignored, so this stays valid as providers come and go.
-    preferred: list[str] = Field(
-        default_factory=lambda: ["anizone", "anikoto"]
-    )
+    #
+    # Empty by default. It used to ship ["anizone", "anikoto"], which only
+    # restated the built-in priorities — so the shipped order lived in two
+    # places, and changing a provider's `priority` silently did nothing for
+    # anyone on a default config. Worse, it pinned that order: when anikoto
+    # stopped producing playable streams, demoting it left every default
+    # install still trying it first. This knob is the user's; the built-in
+    # priorities, maintained next to the provider code, are the default.
+    preferred: list[str] = Field(default_factory=list)
     disabled: list[str] = Field(default_factory=list)
     #: How long one provider gets to list an episode's stream candidates.
     #: Separate from the match budget below because the two sit at different
