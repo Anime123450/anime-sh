@@ -44,9 +44,16 @@ AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Fire
 
 class AnikotoProvider:
     name = "anikoto"
-    # Its stream is direct (via the de-obfuscating proxy) rather than a
-    # third-party embed host that is often geo/ISP-blocked.
-    priority = 85
+    # Last, and not because of stream quality. Its stream is direct (via the
+    # de-obfuscating proxy) rather than a third-party embed host that is often
+    # geo/ISP-blocked, which is why it used to rank above hianime. Since
+    # 13/09/2026 its hosts serve an encrypted payload and it has not produced a
+    # playable stream since; the nightly canary has reported it unplayable
+    # every run. Ranking it first meant every cold install spent its first few
+    # plays failing into it before reaching the provider that works, because a
+    # fresh breaker has nothing recorded yet. Restore this if it ever plays
+    # again.
+    priority = 70
     api_version = 1
 
     def __init__(self, http: HttpClient | None = None) -> None:

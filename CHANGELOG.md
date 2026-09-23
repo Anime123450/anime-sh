@@ -6,6 +6,18 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **The shipped default tried the provider that cannot play anything first.**
+  `providers.preferred` defaulted to `["anizone", "anikoto"]`, which only
+  restated the built-in priorities — so the order lived in two places, and a
+  provider's `priority` was dead code for anyone who had not edited their
+  config. That stopped being merely redundant when anikoto's hosts moved to an
+  encrypted payload: demoting it changed nothing, and every default install
+  kept reaching for it before the provider that works. A fresh install has an
+  empty breaker, so it paid for that on its first few plays. The default is now
+  empty, the built-in priorities are the single source of truth, and anikoto
+  ranks below hianime until it can play again. Nothing is written to your
+  config file by default, so this reaches existing installs too.
+
 - **A brief network drop could leave search dead for ten minutes.** Losing your
   connection fails every provider at once, and once they had all tripped their
   breakers `resolve_sources` returned nothing for the whole cooldown without
