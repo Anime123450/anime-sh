@@ -96,6 +96,16 @@ class ProviderManager:
             p for p in self._providers
             if self._breaker.should_attempt(healths[p.name], now)
         ]
+        # Skipping a dead provider is a win only because another one is still
+        # standing. With every breaker open there is nothing to fall back to, so
+        # skipping saves a few seconds and costs the search outright — and the
+        # usual cause is not every anime site dying at once, it is the user's
+        # own connection dropping for a minute and failing all of them together.
+        # Probe anyway: a search that returns nothing is the same result either
+        # way, and if the connection is back this closes the breakers instead of
+        # leaving the app dead for the rest of the cooldown.
+        if not eligible:
+            eligible = list(self._providers)
         eligible.sort(
             key=lambda p: (self._breaker.rank(healths[p.name], now), self._order_key(p))
         )

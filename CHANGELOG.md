@@ -6,6 +6,16 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **A brief network drop could leave search dead for ten minutes.** Losing your
+  connection fails every provider at once, and once they had all tripped their
+  breakers `resolve_sources` returned nothing for the whole cooldown without
+  making a single request — so the app looked broken long after the connection
+  came back. Skipping a dead provider is only a win because another one is
+  still standing; with all of them open there is nothing to fall back to, and
+  the search returns nothing either way. It now probes anyway when nothing is
+  eligible, which closes the breakers as soon as the connection returns. A
+  single healthy provider is still enough to keep the dead ones skipped.
+
 - **Syncing progress to AniList rewrote statuses you had set yourself.** A push
   sent "COMPLETED if this is the finale, else CURRENT" without ever reading what
   the entry already said, so a show you had dropped, paused or were rewatching
