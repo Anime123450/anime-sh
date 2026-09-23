@@ -134,9 +134,11 @@ class Tracker(Protocol):
         """Push one show's progress. ``total`` (the planned episode count, when
         known) lets the tracker mark an entry COMPLETED on its finale.
 
-        Progress is the only thing a push owns. A status the user chose —
-        dropped, paused, rewatching — is theirs, and an implementation must
-        leave it alone."""
+        Progress is the only thing a push owns, and it only ever moves
+        forward: the episode you just watched says nothing about how far you
+        are overall, so rewatching an early episode must not report you as
+        being back at it. A status the user chose — dropped, paused,
+        rewatching — is theirs, and an implementation must leave it alone."""
 
     async def pull(self) -> list[WatchProgress]: ...
 

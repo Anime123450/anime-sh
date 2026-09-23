@@ -69,11 +69,14 @@ class _FakeHttp:
 
 def _statuses(*entries):
     """The two responses a push reads before its mutation: the viewer lookup and
-    the status-only list query. ``entries`` are ``(media_id, status)`` pairs."""
+    the status/progress list query. ``entries`` are ``(media_id, status)`` or
+    ``(media_id, status, progress)``; progress defaults to 0."""
     return [
         {"data": {"Viewer": {"id": 7, "name": "Ani"}}},
         {"data": {"MediaListCollection": {"lists": [{"entries": [
-            {"status": s, "media": {"id": i}} for i, s in entries
+            {"status": e[1], "progress": e[2] if len(e) > 2 else 0,
+             "media": {"id": e[0]}}
+            for e in entries
         ]}]}}},
     ]
 
@@ -389,3 +392,48 @@ async def test_sync_push_picks_the_furthest_even_if_rows_arrive_unordered():
     tracker = _FakeTracker()
     await SyncService(Library(), tracker).push()
     assert tracker.pushed == [(1, 12, None)]
+
+
+# -- a push must never move progress backwards ------------------------------- #
+# AniList's SaveMediaListEntry sets progress to whatever you send, including a
+# lower number. Playback pushed the episode it had just finished with no regard
+# for what the list already said, so rewatching one episode of a show you had
+# completed reset your AniList progress to that episode. The CLI already knew
+# this shape — `mark --single` carries a comment about exactly it — but the fix
+# there was local to that one command, so playback and `sync push` kept doing it.
+async def test_rewatching_an_episode_does_not_reset_completed_progress():
+    # A response is queued on purpose, so a push that should not happen fails
+    # the assertion below rather than blowing up on an empty fake.
+    http = _FakeHttp(_statuses((196187, "COMPLETED", 12)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 3, 12)
+    assert not [c for c in http.calls if "SaveMediaListEntry" in c["query"]], (
+        "sent a progress push that would have rolled AniList back to episode 3"
+    )
+
+
+async def test_a_push_that_moves_forward_still_goes_through():
+    http = _FakeHttp(_statuses((196187, "CURRENT", 5)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 6, 12)
+    assert _saved(http)["progress"] == 6
+
+
+async def test_re_pushing_the_same_episode_can_still_correct_the_status():
+    """Equal is not backwards. AniList can sit at progress 12 with status
+    CURRENT, and pushing the finale again is how that gets corrected."""
+    http = _FakeHttp(_statuses((196187, "CURRENT", 12)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 12, 12)
+    assert _saved(http) == {"mediaId": 196187, "progress": 12, "status": "COMPLETED"}
+
+
+async def test_a_fresh_rewatch_starts_from_zero_and_counts_up():
+    """Starting a rewatch on AniList sets REPEATING and resets progress to 0,
+    so episode 1 is forward progress and must be sent."""
+    http = _FakeHttp(_statuses((196187, "REPEATING", 0)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 1, 12)
+    assert _saved(http) == {"mediaId": 196187, "progress": 1, "status": "REPEATING"}
+
+
+async def test_a_show_not_on_the_list_is_never_treated_as_backwards():
+    http = _FakeHttp(_statuses((999, "COMPLETED", 24)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 1, 12)
+    assert _saved(http)["progress"] == 1

@@ -6,6 +6,17 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **Rewatching one episode rolled your AniList progress back to it.** AniList
+  sets progress to whatever you send, lower numbers included, and playback
+  pushed the episode it had just finished without regard for what the list
+  already said. So finishing episode 3 of a show you had completed reported you
+  as three episodes in. `anime mark --single` already guarded against this
+  shape, but the guard was local to that one command, so playback and
+  `sync push` kept doing it. A push now refuses to move an entry backwards.
+  Equal is not backwards — re-pushing the finale is how a list stuck at
+  Watching gets corrected — and a rewatch started on AniList resets progress to
+  zero, so it still counts up normally.
+
 - **Syncing progress to AniList rewrote statuses you had set yourself.** A push
   sent "COMPLETED if this is the finale, else CURRENT" without ever reading what
   the entry already said, so a show you had dropped, paused or were rewatching
