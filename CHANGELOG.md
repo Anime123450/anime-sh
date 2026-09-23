@@ -6,6 +6,18 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **`providers.timeout_s` only reached half of what it names.** It was wired to
+  the candidate-listing step; the match step kept a hardcoded four seconds. So
+  raising it on a slow connection changed nothing that mattered — matching runs
+  first, on every search, and a provider cut off there contributes nothing for
+  the longer budget to be spent on.
+
+  Matching and listing genuinely want different budgets, so they are now two
+  settings rather than one doing double duty: `providers.match_timeout_s`
+  defaults to the four seconds it always used, and both are documented with
+  what they cover.
+
+
 - **The TUI ignored `playback.audio`.** Every CLI command read it — `play`,
   `download`, `sources`, `prefetch` — and the full-screen app, which is what
   plain `anime` opens, passed `Audio.SUB` as a literal. So
