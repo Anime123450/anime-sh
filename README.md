@@ -366,6 +366,7 @@ anime doctor --streams        # can I actually watch right now? (hits the sites)
 anime --version
 anime config get              # dump settings;  config get playback.quality
 anime config set playback.quality 1080p
+anime config set playback.audio dub    # dub everywhere, CLI and TUI alike
 anime config path | validate
 anime providers ls            # installed providers, and which are switched off
 anime providers disable anizone   # stop using one without uninstalling it

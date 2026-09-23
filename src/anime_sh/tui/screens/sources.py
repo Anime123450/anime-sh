@@ -12,7 +12,7 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListView, LoadingIndicator
 
-from ...domain.models import Anime
+from ...domain.models import Anime, Audio
 from ..widgets import SourceItem
 from .detail import DetailScreen
 
@@ -41,7 +41,11 @@ class SourcesScreen(Screen):
     @work(exclusive=True, group="sources")
     async def _load_sources(self) -> None:
         try:
-            sources = await self.app.services.playback.list_sources(self.anime)
+            # Defaulted to SUB, so a dub viewer was offered the sub entries and
+            # then played from one of them.
+            sources = await self.app.services.playback.list_sources(
+                self.anime, audio=getattr(self.app, "audio", Audio.SUB)
+            )
         except Exception as e:
             self.notify(f"Couldn't list sources: {e}", severity="error")
             sources = []
