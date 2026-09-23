@@ -6,6 +6,20 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **The TUI ignored `playback.audio`.** Every CLI command read it — `play`,
+  `download`, `sources`, `prefetch` — and the full-screen app, which is what
+  plain `anime` opens, passed `Audio.SUB` as a literal. So
+  `anime config set playback.audio dub` changed the CLI and left the screen you
+  actually watch from playing subs.
+
+  The source picker had the same gap from the other direction: it listed sub
+  entries for a dub viewer, who then played from one of them.
+
+  The preference now reaches the app the same way the theme does, and
+  `_launch_tui` reads it with the identical expression every other command
+  uses, so the two cannot drift apart again.
+
+
 - **`prefetch` reported a failure for every show you were caught up on.**
   Continue Watching deliberately keeps a show whose latest episode you have
   finished — that is how it tells you what you are waiting for — so `prefetch`

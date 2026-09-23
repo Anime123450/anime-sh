@@ -20,6 +20,7 @@ from textual.screen import Screen
 from ..app.library import LibraryService
 from ..app.playback import PlaybackService
 from ..app.search import SearchService
+from ..domain.models import Audio
 from ..domain.ports import MetadataSource
 from .screens.home import HomeScreen
 from .themes import register as register_themes
@@ -68,10 +69,17 @@ class AnimeShApp(App):
     # the list, hiding the rows behind an error you had already read.
     _REPEAT_TOAST_WINDOW_S = 8.0
 
-    def __init__(self, services: TuiServices, *, theme: str = "tokyo-night") -> None:
+    def __init__(
+        self, services: TuiServices, *, theme: str = "tokyo-night",
+        audio: Audio = Audio.SUB,
+    ) -> None:
         super().__init__()
         self.services = services
         self._wanted_theme = theme
+        # `playback.audio` reached every CLI command and none of the TUI, which
+        # hardcoded SUB — so setting it to "dub" changed `anime play` and left
+        # the screen you actually watch from subbed.
+        self.audio = audio
         self._recent_toast: tuple[str, float] = ("", 0.0)
 
     def notify(self, message: str, **kwargs):  # type: ignore[override]
@@ -152,14 +160,16 @@ class AnimeShApp(App):
             self.pop_screen()
 
 
-async def run_tui(services: TuiServices, *, theme: str = "tokyo-night") -> None:
+async def run_tui(
+    services: TuiServices, *, theme: str = "tokyo-night", audio: Audio = Audio.SUB
+) -> None:
     """Entry point used by the CLI's bare ``anime`` command."""
     # Probe the terminal for a graphics protocol (Sixel/kitty) before Textual
     # takes over IO — that's the only window it works in. Enables sharp covers.
     from .coverart import prime_graphics
 
     prime_graphics()
-    app = AnimeShApp(services, theme=theme)
+    app = AnimeShApp(services, theme=theme, audio=audio)
     try:
         await app.run_async()
     finally:

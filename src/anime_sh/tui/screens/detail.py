@@ -639,7 +639,11 @@ class DetailScreen(Screen):
         self.notify(f"Resolving Episode {label}…", timeout=4)
         try:
             await self.app.services.playback.play_and_track(
-                self.anime, number, audio=Audio.SUB, source=self.source
+                self.anime, number,
+                # Was hardcoded SUB, which quietly ignored `playback.audio` for
+                # everyone watching from the TUI rather than the CLI.
+                audio=getattr(self.app, "audio", Audio.SUB),
+                source=self.source,
             )
         except NoStreamsFound as e:
             # The service distinguishes "this source doesn't list the episode"

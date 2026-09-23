@@ -218,7 +218,11 @@ def _launch_tui() -> None:
         tracker=c.tracker,
         sync=c.sync,
     )
-    _run(run_tui(services, theme=config.ui.theme))
+    # Same reading of `playback.audio` every other command does. The TUI used to
+    # take only the theme from config, which is why a dub preference stopped at
+    # the CLI.
+    audio = Audio.DUB if config.playback.audio == "dub" else Audio.SUB
+    _run(run_tui(services, theme=config.ui.theme, audio=audio))
 
 
 # --------------------------------------------------------------------------- #
