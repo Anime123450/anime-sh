@@ -45,6 +45,16 @@ def _anime_from_row(row) -> Anime | None:
     """
     if row is None or row["a_anilist_id"] is None:
         return None
+    status = _enum(Status, row["status"], Status.UNKNOWN)
+    # A schedule only means anything while the show is airing. The write path
+    # deliberately never clears these columns (see save_anime), so a show that
+    # has since finished still carries the last "next episode" it ever had --
+    # and readers believed it: `has_aired` called an episode out months ago
+    # unreleased, and auto-next stopped at the stale boundary instead of the
+    # real end. Trusting it only for a RELEASING show retires it everywhere at
+    # once, without the write path having to tell "no schedule" apart from
+    # "this caller didn't know".
+    airing = status is Status.RELEASING
     return Anime(
         id=AnimeId(anilist=row["a_anilist_id"], mal=row["mal_id"]),
         title=Title(
@@ -53,7 +63,7 @@ def _anime_from_row(row) -> Anime | None:
             native=row["title_native"],
         ),
         format=_enum(Format, row["format"], Format.UNKNOWN),
-        status=_enum(Status, row["status"], Status.UNKNOWN),
+        status=status,
         episode_count=row["episodes"],
         season=_enum(Season, row["season"], None) if row["season"] else None,
         year=row["year"],
@@ -63,8 +73,8 @@ def _anime_from_row(row) -> Anime | None:
         # Cached airing schedule: lets a row painted straight from the DB say
         # "caught up · Ep 5 in 6d" instead of wrongly offering an episode that
         # hasn't aired. Older databases predate these columns, hence the guard.
-        next_airing_episode=_col(row, "next_airing_episode"),
-        next_airing_at=_dt(_col(row, "next_airing_at")),
+        next_airing_episode=_col(row, "next_airing_episode") if airing else None,
+        next_airing_at=_dt(_col(row, "next_airing_at")) if airing else None,
     )
 
 
@@ -302,7 +312,13 @@ class SqliteLibrary:
             "ON CONFLICT(anilist_id) DO UPDATE SET "
             "mal_id=excluded.mal_id, title_romaji=excluded.title_romaji, "
             "title_english=excluded.title_english, title_native=excluded.title_native, "
-            "format=excluded.format, status=excluded.status, episodes=excluded.episodes, "
+            "format=excluded.format, episodes=excluded.episodes, "
+            # Same reasoning as the schedule below, and now load-bearing for it:
+            # reading a cached schedule is gated on this column saying the show
+            # airs, so a caller that does not know the status must not be able to
+            # answer "UNKNOWN" over a real one. UNKNOWN is the enum's absent
+            # value, not a status AniList ever reports.
+            "status=COALESCE(NULLIF(excluded.status, 'UNKNOWN'), anime.status), "
             "season=excluded.season, year=excluded.year, cover_url=excluded.cover_url, "
             "synopsis=excluded.synopsis, genres_json=excluded.genres_json, "
             "fetched_at=excluded.fetched_at, "
