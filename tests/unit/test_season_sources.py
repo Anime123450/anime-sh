@@ -139,3 +139,67 @@ async def test_a_release_tag_is_not_a_subtitle():
     mgr = ProviderManager([Dubbed()], match_timeout_s=5)
     opts = await mgr.list_sources(_show("Attack on Titan"), Audio.SUB)
     assert [o.anime_key for o in opts] == ["dub"]
+
+
+async def test_the_s2_shorthand_names_the_same_season_as_season_2():
+    """`season_number` understood "… S2"; `_identity_words` did not strip it.
+
+    So "Show S2" and "Show Season 2" agreed on the season and were then rejected
+    as different *entries* -- `s2` survived as an identity word its twin did not
+    carry. With the right source filtered out, `_best_ref` falls back to the
+    unfiltered, similarity-ranked list, which is how a different season gets
+    chosen for the one you opened.
+    """
+
+    class Shorthand(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            # Season 3 ranked first, as a provider's own similarity may well do.
+            return [
+                SourceOption("fake", "s3", "Full-Time Magister S3", 12, audio, 0.98),
+                SourceOption("fake", "s2", "Full-Time Magister S2", 12, audio, 0.95),
+            ]
+
+    mgr = ProviderManager([Shorthand()], match_timeout_s=5)
+    show = _show("Full-Time Magister Season 2")
+
+    refs = await mgr.resolve_sources(show, Audio.SUB)
+    assert [r.anime_key for r in refs] == ["s2"], "played a different season"
+
+    opts = await mgr.list_sources(show, Audio.SUB)
+    assert [o.anime_key for o in opts] == ["s2"]
+
+
+async def test_the_padded_shorthand_works_too():
+    """AniList writes both "S2" and "S02".
+
+    A second, wrong-season option on purpose: the season filter falls back to the
+    unfiltered list rather than return nothing, so a lone option comes back either
+    way and a one-option case cannot tell the bug from the fix.
+    """
+
+    class Padded(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            return [
+                SourceOption("fake", "s2", "Full-Time Magister S02", 12, audio, 0.9),
+                SourceOption("fake", "s1", "Full-Time Magister", 12, audio, 0.8),
+            ]
+
+    mgr = ProviderManager([Padded()], match_timeout_s=5)
+    opts = await mgr.list_sources(_show("Full-Time Magister 2nd Season"), Audio.SUB)
+    assert [o.anime_key for o in opts] == ["s2"]
+
+
+async def test_the_shorthand_still_cannot_stand_in_for_the_prequel():
+    """The marker is now stripped from the identity words, so the only thing
+    keeping the seasons apart is the season number. It has to be enough."""
+
+    class Shorthand(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            return [
+                SourceOption("fake", "s2", "Full-Time Magister S2", 12, audio, 0.99),
+                SourceOption("fake", "s1", "Full-Time Magister", 12, audio, 0.90),
+            ]
+
+    mgr = ProviderManager([Shorthand()], match_timeout_s=5)
+    refs = await mgr.resolve_sources(_show("Full-Time Magister"), Audio.SUB)
+    assert [r.anime_key for r in refs] == ["s1"], "season 1 got the sequel"

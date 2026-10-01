@@ -28,6 +28,18 @@ _TRAILING_ROMAN = re.compile(r"\b([ivx]{1,5})\s*$")
 # "Yu-Gi-Oh! 5Ds" is digits-then-s, not s-then-digits.
 _TRAILING_S_N = re.compile(r"\bs0*(\d{1,2})\s*$")
 
+# Every form that marks a season rather than naming the work. `season_number`
+# reads them and `_identity_words` strips them, so the two lists have to be the
+# same one. They were not: the S2/S02 shorthand was missing from the stripping
+# side, which left `s2` standing as an identity word that its "Season 2" twin did
+# not carry — so two titles for the same season of the same show agreed on the
+# season and were then rejected as different *entries*.
+_SEASON_MARKERS = (_SEASON_N, _NTH_SEASON, _TRAILING_S_N, _TRAILING_ROMAN)
+# The numbered forms, in the order `season_number` trusts them. The trailing
+# roman numeral comes after, both because it needs the `_ROMAN` lookup and
+# because it is the loosest of the four.
+_NUMBERED_MARKERS = (_SEASON_N, _NTH_SEASON, _TRAILING_S_N)
+
 
 def season_number(title: str | None) -> int:
     """Which season a title names. Unmarked titles are season 1.
@@ -43,7 +55,7 @@ def season_number(title: str | None) -> int:
     # ASCII pattern, so the sequel read as season 1 and could be offered as a
     # source for its own prequel.
     low = unicodedata.normalize("NFKC", title).strip().lower()
-    for pattern in (_SEASON_N, _NTH_SEASON, _TRAILING_S_N):
+    for pattern in _NUMBERED_MARKERS:
         m = pattern.search(low)
         if m:
             return int(m.group(1))
@@ -77,7 +89,7 @@ def _identity_words(title: str | None) -> frozenset[str]:
     if not title:
         return frozenset()
     low = unicodedata.normalize("NFKC", title).strip().lower()
-    for pattern in (_SEASON_N, _NTH_SEASON, _TRAILING_ROMAN):
+    for pattern in _SEASON_MARKERS:
         low = pattern.sub(" ", low)
     return frozenset(_WORD.findall(low)) - _RELEASE_WORDS
 
