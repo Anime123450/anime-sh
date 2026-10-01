@@ -132,6 +132,20 @@ class Config(BaseSettings):
         extra="ignore",
     )
 
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings,
+                                   env_settings, dotenv_settings,
+                                   file_secret_settings):
+        """Put env ahead of the config file.
+
+        The file is handed in as init kwargs (``Config(**file_values)``), and
+        pydantic-settings ranks init *above* env by default -- so every
+        ``ANIME_SH_*`` variable was silently ignored for any setting the file
+        also mentioned, which is most of them once `config set` has written one.
+        Silently: no error, no warning, the variable simply did nothing.
+        """
+        return (env_settings, init_settings)
+
     player: PlayerConfig = Field(default_factory=PlayerConfig)
     playback: PlaybackConfig = Field(default_factory=PlaybackConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)

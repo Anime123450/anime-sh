@@ -483,6 +483,20 @@ anime config set ui.episodes grid
 anime config set downloads.dir ~/Videos/anime
 ```
 
+Any of them can be set by environment variable instead, which is the easier
+route for one-off runs and for scripts that should not touch your config file.
+The name is `ANIME_SH_`, the section, two underscores, then the key — and it wins
+over the file for that one setting, leaving the rest of your config alone.
+
+```bash
+ANIME_SH_PLAYBACK__AUDIO=dub anime play "Frieren"
+ANIME_SH_UI__THEME=nord anime
+```
+
+When more than one of them sets the same thing, the winner is, highest
+first: a flag on the command line, an environment variable, your config file,
+the built-in default.
+
 ---
 
 ## 🩺 Troubleshooting
