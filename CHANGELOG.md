@@ -4,6 +4,16 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- **One-line installers for Windows and for macOS/Linux.** `install.ps1` and
+  `install.sh` take a machine with nothing on it to a working `anime` command:
+  they install the package manager if it is missing, install mpv, install
+  anime-sh, and put it on `PATH` for the window you ran them from as well as the
+  next one. Both take `--dry-run`, both are safe to run twice, and the Windows
+  one warns rather than silently adding a second copy when `anime` is already
+  installed by something else.
+
 ### Changed
 
 - **WinGet is no longer an install route.** The submission was declined under

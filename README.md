@@ -2,11 +2,13 @@
 
 # anime-sh
 
-**Watch anime from your terminal.**<br>
-Type a title — it finds a source, picks a mirror that works, and plays it in mpv.<br>
-Providers, mirrors and resolvers are internal details you never have to think about.
+### Watch anime from your terminal.
 
-[![PyPI](https://img.shields.io/pypi/v/anime-sh?logo=pypi&logoColor=white)](https://pypi.org/project/anime-sh/)
+Type a title. It finds a source, picks a mirror that works, and plays it in mpv.<br>
+Providers, mirrors and resolvers are plumbing you never have to think about.
+
+[![PyPI](https://img.shields.io/pypi/v/anime-sh?logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/anime-sh/)
+[![Downloads](https://img.shields.io/pypi/dm/anime-sh?logo=python&logoColor=white&label=downloads)](https://pypi.org/project/anime-sh/)
 [![Python](https://img.shields.io/pypi/pyversions/anime-sh?logo=python&logoColor=white)](https://pypi.org/project/anime-sh/)
 [![CI](https://github.com/Anime123450/anime-sh/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Anime123450/anime-sh/actions/workflows/ci.yml)
 [![Providers](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml/badge.svg)](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml)
@@ -14,23 +16,267 @@ Providers, mirrors and resolvers are internal details you never have to think ab
 
 <img src="docs/img/home.png" alt="anime-sh running in Windows Terminal: Continue Watching with progress bars, Airing This Season, and a context panel showing the highlighted show's cover art, genres, progress and next episode" width="900">
 
+</div>
+
+---
+
+## 🚀 One line, from nothing
+
+Both of these work on a machine with nothing on it. No Python, no administrator,
+no editing `PATH` by hand. mpv is installed alongside, because without it nothing
+plays.
+
+**Windows** — paste into a normal PowerShell, not an administrator one:
+
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser      # if you don't have Scoop
-Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-scoop bucket add extras
-scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
-scoop install anime-sh
+irm https://raw.githubusercontent.com/Anime123450/anime-sh/master/install.ps1 | iex
 ```
 
-*From nothing. No Python, no setup — mpv is installed with it.*
+**macOS and Linux:**
 
-</div>
+```bash
+curl -LsSf https://raw.githubusercontent.com/Anime123450/anime-sh/master/install.sh | sh
+```
+
+Then run `anime`.
+
+<details>
+<summary><b>What those scripts do</b> — and how to check one before you run it</summary>
+
+<br>
+
+Piping a script off the internet into your shell deserves a look first. Both
+take `--dry-run`, which prints every step and changes nothing:
+
+```powershell
+irm https://raw.githubusercontent.com/Anime123450/anime-sh/master/install.ps1 -OutFile install.ps1
+.\install.ps1 -DryRun
+```
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/Anime123450/anime-sh/master/install.sh -o install.sh
+sh install.sh --dry-run
+```
+
+They are [`install.ps1`](install.ps1) and [`install.sh`](install.sh) in this
+repo, short enough to read in a minute.
+
+**On Windows** it installs [Scoop](https://scoop.sh) if you do not have it, adds
+the `extras` bucket (mpv lives there) and the anime-sh bucket, then installs
+anime-sh and mpv. Scoop is per-user, so nothing prompts for administrator and
+nothing is written outside your own profile.
+
+**On macOS and Linux** it installs mpv with whatever package manager you already
+have — Homebrew, apt, dnf, pacman, zypper or apk — then installs
+[uv](https://docs.astral.sh/uv/) and installs anime-sh with it. uv brings its own
+Python, so none needs to be on the system.
+
+Both re-read `PATH` before finishing, so `anime` works in the window you ran them
+from rather than only the next one. Both are safe to run twice: a second run
+upgrades. Add `-WithFfmpeg` or `--with-ffmpeg` to also install ffmpeg, which only
+`anime download` needs.
+
+</details>
 
 ---
 
 ## 📖 Contents
 
-[⚡ Install](#-install) · [🎬 What you get](#-what-you-get) · [🎨 Themes](#-themes) · [🖼️ Cover art](#%EF%B8%8F-cover-art-in-a-terminal) · [⌨️ Keys](#%EF%B8%8F-keys) · [🚀 First run](#-first-run) · [🔗 AniList](#-linking-anilist-optional) · [📋 Commands](#-command-reference) · [🧠 How it behaves](#-how-it-behaves) · [🩺 Troubleshooting](#-troubleshooting) · [🛠️ Develop](#%EF%B8%8F-develop)
+[⚡ Install](#-install) · [🔌 PATH](#-will-anime-be-on-my-path) · [▶️ A minute with it](#%EF%B8%8F-a-minute-with-it) · [🎬 What you get](#-what-you-get) · [🚀 First run](#-first-run) · [⌨️ Keys](#%EF%B8%8F-keys) · [🎨 Themes](#-themes) · [🔗 AniList](#-linking-anilist-optional) · [📋 Commands](#-command-reference) · [⚙️ Config](#%EF%B8%8F-config) · [🩺 Troubleshooting](#-troubleshooting) · [🛠️ Develop](#%EF%B8%8F-develop)
+
+---
+
+## ⚡ Install
+
+Prefer to drive your own package manager? Each of these is live.
+
+| | Channel | Platform | Brings mpv | `anime` on `PATH` |
+|---|---|---|---|---|
+| 🥄 | **Scoop** | Windows | ✅ | ✅ straight away |
+| 🍫 | **Chocolatey** | Windows | ✅ | ✅ after a new terminal |
+| 🍺 | **Homebrew** | macOS · Linux | ✅ | ✅ straight away |
+| 🐍 | **uv** | any | ❌ | ✅ via `uv tool update-shell` |
+| 📦 | **pipx** | any | ❌ | ✅ via `pipx ensurepath` |
+| 🐧 | **AUR** | Arch | ✅ | ✅ straight away |
+| 🧱 | **Single `.exe`** | Windows | ❌ | ❌ you pick where it lives |
+
+### 🥄 Scoop — the quickest route on Windows
+
+```powershell
+# Skip these two if you already have Scoop.
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+
+scoop bucket add extras
+scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
+scoop install anime-sh
+```
+
+> Use a **normal** PowerShell. Scoop installs per-user and refuses to run
+> elevated.
+>
+> The first line is what stops Windows refusing the second one with a message
+> about running scripts being disabled. It applies to your account only, and
+> `RemoteSigned` still requires downloaded scripts to be signed — it is what
+> Microsoft ships on Windows Server. Answer `Y` when it asks.
+>
+> The `extras` bucket is not optional. mpv lives there, a fresh Scoop has only
+> `main`, and anime-sh declares mpv as a dependency — so without that bucket the
+> install stops on something it cannot resolve.
+
+Scoop's shims directory went on your `PATH` when you installed Scoop, so `anime`
+works immediately in the same window.
+
+### 🍫 Chocolatey
+
+```powershell
+choco install anime-sh
+```
+
+mpv comes with it. For downloads, `choco install ffmpeg`.
+
+> Chocolatey edits the machine `PATH`, which your current terminal read when it
+> started. Open a new one.
+
+### 🍺 Homebrew — macOS and Linux
+
+```bash
+brew tap Anime123450/anime-sh
+brew install anime-sh
+```
+
+mpv comes with it. For downloads, `brew install ffmpeg`.
+
+> **This builds from source, and takes the better part of an hour.** On 0.2.85,
+> CI measured Linux at 49 minutes; macOS ran past 40 and was still going. A tap
+> carries no prebuilt bottles, so Homebrew compiles every dependency itself and
+> two of them are slow — `pydantic-core` is Rust, `Pillow` is C. Upgrades reuse
+> what is already built.
+>
+> If that is unappealing, the one-liner at the top uses uv and finishes in
+> seconds.
+
+### 🐍 uv — any OS, no Python needed
+
+uv is one standalone binary that brings its own Python, so this works on a
+machine with no Python at all.
+
+```bash
+# 1. uv, and mpv
+curl -LsSf https://astral.sh/uv/install.sh | sh    # macOS / Linux
+brew install mpv                                   # or apt / dnf / pacman
+
+# 2. anime-sh
+uv tool install "anime-sh[tui]"
+
+# 3. put it on PATH, once
+uv tool update-shell
+```
+
+On Windows the same thing, with `winget install astral-sh.uv` and
+`winget install shinchiro.mpv` for step 1.
+
+> **Do not drop the `[tui]`.** Without it `anime` still installs and
+> `anime --version` still answers, so a missing extra is easy to miss until the
+> interface refuses to start.
+>
+> `uv tool update-shell` edits the right profile for your shell. Open a new
+> terminal afterwards, or `export PATH="$HOME/.local/bin:$PATH"` for this one.
+
+### 📦 pipx
+
+```bash
+pipx install "anime-sh[tui]"
+pipx ensurepath
+```
+
+> pipx is itself a Python package, so it cannot be the *first* thing installed on
+> a clean machine. Already have it? Then this is fine.
+
+### 🐧 Arch
+
+```bash
+yay -S anime-sh    # or: paru -S anime-sh
+```
+
+<details>
+<summary><b>Other ways in</b> — one file, no terminal, or from source</summary>
+
+<br>
+
+**Just the executable.** Every [release](https://github.com/Anime123450/anime-sh/releases)
+carries `anime-sh-<version>-windows-x64.exe`, about 21 MB with Python and every
+library inside it. Download it and run it; there is no install step. You still
+need [mpv](https://mpv.io) on your `PATH`, and since you chose where the `.exe`
+lives, putting that on `PATH` is yours to do as well.
+
+**No terminal at all.** Download this repo as a ZIP, unzip, double-click
+**`run-anime.bat`**. It installs what is missing and starts the app.
+
+**From source:**
+
+```bash
+git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
+uv sync --extra tui
+uv run anime
+```
+
+</details>
+
+---
+
+## 🔌 Will `anime` be on my `PATH`?
+
+Yes, with every method except the bare `.exe`. The longer answer earns its space,
+because "command not found straight after installing" is the most common thing
+people hit and it is almost never a broken install.
+
+**Why it happens.** A program is found by searching the directories in `PATH`.
+An installer adds its directory to the *stored* `PATH`, but a terminal reads that
+value once, when it opens. Your terminal is still holding the old copy. The
+install worked. The window has not heard about it.
+
+| Installed with | What to do |
+|---|---|
+| One-line installer | Nothing. Both scripts re-read `PATH` before finishing. |
+| Scoop | Nothing. The shims directory went on `PATH` with Scoop itself. |
+| Chocolatey | Open a new terminal. |
+| Homebrew | Nothing, as long as `brew` works in that shell. |
+| uv | `uv tool update-shell` once, then a new terminal. |
+| pipx | `pipx ensurepath` once, then a new terminal. |
+| Bare `.exe` | Add its folder to `PATH`, or run it by full path. |
+
+Repair the window you already have, without restarting it:
+
+```powershell
+# Windows
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+            [Environment]::GetEnvironmentVariable('Path','User')
+```
+
+```bash
+# macOS / Linux
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+> **Two copies?** Install with two managers and `anime` exists twice, with `PATH`
+> order quietly deciding which runs — so upgrading one can look like it did
+> nothing at all. `where.exe anime` on Windows, `which -a anime` on Unix, lists
+> every match. The Windows one-line installer warns about this rather than
+> silently adding a second.
+
+### What you need alongside it
+
+| | | Why | Required? |
+|---|---|---|---|
+| 🎥 | **[mpv](https://mpv.io)** | plays the video | **yes** — every package manager above brings it |
+| ✂️ | **[ffmpeg](https://ffmpeg.org)** | saves downloads | only for `anime download` |
+| 🐍 | **Python 3.11+** | runs the app | only for the uv, pipx and source installs |
+
+**`anime doctor`** checks all of them and prints the exact command for whichever
+package manager you actually have. **`anime doctor --streams`** goes further and
+plays something through each provider from your own connection, which answers
+"is it broken, or is it me?"
 
 ---
 
@@ -44,127 +290,8 @@ scoop install anime-sh
 
 </div>
 
-Every frame there is the real application, rendered and captured from the app
-itself — the same code you install, not a mockup of it.
-
----
-
-## ⚡ Install
-
-### Windows — one command
-
-Nothing to set up first. Each of these installs **mpv** alongside it, which is
-what actually plays the video.
-
-| | channel | platform | status |
-|---|---|---|---|
-| 🥄 | **Scoop** | Windows | live |
-| 🍫 | **Chocolatey** | Windows | live |
-| 🍺 | **Homebrew** | macOS · Linux | live (builds from source — see below) |
-| 🐧 | **AUR** | Arch | ready to publish |
-| 🐍 | **PyPI** (`uv tool install`) | any | live |
-
-🥄 **[Scoop](https://scoop.sh)** — live:
-
-```powershell
-# Only if you don't have Scoop yet — these two lines are Scoop's own quickstart.
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-
-# mpv lives in Scoop's `extras` bucket, and a fresh Scoop only has `main`.
-scoop bucket add extras
-scoop bucket add anime-sh https://github.com/Anime123450/scoop-anime-sh
-scoop install anime-sh
-```
-
-> Run these in a **normal** PowerShell, not an administrator one — Scoop
-> installs per-user and refuses to run elevated.
->
-> The first line is what stops Windows refusing the second with a message about
-> running scripts being disabled. It applies to your account only, and
-> `RemoteSigned` still requires anything downloaded to be signed — it is the
-> setting Microsoft ships on Windows Server. Answer `Y` when it asks.
-
-🍫 **[Chocolatey](https://community.chocolatey.org/packages/anime-sh)** — live:
-
-```powershell
-choco install anime-sh
-```
-
-> mpv comes with it. For downloads, add ffmpeg: `choco install ffmpeg`.
-
-### macOS and Linux — Homebrew
-
-```bash
-brew tap Anime123450/anime-sh
-brew install anime-sh
-```
-
-> mpv comes with it. For downloads, add ffmpeg: `brew install ffmpeg`.
->
-> **It builds from source: about 30 minutes on macOS, an hour on Linux.** Those
-> are measured, not guessed. A tap has no prebuilt bottles, so Homebrew compiles
-> every dependency itself and two of them are slow (`pydantic-core` is Rust,
-> `Pillow` is C). Upgrades reuse what is already built — but if you would rather
-> not wait at all, the `uv` block below takes seconds.
-
-### Any OS — with Python
-
-`uv` is a single standalone binary that brings its own Python, so this works on
-a machine with no Python at all.
-
-```bash
-# Windows
-winget install astral-sh.uv ; winget install shinchiro.mpv
-# macOS
-brew install uv mpv
-# Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh && sudo apt install mpv
-
-uv tool install "anime-sh[tui]"
-anime doctor
-```
-
-<details>
-<summary><b>Other ways in</b> — a single file, no terminal, or from source</summary>
-
-<br>
-
-**Just the executable.** Every [release](https://github.com/Anime123450/anime-sh/releases)
-carries `anime-sh-<version>-windows-x64.exe` — about 21 MB, with Python and every
-library inside it. Download and run; there is no install step. You still need
-[mpv](https://mpv.io) on your `PATH`.
-
-**No terminal at all.** Download this repo as a ZIP, unzip, and double-click
-**`run-anime.bat`**. It installs whatever is missing and starts the app.
-
-**Already have Python?** `pipx install "anime-sh[tui]"` works — though pipx is
-itself a Python package, so it cannot be the *first* thing you install on a
-clean machine.
-
-**From source:**
-
-```bash
-git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
-uv sync --extra tui
-uv run anime
-```
-
-</details>
-
-### What you need alongside it
-
-| | | Why | Required? |
-|---|---|---|---|
-| 🎥 | **[mpv](https://mpv.io)** | plays the video | **yes** — installed for you by scoop/winget/choco |
-| ✂️ | **[ffmpeg](https://ffmpeg.org)** | saves downloads | only for `anime download` |
-| 🐍 | **Python 3.11+** | runs the app | only for the PyPI and source installs |
-
-Not sure? Run **`anime doctor`** — it checks every one of these and prints the
-exact command to install whatever is missing, for the package manager you
-actually have. **`anime doctor --streams`** goes further and actually plays
-something through each provider, so you get a straight answer to "is it broken,
-or is it me?" from your own connection.
+Every frame is the real application, rendered and captured from the app itself.
+Not a mockup of it.
 
 ---
 
@@ -173,61 +300,35 @@ or is it me?" from your own connection.
 | | |
 |---|---|
 | 🔎 **Forgiving search** | `atack on titan`, `dont toy with me` — it finds them anyway |
-| 🎥 **Plays in mpv** | driven over JSON IPC, with your own mpv config respected |
-| ⏭️ **Skips intros and outros** | and rolls straight into the next episode |
-| 📚 **Remembers everything** | resume position, history, favourites — in a local database |
-| 🔄 **AniList two-way sync** | finish an episode here, your phone knows |
-| 🧩 **Multiple providers** | fanned out with circuit breakers; one site dying is not an outage |
-| 🖼️ **Cover art in the terminal** | unicode block sextants — no special terminal required |
+| 🎥 **Plays in mpv** | driven over JSON IPC, and your own mpv config still applies |
+| ⏭️ **Skips intros and outros** | then rolls straight into the next episode |
+| 📚 **Remembers everything** | resume position, history and favourites, in a local database |
+| 🔄 **AniList two-way sync** | finish an episode here and your phone knows |
+| 🧩 **Multiple providers** | fanned out behind circuit breakers, so one site dying is not an outage |
+| 🖼️ **Cover art in the terminal** | unicode block sextants, sharper again on Sixel or kitty |
 | 🎨 **Nine themes** | previewed live as you arrow through them |
 | 🧱 **Layouts that fit you** | episodes as a grid, a list or compact; two home densities |
-| ⬇️ **Downloads** | ffmpeg-backed, resumable, and played back offline automatically |
-| 🎒 **Stocks up before you ask** | `prefetch` saves the next episode of everything you're watching |
-| 📊 **Your year, wrapped** | streaks, top shows, busiest day — and an SVG card to share |
-| 🔌 **Plugin providers** | a provider is an entry point; adding one needs no fork |
+| ⬇️ **Downloads** | ffmpeg-backed, resumable, played back offline automatically |
+| 🎒 **Stocks up before you ask** | `prefetch` saves the next episode of everything you are watching |
+| 📊 **Your year, wrapped** | streaks, top shows and busiest day, as a shareable SVG card |
+| 🔌 **Plugin providers** | a provider is an entry point, so adding one needs no fork |
 
 ---
 
-## 🎨 Themes
-
-Press **`t`**. Moving the cursor applies each theme to the whole app immediately,
-so you choose by looking at anime-sh rather than at a list of names —
-<kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> puts back the one you arrived with.
-
-Three are anime-sh's own:
-
-| Theme | Palette | |
-|---|---|---|
-| **midnight** | ![](https://img.shields.io/badge/-0E1420?style=flat-square&color=0E1420)![](https://img.shields.io/badge/-161E2E?style=flat-square&color=161E2E)![](https://img.shields.io/badge/-26314A?style=flat-square&color=26314A)![](https://img.shields.io/badge/-5CC8D7?style=flat-square&color=5CC8D7)![](https://img.shields.io/badge/-F2B45C?style=flat-square&color=F2B45C) | the default — deep blue-black and teal, with a warm amber focus marker |
-| **ember** | ![](https://img.shields.io/badge/-17120F?style=flat-square&color=17120F)![](https://img.shields.io/badge/-211A16?style=flat-square&color=211A16)![](https://img.shields.io/badge/-372A22?style=flat-square&color=372A22)![](https://img.shields.io/badge/-E8944A?style=flat-square&color=E8944A)![](https://img.shields.io/badge/-6FC0B4?style=flat-square&color=6FC0B4) | warm and dark, with a cool accent |
-| **paper** | ![](https://img.shields.io/badge/-F2EFE7?style=flat-square&color=F2EFE7)![](https://img.shields.io/badge/-E7E2D6?style=flat-square&color=E7E2D6)![](https://img.shields.io/badge/-D2CABA?style=flat-square&color=D2CABA)![](https://img.shields.io/badge/-2F6F7E?style=flat-square&color=2F6F7E)![](https://img.shields.io/badge/-B4552A?style=flat-square&color=B4552A) | the light one, for daylight |
-
-*Background · surface · panel · primary · accent — the three background tiers are
-where the screen gets its depth, and the accent is only ever "the keyboard is
-here".*
-
-Plus tokyo-night, nord, gruvbox, dracula, catppuccin-mocha and solarized-light.
+## 🚀 First run
 
 ```bash
-anime themes                 # list them, marking the one in use
-anime themes --set ember     # or set it without opening the app
+anime            # the TUI: Continue Watching, Airing This Season, Trending
 ```
 
----
+The right-hand panel follows your cursor: poster, what the show is, how far into
+the episode you got, when the next one airs, and what <kbd>Enter</kbd> will do.
+Under it sits everything you are waiting on, grouped by day.
 
-## 🖼️ Cover art, in a terminal
+Prefer one-shot commands? `anime "Frieren"` searches, takes the best match and
+plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` spells it all out.
 
-<div align="center">
-<img src="docs/img/rail.png" alt="The context panel: a show's cover art above its title, format, genres, progress bar, next episode countdown, synopsis, and the action Enter will take" width="560">
-</div>
-
-The panel on the right follows your cursor. Posters render as unicode block
-sextants — 2×3 pixels per character cell — so they work in any truecolor
-terminal with nothing installed. Where a real graphics protocol is available
-(Sixel, kitty, iTerm2) it uses that instead and comes out sharper, as above.
-
-Underneath: what the show is, how far into the episode you are, when the next
-one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
+Shell tab-completion is one command: `anime --install-completion`.
 
 ---
 
@@ -243,54 +344,55 @@ one airs, a few lines of synopsis, and exactly what <kbd>Enter</kbd> will do.
 | ↩️ | <kbd>Esc</kbd> | clear the search, or go back |
 | 📺 | <kbd>l</kbd> | your AniList list |
 | 🎨 | <kbd>t</kbd> | theme picker |
-| 🧩 | <kbd>p</kbd> | providers — which sources are searched |
+| 🧩 | <kbd>p</kbd> | providers — which sources get searched |
 | 🧱 | <kbd>v</kbd> | view — home density, or episode layout on a show |
-| ⏭️ | <kbd>n</kbd> | next season (on a show) |
+| ⏭️ | <kbd>n</kbd> | next season, on a show |
 | ❓ | <kbd>?</kbd> | every key, any time |
 | 🚪 | <kbd>q</kbd> | quit |
 
 ---
 
-## 🚀 First run
+## 🎨 Themes
 
-```bash
-anime            # the TUI: Continue Watching, Airing This Season, Trending
-```
+Press <kbd>t</kbd>. Moving the cursor applies each theme to the whole app at
+once, so you choose by looking at anime-sh rather than at a list of names.
+<kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> restores the one you arrived with.
 
-The right-hand panel follows your cursor — poster, what the show is, how far
-into the episode you are, when the next one airs, and what <kbd>Enter</kbd> will
-do. Below it, everything you are waiting on, grouped by day.
+Three are anime-sh's own — **midnight** (the default), **ember** and **paper** —
+next to tokyo-night, nord, gruvbox, dracula, catppuccin-mocha and
+solarized-light.
 
-Prefer one-shot commands? `anime "Frieren"` searches, picks the best match and
-plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` is fully explicit.
+<div align="center">
+<img src="docs/img/rail.png" alt="The context panel: a show's cover art above its title, format, genres, progress bar, next episode countdown, synopsis, and the action Enter will take" width="560">
+</div>
 
-Turn on shell tab-completion once: `anime --install-completion`.
+Cover art is drawn with unicode block sextants, so no special terminal is
+required. On Sixel or kitty terminals it sharpens automatically.
 
 ---
 
 ## 🔗 Linking AniList (optional)
 
 Everything works without an account. Linking one adds two-way sync: finish an
-episode here and your phone knows, and `anime sync pull` brings in what you have
-been watching elsewhere.
+episode here and your phone knows, and `anime sync pull` brings in whatever you
+have been watching elsewhere.
 
 **anime-sh ships no API credentials, and there is no shared app to sign in
-through.** You create your own client, which takes about a minute and means the
+through.** You create your own client. It takes about a minute, and it means the
 token belongs to you:
 
-1. Go to [AniList → Settings → Developer](https://anilist.co/settings/developer)
-   and create a new client.
-2. **Name:** anything (`anime-sh` is fine).
-   **Redirect URL:** `https://anilist.co/api/v2/oauth/pin`
+1. Open [AniList → Settings → Developer](https://anilist.co/settings/developer)
+   and create a client.
+2. **Name:** anything. **Redirect URL:** `https://anilist.co/api/v2/oauth/pin`
 3. Link it:
 
 ```bash
 anime auth login --client-id <YOUR_ID> --secret <YOUR_SECRET>
 ```
 
-Your token is written to your own config directory with `0600` permissions, is
-never sent anywhere but AniList, and `anime auth logout` deletes it. Nothing
-about your account is stored in this project.
+The token is written to your own config directory with `0600` permissions, goes
+nowhere but AniList, and `anime auth logout` deletes it. Nothing about your
+account is stored in this project.
 
 ---
 
@@ -303,120 +405,97 @@ about your account is stored in this project.
 
 ```bash
 # ▶️  Watch
-anime                        # launch the TUI
-anime "Frieren"              # search + best match + play episode 1
-anime play "Frieren" -e 18   # a specific episode (add --dub, -q 1080p)
-anime continue               # episodes you started but didn't finish
-anime resume                 # jump back into the most recent one
-anime next "Mob Psycho 100"  # find + play the next season
-anime sources "Frieren"      # every provider entry that matches, before playing
+anime                          # the TUI
+anime "Frieren"                # search, best match, play episode 1
+anime play "Frieren" -e 18     # a specific episode
+anime play "Frieren" --dub -q 1080p
+anime resume                   # whatever you last left unfinished
+anime continue                 # everything started but not finished
+anime sources "Frieren"        # every provider entry that matches
+anime next "Frieren"           # find and play the sequel
 
 # 🔭  Discover
-anime search "frieren"       # AniList search (instant; no providers touched)
-anime search --genre action --year 2024 --sort score
+anime search "frieren"         # AniList search, no providers touched
 anime trending
-anime seasonal               # this season (or: --season fall --year 2025)
-anime calendar --days 7      # what airs next, and when
-anime random                 # picked from what's trending
-anime recommend "Frieren"    # shows for people who liked it
-anime related "Attack on Titan"  # prequels, sequels, side stories, movies
+anime seasonal                 # defaults to the current season
+anime calendar                 # what is airing, and when
+anime random
+anime recommend "Frieren"
+anime related "Frieren"
 
-# 📚  Library & tracking
-anime mark "Frieren" -e 12    # mark eps 1–12 watched; sets AniList progress to 12
-anime mark "Frieren" -e 12 --single   # just that episode, locally, no AniList
-anime unmark "Frieren"        # clear local progress for a show
-anime history                 # what you've watched
-anime favorite add "Frieren"  # ★  (also: favorite ls / rm)
-anime stats                   # episodes, hours, top genres & providers
-anime wrapped                 # your year: streaks, top shows, busiest day
-anime wrapped --year 2026 -o card.svg   # ...as a shareable card
-anime rate "Frieren" 9        # set a score;  anime status "X" completed
+# 📚  Library and tracking
+anime history
+anime stats                    # episodes, hours, top providers and genres
+anime wrapped                  # your year, with a shareable SVG card
+anime favorite add "Frieren"
+anime favorite list
+anime unmark "Frieren"         # clear local progress for a show
 
 # 🔗  AniList
-anime auth login              # link AniList (one-time); status / logout
-anime sync pull | push        # import your list / send yours up
-anime list --status watching  # your AniList list
+anime auth login --client-id <ID> --secret <SECRET>
+anime auth logout
+anime list --status watching
+anime rate "Frieren" 9
+anime status "Frieren" completed
+anime sync push                # local progress  ->  AniList
+anime sync pull                # AniList  ->  local library
 
 # ⬇️  Downloads
-anime download "Frieren" -e 1-12  # save a range (ffmpeg); resumes, skips done
-anime download "Frieren" -e 1,3,5 # or a list;  also: anime downloads
-anime prefetch                    # stock the next episode of everything you're watching
-anime prefetch -n 3 --dry-run     # three each; show what it would fetch, fetch nothing
-anime play "Frieren" -e 1          # plays your download if you have it
-anime play "Frieren" -e 1 --stream # ignore the local copy, fetch it anyway
+anime download "Frieren" -e 1-12
+anime downloads                # what is already on disk
+anime prefetch                 # next episode of everything you are watching
 
 # 🎨  Appearance
-anime themes                  # list themes, marking the current one
-anime themes --set ember      # change it without opening the TUI
+anime themes
 
 # 🧹  Housekeeping
-anime doctor                  # player, ffmpeg, config, database, plugins
-anime doctor --streams        # can I actually watch right now? (hits the sites)
-anime --version
-anime config get              # dump settings;  config get playback.quality
-anime config set playback.quality 1080p
-anime config set playback.audio dub    # dub everywhere, CLI and TUI alike
-anime config path | validate
-anime providers ls            # installed providers, and which are switched off
-anime providers disable anizone   # stop using one without uninstalling it
-anime cache info              # how much is cached, how much of it is stale
-anime cache prune             # drop only expired entries — always safe
-anime cache clear             # wipe it entirely (asks first; -y to skip)
+anime doctor                   # player, ffmpeg, config, database, plugins
+anime doctor --streams         # actually play through each provider
+anime providers health         # circuit-breaker state per provider
+anime config get ui.theme
+anime config set ui.theme ember
+anime --install-completion
 ```
-
-Add `--json` to `search`, `trending`, `play`, `continue`, `history`, `themes`
-and `favorite ls` for machine-readable output (`play --json` resolves the stream
-without launching a player).
 
 </details>
 
 ---
 
-## 🧠 How it behaves
+## ⚙️ Config
 
-**Forgiving search.** You don't have to spell titles the way AniList stores
-them. When its strict search comes up empty, anime-sh retries with apostrophes
-restored and the query's distinctive words, then fuzzy-ranks what comes back
-against what you typed.
+`anime config set <section>.<key> <value>` writes one; `anime config get` reads
+it back. Only keys you set are stored, so defaults can keep improving without
+your file pinning them in place.
 
-**Multiple providers, merged.** anime-sh fans out across providers (currently
-**anikoto, HiAnime and AniZone**) and falls through to whichever one actually
-has your show, so a title missing from one source still plays from another with
-no action from you. Press **`p`** to see them and switch any of them off.
+| Section | Keys |
+|---|---|
+| `player` | `name`, `args` |
+| `playback` | `quality`, `audio`, `auto_next`, `skip_intro`, `skip_outro`, `prefer_downloads` |
+| `providers` | `parallel`, `preferred`, `disabled`, `timeout_s`, `match_timeout_s`, `hianime_base` |
+| `resolvers` | `disabled` |
+| `ui` | `theme`, `episodes`, `density` |
+| `downloads` | `dir` |
 
-> Streaming providers break and get Cloudflare-gated constantly — that is the
-> normal operating state, not a bug. The **Providers** badge above is a nightly
-> probe of the real sites; it going red means a site blocked us, not that the
-> build broke. When a provider is unreachable anime-sh degrades cleanly, and
-> metadata and your library keep working.
-
-**Offline-friendly.** Your library lives in its own `anime.db`, separate from a
-disposable `cache.db` of AniList responses. Recently-seen pages still render with
-no network, and nothing you own lives in the cache — `cache prune` drops what
-expired, `cache clear` empties it and hands the disk space back.
+```bash
+anime config set playback.audio dub
+anime config set playback.quality 1080p
+anime config set ui.episodes grid
+anime config set downloads.dir ~/Videos/anime
+```
 
 ---
 
 ## 🩺 Troubleshooting
 
-| | Symptom | What's happening |
+| | Symptom | What is going on |
 |---|---|---|
-| 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (choco), or run `uv tool update-shell` (uv). |
-| 🎥 | **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
-| 🚧 | **A show won't play — "trying next…" on every source** | Run `anime doctor --streams`: it says which providers work from *your* connection. Providers get Cloudflare-gated or geo-blocked constantly; search and your library are unaffected. |
-| 🐍 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/choco, or the `uv` block above. |
-| 🛡️ | **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |
-| 📱 | **Nothing in Continue Watching from your phone** | Link AniList (`anime auth login`), then `anime sync pull`. |
-
-**Updating and removing:**
-
-```bash
-scoop update anime-sh          # or: uv tool upgrade anime-sh
-scoop uninstall anime-sh       # or: uv tool uninstall anime-sh
-```
-
-Your library and settings live outside the install (`anime config path`), so
-upgrading never touches them.
+| 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. See [PATH](#-will-anime-be-on-my-path). |
+| 🎥 | **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the right command for your package manager, or use `scoop install mpv` / `brew install mpv` / `choco install mpvio`. |
+| 🧊 | **A show will not play** | `anime doctor --streams` plays through each provider from your connection and says which work. A dead provider is normal; `anime providers health` shows what got shut out. |
+| 🔇 | **Dub not playing** | `anime config set playback.audio dub`, or pass `--dub` per run. Not every provider carries one. |
+| 🐍 | **`pipx` or `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use the one-liner at the top, or scoop/choco. |
+| 🖼️ | **Cover art looks blocky** | That is the unicode fallback doing its job. Sixel and kitty terminals get the sharp version automatically. |
+| 📺 | **Two `anime` commands** | Installed with two managers. `where.exe anime` or `which -a anime` finds both; remove the one you do not want. |
 
 ---
 
@@ -425,21 +504,27 @@ upgrading never touches them.
 ```bash
 git clone https://github.com/Anime123450/anime-sh.git && cd anime-sh
 uv sync --extra dev --extra tui
-uv run python -m pytest -q   # unit + contract suite (no network)
-uv run lint-imports          # architecture contracts (must stay green)
+uv run pytest -q          # the full suite
+uv run lint-imports       # layering contracts
+uv run anime
 ```
 
-`ANIME_SH_LIVE=1` runs the gated live-provider tests.
+The architecture is layered, and the layering is enforced rather than
+aspirational: `cli > tui > app > domain`, with `infra`, `providers` and
+`resolvers` as adapters. `uv run lint-imports` fails the build when a layer
+reaches somewhere it should not.
 
-**Architecture.** anime-sh is layered `cli/tui → app → domain`, with `infra`,
-`providers` and `resolvers` as swappable adapters behind ports. Dependencies
-point downward only, and that is enforced in CI. Identity comes from AniList —
-every show is keyed by its AniList id — so adding a provider means attaching a
-source to a known identity, not fuzzy-matching titles.
+Providers and resolvers are found through entry points (`anime_sh.providers`,
+`anime_sh.resolvers`), so a new one is just a package that declares one.
+
+A nightly canary plays a real episode through every provider and opens an issue
+when one breaks. It fails the run only when *nothing* can play, because a single
+provider dying is the normal operating state here, and an alert that fires every
+night is one nobody reads.
 
 📄 [Architecture](docs/architecture.md) · [Writing a plugin](docs/plugins.md) · [Engineering standards](docs/ENGINEERING_STANDARDS.md) · [Contributing](CONTRIBUTING.md) · [Packaging](packaging/README.md)
 
-The engineering standards are worth reading even if you never contribute — each
+The engineering standards are worth a read even if you never contribute — every
 rule names the bug that caused it.
 
 ---
@@ -448,12 +533,15 @@ rule names the bug that caused it.
 
 anime-sh is a **client**, not a content library. It bundles no media, mirrors
 nothing, and bypasses no DRM. Providers read public pages and are expected to
-break; a broken provider is a degraded experience, not an outage. Provider
-plugins are separable from the core, so the project survives any single one.
+break; a broken provider is a degraded experience rather than an outage, and
+provider plugins are separable from the core, so the project outlives any one of
+them.
 
-mpv and ffmpeg are declared as dependencies, never redistributed — both are
+mpv and ffmpeg are declared as dependencies and never redistributed. Both are
 GPL-licensed, and shipping their binaries inside an MIT release would carry
 obligations that depending on them does not.
+
+Not affiliated with AniList, mpv, or any provider.
 
 ---
 
