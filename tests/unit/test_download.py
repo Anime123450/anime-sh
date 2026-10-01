@@ -224,7 +224,10 @@ def test_download_names_are_safe_on_every_platform():
 
     # No traversal: separators are removed, not resolved.
     assert "/" not in _safe("../../etc/passwd")
-    assert "\\" not in _safe("..\..\windows\system32")
+    # Raw string: the escapes here are not valid ones, so Python keeps them
+    # literally and warns. Same value, and it stops being a DeprecationWarning
+    # on its way to a SyntaxError in a later version.
+    assert "\\" not in _safe(r"..\..\windows\system32")
     assert _safe("..") == "anime"
 
     # Reserved device names are escaped rather than left to fail at write time.
