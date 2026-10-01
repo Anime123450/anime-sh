@@ -204,7 +204,15 @@ _DEFAULT_UA = (
 )
 
 
-def _resolve_binary(binary: str) -> str | None:
+def resolve_binary(binary: str) -> str | None:
+    """The player executable that will actually be launched, or None.
+
+    Public because `anime doctor` has to report *this* path and not whatever
+    `shutil.which` finds first -- see the .com/.exe note below. A diagnostic that
+    names a binary the app would never run sends the reader after the wrong
+    suspect, and this resolution exists precisely because of a bug whose symptom
+    ("mpv opens no window") doctor is the tool you reach for.
+    """
     found = shutil.which(binary)
     if found is None:
         return None
@@ -242,12 +250,12 @@ class MpvPlayer:
         self._extra_args = extra_args or []
 
     def available(self) -> bool:
-        return _resolve_binary(self._binary) is not None
+        return resolve_binary(self._binary) is not None
 
     async def play(
         self, stream: Stream, *, title: str, start_s: int = 0
     ) -> MpvPlaybackHandle:
-        binary = _resolve_binary(self._binary)
+        binary = resolve_binary(self._binary)
         if binary is None:
             raise PlayerUnavailable(f"{self._binary} not found on PATH")
 

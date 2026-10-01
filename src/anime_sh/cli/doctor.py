@@ -24,6 +24,7 @@ from ..config.loader import config_path
 from ..config.paths import cache_db_path, user_db_path
 from ..domain.errors import NoStreamsFound
 from ..infra import registry
+from ..infra.players.mpv import resolve_binary
 
 
 @dataclass(slots=True)
@@ -65,7 +66,12 @@ def install_hint(tool: str) -> str:
 
 
 def _check_player(player_name: str) -> Check:
-    path = shutil.which(player_name)
+    # Not `shutil.which`: on Windows that finds mpv.COM, the console build, while
+    # playback deliberately switches to the mpv.exe beside it because the console
+    # one can attach to the terminal and never open a video window. Reporting the
+    # .COM named the one binary that cannot be the cause of the symptom people
+    # run doctor about.
+    path = resolve_binary(player_name)
     if path:
         return Check(f"player: {player_name}", True, path)
     hint = install_hint(player_name) if player_name == "mpv" else "install it"
