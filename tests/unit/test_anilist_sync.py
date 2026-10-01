@@ -437,3 +437,26 @@ async def test_a_show_not_on_the_list_is_never_treated_as_backwards():
     http = _FakeHttp(_statuses((999, "COMPLETED", 24)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
     await _push(http, 196187, 1, 12)
     assert _saved(http)["progress"] == 1
+
+
+# -- a special is not a position in the season ------------------------------- #
+# The push docstring already promised "only whole-numbered episodes ... are
+# pushed (AniList counts integers)". The code did not do that — it called
+# int() on the episode, which truncates rather than refuses. hianime parses
+# `data-number="([\d.]+)"`, so 5.5 is a real number a user can sit down and
+# watch, and watching it reported episode 5 as finished. `anime mark --single`
+# carries a comment about exactly this, but the guard lived in that one command.
+@pytest.mark.parametrize("episode", [5.5, 0.5, 13.5])
+async def test_watching_a_special_is_not_reported_as_overall_progress(episode):
+    http = _FakeHttp(_statuses((196187, "CURRENT", 3)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, episode, 12)
+    assert not [c for c in http.calls if "SaveMediaListEntry" in c["query"]], (
+        f"episode {episode} was pushed as whole-episode progress"
+    )
+
+
+async def test_a_whole_episode_arriving_as_a_float_still_pushes():
+    """Episode numbers are floats throughout the domain; 6.0 is episode six."""
+    http = _FakeHttp(_statuses((196187, "CURRENT", 3)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
+    await _push(http, 196187, 6.0, 12)
+    assert _saved(http)["progress"] == 6

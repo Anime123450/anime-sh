@@ -6,6 +6,16 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **Watching a special reported it as ordinary progress.** Episode numbers like
+  5.5 and 13.5 are real — hianime parses them straight off the page — and the
+  AniList push called `int()` on the episode, so finishing special 5.5 told
+  AniList you had finished episode 5, inventing two episodes you never watched.
+  The push already documented itself as sending "only whole-numbered episodes";
+  it just truncated instead of refusing. `anime mark --single` had a guard for
+  this, but it lived in that one command. A special is something you watched,
+  not a position in the season, and AniList's progress field can only express
+  the latter, so it is no longer pushed at all.
+
 - **The providers badge was permanently red over an expected casualty.** The
   nightly canary failed its run whenever any single provider was unhealthy, and
   anikoto's hosts moved to an encrypted payload and are not coming back — so
