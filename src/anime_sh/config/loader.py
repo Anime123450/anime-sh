@@ -61,8 +61,15 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
     _reject_unknown_choice(dotted_key, typed)
     raw = _read_raw(path)
     raw.setdefault(section, {})[field] = typed
+    # Validate against the *section's* plain model, not the whole `Config`.
+    # `Config` is a BaseSettings, so building one consults the environment -- and
+    # a matching ANIME_SH_* variable would then supply the value that gets
+    # validated while the bad one is what reaches the file. `anime config set
+    # ui.theme drakula` reported success and left behind a config that refuses to
+    # load. One field in one section is all this function changes, and the
+    # sections are independent, so the section is the whole blast radius.
     try:
-        Config(**raw)  # validate the merged result before persisting
+        sub_model(**raw[section])
     except Exception as e:
         raise ConfigError(f"{dotted_key}={value!r} is invalid: {e}") from e
 
