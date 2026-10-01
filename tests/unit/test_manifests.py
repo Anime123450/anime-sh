@@ -298,8 +298,11 @@ def test_the_readme_adds_the_bucket_mpv_actually_lives_in():
     """
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     # Every place we tell someone to install must have added `extras` first.
+    # Checked as a property of each block rather than against a fixed count of
+    # them: the count was a tripwire that fired on any README restructure while
+    # saying nothing about whether the instructions still work.
     parts = readme.split("scoop install anime-sh")
-    assert len(parts) == 3, "the number of install blocks changed"
+    assert len(parts) >= 2, "the README no longer tells anyone how to install it"
     for preceding in parts[:-1]:
         assert "scoop bucket add extras" in preceding, (
             "an install block does not add the bucket mpv lives in"
