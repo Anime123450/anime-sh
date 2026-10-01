@@ -2,6 +2,22 @@
 
 All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Changed
+
+- **WinGet is no longer an install route.** The submission was declined under
+  the repository's content policy 2.2: it asked for publicly verifiable
+  documentation that the bundled AniKoto / AniZone / HiAnime integrations are
+  authorised by those providers and the content rights holders. There is none,
+  so the submission was withdrawn rather than claim otherwise. The alternative
+  offered — removing the provider and resolver layer from the published package
+  — would take `play`, `sources`, `download` and `prefetch` with it, leaving a
+  binary that cannot play an episode under a name that says it can. The README
+  no longer advertises a `winget install` command that will not resolve, and
+  `packaging/README.md` records the reasoning so this is not retried as though
+  it were a manifest problem. Windows installs come from Scoop and Chocolatey.
+
 ## [0.2.85] - 2026-10-01
 
 ### Security

@@ -66,21 +66,31 @@ dependency is not the same thing as shipping one.
 Ranked for this project specifically — a Python TUI that shells out to `mpv`,
 distributed as one Windows executable.
 
-### 1. WinGet — the widest reach on Windows
+### 1. WinGet — ruled out, and not on a technical point
 
-`winget` ships with Windows 10 and 11, so `winget install AnimeshSharma.anime-sh`
-works on a machine with nothing installed on it. That is as close to "download
-my thing and set it up easily" as Windows gets.
+**Do not resubmit this without reading why it was declined.** The manifests in
+`packaging/winget/` are correct and were never the problem: all ten validation
+stages passed, the CLA was signed, and `winget validate` was clean against
+schema 1.12.0.
 
-Manifests are in `packaging/winget/`; fill them in for a release with
-`python scripts/make_manifests.py <version> --sha256 <hash>` and open a pull
-request against [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)
-under `manifests/a/AnimeshSharma/anime-sh/<version>/`.
+It was declined on [content policy
+2.2](https://learn.microsoft.com/windows/package-manager/package/windows-package-manager-policies#22-content-including-names-logos-original-and-third-party),
+in [PR #426448](https://github.com/microsoft/winget-pkgs/pull/426448) on
+26/09/2026. The repository asked for publicly verifiable documentation that the
+bundled AniKoto / AniZone / HiAnime integrations are authorised by those
+providers and the content rights holders. There is none, so the submission was
+withdrawn on 01/10/2026 rather than claim otherwise.
 
-The cost is review: a human merges that PR, so a release is live on winget hours
-to days after it is live on GitHub. `InstallerType: portable` is what makes a
-bare .exe work — winget adds it to `PATH` itself and `winget uninstall` removes
-it cleanly.
+The offered alternative was to remove the provider and resolver layer from the
+published package. That was declined from this side: it takes `play`, `sources`,
+`download` and `prefetch` with it, leaving a binary that cannot play an episode
+while carrying a name and documentation that say it can. Removing the bundled
+providers while keeping the plugin interface they load through would invite
+users to put them straight back, which is not the spirit of the policy either.
+
+So Windows reach comes from Scoop and Chocolatey. The one thing that could
+honestly go to WinGet is a separate, narrower package — AniList search, list
+sync, history and statistics, no providers — under its own identifier.
 
 ### 2. Scoop — same day, no gatekeeper
 
@@ -93,7 +103,7 @@ again.
 Scoop also handles the external tools properly — `scoop install mpv ffmpeg` —
 and it is what this machine already uses for both.
 
-Do both: Scoop for speed and control, WinGet for reach.
+With WinGet out, Scoop is the primary Windows route and Chocolatey the reach.
 
 ### 3. PyPI — keep it
 

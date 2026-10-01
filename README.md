@@ -60,7 +60,6 @@ what actually plays the video.
 |---|---|---|---|
 | 🥄 | **Scoop** | Windows | live |
 | 🍫 | **Chocolatey** | Windows | live |
-| 📦 | **WinGet** | Windows | in review |
 | 🍺 | **Homebrew** | macOS · Linux | live (builds from source — see below) |
 | 🐧 | **AUR** | Arch | ready to publish |
 | 🐍 | **PyPI** (`uv tool install`) | any | live |
@@ -85,16 +84,6 @@ scoop install anime-sh
 > running scripts being disabled. It applies to your account only, and
 > `RemoteSigned` still requires anything downloaded to be signed — it is the
 > setting Microsoft ships on Windows Server. Answer `Y` when it asks.
-
-📦 **WinGet** — [in review](https://github.com/microsoft/winget-pkgs/pull/426448); winget already ships with Windows 10 and 11:
-
-```powershell
-winget install AnimeshSharma.anime-sh
-```
-
-> **`anime` not recognised straight after a winget install?** It worked — winget
-> changed your `PATH` and this terminal still has the old copy. Open a new one.
-> Scoop needs no restart.
 
 🍫 **[Chocolatey](https://community.chocolatey.org/packages/anime-sh)** — live:
 
@@ -412,10 +401,10 @@ expired, `cache clear` empties it and hands the disk space back.
 
 | | Symptom | What's happening |
 |---|---|---|
-| 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (winget), or run `uv tool update-shell` (uv). |
+| 🤔 | **`anime` not recognised right after installing** | The install worked; your shell has a stale `PATH`. Open a new terminal (choco), or run `uv tool update-shell` (uv). |
 | 🎥 | **`doctor` says mpv not found** | Nothing plays without it. `doctor` prints the exact command for your package manager — or `scoop install mpv` / `winget install shinchiro.mpv` / `choco install mpvio`. |
 | 🚧 | **A show won't play — "trying next…" on every source** | Run `anime doctor --streams`: it says which providers work from *your* connection. Providers get Cloudflare-gated or geo-blocked constantly; search and your library are unaffected. |
-| 🐍 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/winget, or the `uv` block above. |
+| 🐍 | **`pipx` / `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use scoop/choco, or the `uv` block above. |
 | 🛡️ | **Windows: blocked by Smart App Control** | Invoke it as a module: `python -m anime_sh <command>`. |
 | 📱 | **Nothing in Continue Watching from your phone** | Link AniList (`anime auth login`), then `anime sync pull`. |
 
