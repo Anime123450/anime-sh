@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import logging
+import secrets
 import threading
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -100,6 +101,22 @@ class DeobfuscatingProxy:
             headers={"User-Agent": AGENT}, follow_redirects=True, timeout=25
         )
         self._lock = threading.Lock()
+        # The URL to fetch comes from the query string, so without this the
+        # proxy is a forwarding proxy on loopback with no door on it: while an
+        # episode plays, any other process on the machine could point it at a
+        # router page, a metadata endpoint or anything else that trusts
+        # localhost, and read the response back. One secret per process, handed
+        # out only inside the URLs we generate. The random port is not a
+        # control — enumerating listening ports is not an obstacle.
+        #
+        # What this does and does not buy, stated plainly: it shuts out anyone
+        # who has only found the port, which is the whole of the scanning and
+        # browser-originated case. It does not shut out a local user who can
+        # read our process list, because the proxied URL is passed to mpv as a
+        # command-line argument and the token rides along in it. Closing that
+        # too means not putting the URL in argv at all, which is a larger
+        # change than this one.
+        self._token = secrets.token_urlsafe(32)
 
     # -- public API --------------------------------------------------------- #
     def rewrite(self, stream: Stream) -> Stream:
@@ -168,11 +185,21 @@ class DeobfuscatingProxy:
         u = base64.urlsafe_b64encode(real_url.encode()).decode()
         r = base64.urlsafe_b64encode(referer.encode()).decode()
         suffix = f"&k={kind}" if kind else ""
-        return f"{self._base}/s?u={u}&r={r}{suffix}"
+        # Every proxied URL is built here — including the children of a
+        # rewritten playlist — so carrying the token here is what makes the
+        # check in _handle safe to apply to all of them.
+        return f"{self._base}/s?u={u}&r={r}{suffix}&t={self._token}"
 
     def _handle(self, req: BaseHTTPRequestHandler) -> None:
         try:
             qs = parse_qs(urlsplit(req.path).query)
+            # Checked before anything is decoded, and with compare_digest so a
+            # wrong token cannot be narrowed down by timing. 404 rather than 403:
+            # a caller who does not have the token learns nothing about what is
+            # listening here.
+            if not secrets.compare_digest(qs.get("t", [""])[0], self._token):
+                req.send_error(404)
+                return
             real = base64.urlsafe_b64decode(qs["u"][0]).decode()
             referer = base64.urlsafe_b64decode(qs.get("r", [b""])[0] or "").decode()
             kind = qs.get("k", [""])[0]

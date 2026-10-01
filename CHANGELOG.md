@@ -4,6 +4,24 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Security
+
+- **The local HLS proxy would fetch any URL it was asked to.** It takes the URL
+  to fetch from its own query string, so while an episode was playing it was a
+  forwarding proxy on loopback with no door on it: another process on the
+  machine could point it at a router page, a cloud metadata endpoint or
+  anything else that trusts localhost, with a `Referer` of its choosing, and
+  read the response back. The random port was never a control — enumerating
+  listening ports is not an obstacle. Proxied URLs now carry a per-process
+  secret and anything without it gets a 404.
+
+  What that does and does not buy, plainly: it shuts out anyone who has only
+  found the port, which covers the scanning and browser-originated cases
+  entirely. It does not shut out a local user who can read your process list,
+  because the proxied URL is handed to mpv as a command-line argument and the
+  token rides along in it. Closing that means keeping the URL out of argv,
+  which is a larger change.
+
 ### Fixed
 
 - **The shipped default tried the provider that cannot play anything first.**
