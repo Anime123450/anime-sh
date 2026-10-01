@@ -241,6 +241,14 @@ class AniListTracker:
         media_id = progress.anime_id.anilist
         if media_id is None:
             return
+        if not float(progress.episode).is_integer():
+            # Specials and recaps are numbered 5.5, 13.5 and so on — hianime
+            # parses them straight off the page — and `int()` turned watching
+            # one into "I have finished episode 5". A special is a thing you
+            # watched, not a position in the season, and AniList's progress
+            # field can only express the latter. Refusing is the honest answer;
+            # truncating invents two episodes you did not watch.
+            return
         ep = int(progress.episode)
         if ep <= 0:
             return
