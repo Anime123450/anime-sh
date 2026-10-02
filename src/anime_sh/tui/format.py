@@ -16,13 +16,21 @@ _RESUME_BAR = 7
 # caught up on and cannot act on at all.
 RANK_RESUME, RANK_READY, RANK_WAITING = 0, 1, 2
 
+# How long past its air time an episode still reads as "airing now" — wide
+# enough for a broadcast slot or a feature-length special. Beyond it, a date in
+# the past is a cached schedule nobody has refreshed rather than a live
+# broadcast, and "airing now" was said exactly as confidently three weeks late
+# as three minutes early.
+# ponytail: one flat window; per-format runtimes if it ever needs to be tighter.
+_AIRING_GRACE_S = 3 * 3600
+
 
 def countdown(target: datetime, now: datetime | None = None) -> str:
     """Human "in 5d 3h" until ``target``. Past/near targets read naturally."""
     now = now or datetime.now(timezone.utc)
     secs = int((target - now).total_seconds())
     if secs <= 0:
-        return "airing now"
+        return "airing now" if -secs <= _AIRING_GRACE_S else "aired"
     d, rem = divmod(secs, 86400)
     h, rem = divmod(rem, 3600)
     m = rem // 60
@@ -48,8 +56,14 @@ def episode_air_label(
     no schedule, or the episode has already aired."""
     if not (anime.next_airing_episode and anime.next_airing_at):
         return None
-    if episode < anime.next_airing_episode:
+    if episode <= (anime.aired_through(now) or 0):
         return None  # already aired
+    if anime.next_airing_at <= (now or datetime.now(timezone.utc)):
+        # The anchor this projects from has already come true, so every date
+        # derived from it is a guess off a stale one. The next episode's time is
+        # genuinely unknown here, and saying nothing beats "airs in 4d" for an
+        # episode that came out last week.
+        return None
     weeks = int(episode) - anime.next_airing_episode
     airs_at = anime.next_airing_at + timedelta(days=7 * weeks)
     return f"airs {countdown(airs_at, now)}"
@@ -67,8 +81,8 @@ def waiting_subtitle(
     leaves it bright/actionable."""
     if not (anime.is_airing and anime.next_airing_episode and anime.next_airing_at):
         return None
-    aired = anime.next_airing_episode - 1  # episodes already released
-    if watched_episode < aired:
+    aired = anime.aired_through(now)
+    if aired is None or watched_episode < aired:
         return None  # you still have released episodes to catch up on
     return (
         f"caught up · Ep {anime.next_airing_episode} "
@@ -194,7 +208,7 @@ def browse_cells(anime: Anime, now: datetime | None = None) -> Row:
     lands*, which is what the eye is actually looking for when scanning a season.
     """
     if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
-        aired = max(anime.next_airing_episode - 1, 0)
+        aired = anime.aired_through(now) or 0
         total = anime.episode_count
         return Row(
             title=anime.title.preferred,
@@ -280,7 +294,7 @@ def home_subtitle(anime: Anime, now: datetime | None = None) -> str:
     misleading planned total. Finished shows show total eps and year."""
     fmt = anime.format.value
     if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
-        aired = max(anime.next_airing_episode - 1, 0)
+        aired = anime.aired_through(now) or 0
         total = anime.episode_count
         count = f"{aired}/{total} eps" if total else f"{aired} eps"
         return (

@@ -12,7 +12,7 @@ lookup instead of fuzzy title matching.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Mapping
 
@@ -131,6 +131,32 @@ class Anime:
     @property
     def is_airing(self) -> bool:
         return self.status is Status.RELEASING
+
+    def aired_through(self, now: datetime | None = None) -> int | None:
+        """The highest episode number that has actually been released, or None
+        when there is no schedule to tell.
+
+        ``next_airing_episode`` is the first episode *not* out yet, so the
+        released count is one less — but only while its air time is still ahead.
+        Once that time passes, the episode it names has aired and the count is
+        the number itself. Five readers each did the `- 1` inline and so each
+        kept believing a schedule an hour after it came true.
+
+        Nothing refetches the cached ``anime`` row on the Continue Watching
+        path, so a schedule sits there past its date for as long as the user
+        does not open that show, and the episode the stale arithmetic hides is
+        always the newest one. That showed up as "caught up" on a show with an
+        episode waiting (dimmed and sorted to the bottom, which is how it
+        stayed hidden), auto-next halting one episode short of what was
+        available, and ``play`` refusing an episode that had already aired.
+        """
+        if self.next_airing_episode is None:
+            return None
+        if self.next_airing_at is not None and self.next_airing_at <= (
+            now or datetime.now(timezone.utc)
+        ):
+            return self.next_airing_episode
+        return max(self.next_airing_episode - 1, 0)
 
 
 # --------------------------------------------------------------------------- #
