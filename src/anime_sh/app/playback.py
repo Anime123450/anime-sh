@@ -552,15 +552,21 @@ class PlaybackService:
             log.debug("tracker push failed: %s", e)
 
     def _has_next(self, anime: Anime, number: float) -> bool:
-        if anime.episode_count is None or number >= anime.episode_count:
-            return False
-        # For a show still airing, episode_count is AniList's *planned* total, so
-        # it runs ahead of what has actually been released. Auto-next must stop at
-        # the last aired episode — otherwise finishing the newest episode rolls
-        # straight into one that doesn't exist yet and fails to find a stream.
+        # The airing schedule goes first, because it is the better authority and
+        # sometimes the only one. For a show still airing, episode_count is
+        # AniList's *planned* total, so it runs ahead of what has actually been
+        # released — auto-next must stop at the last aired episode or finishing
+        # the newest one rolls into an episode that does not exist yet. And for a
+        # long-runner with no announced total AniList leaves `episodes` null, so
+        # testing that first answered "no next episode" from episode 1 of One
+        # Piece onwards: auto-next was silently off for the shows people binge.
         if anime.next_airing_episode is not None:
             return number < anime.next_airing_episode - 1
-        return True
+        # Nothing airing and no total: there is nothing to advance *into*, and
+        # guessing would send the next play at an episode that isn't out.
+        if anime.episode_count is None:
+            return False
+        return number < anime.episode_count
 
     async def available_episodes(
         self, anime: Anime, *, audio: Audio = Audio.SUB,
