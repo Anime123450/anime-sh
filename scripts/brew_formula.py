@@ -24,7 +24,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 # Homebrew ships its own Python and these come from it or from brew formulae;
 # bundling them as resources either fails to build or duplicates the system.
-SKIP = {"anime-sh"}
+#
+# Pillow is here because Homebrew already has a bottled `pillow` formula, and
+# building it from its sdist instead took **32 of the install's 43 minutes** --
+# measured on the Linux job of run 36899686897, where resource 15 of 29 ran from
+# 17:37:50 to 18:09:42. That is most of what a Homebrew install of this app cost
+# anybody, and on a slower runner it overran the 75-minute CI budget outright
+# while every other resource was still finishing in seconds. Pouring the bottle
+# takes its place, which is also why the six image codecs it used to be compiled
+# against are no longer build dependencies here.
+SKIP = {"anime-sh", "pillow"}
 
 
 def resolved(extra: str) -> list[tuple[str, str]]:
@@ -104,23 +113,21 @@ def main() -> int:
         # sorted alphabetically. Grouping them by topic instead reads better and
         # fails the lint, so the explanations sit above the groups.
         #
-        # Homebrew builds every resource from its sdist, so the toolchains those
-        # sdists need are dependencies too: pydantic-core is Rust (via maturin),
-        # Pillow is C against the image libraries. Without them the build ran for
-        # 23 minutes and then died trying to build maturin.
-        '  depends_on "freetype" => :build',
-        '  depends_on "jpeg-turbo" => :build',
-        '  depends_on "libtiff" => :build',
-        '  depends_on "little-cms2" => :build',
-        '  depends_on "openjpeg" => :build',
+        # Homebrew builds every resource from its sdist, so the toolchain that
+        # needs is a dependency too: pydantic-core is Rust, via maturin. Without
+        # it the build ran for 23 minutes and then died trying to build maturin.
         '  depends_on "rust" => :build',
-        '  depends_on "webp" => :build',
         "",
         "  # mpv plays the video, so it is a hard runtime dependency. ffmpeg is",
         "  # only needed by `anime download`, and it is a heavy install - Homebrew",
         "  # dropped formula options, so it is a caveat rather than an optional.",
         '  depends_on "mpv"',
-        '  depends_on "python@3.12"',
+        # Poured, not compiled - see SKIP. The brewed Pillow is built only for
+        # python@3.13 and @3.14, so the venv has to be one of those for
+        # --system-site-packages to find it; on @3.12 pip would silently go back
+        # to spending half an hour compiling its own.
+        '  depends_on "pillow"',
+        '  depends_on "python@3.13"',
         "",
     ]
     for name, version, res_url, res_sha in resources:
