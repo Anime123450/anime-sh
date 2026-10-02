@@ -4,6 +4,8 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.90] - 2026-10-02
+
 ### Fixed
 
 - **`anime sync push` told AniList you had finished episodes you were part-way
