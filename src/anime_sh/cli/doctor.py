@@ -95,7 +95,11 @@ def _check_cover_art() -> Check:
     launch -- and doing it the same way is the point, since a check that asked a
     different question could not answer this one.
     """
-    from ..tui.coverart import graphics_protocol_active, prime_graphics
+    from ..tui.coverart import (
+        _terminal_questions_all_answered,
+        graphics_protocol_active,
+        prime_graphics,
+    )
 
     try:
         from PIL import Image  # noqa: F401
@@ -121,6 +125,20 @@ def _check_cover_art() -> Check:
                      "cannot tell through a pipe — run `anime doctor` on its own")
 
     prime_graphics()
+    # Both gates, because the TUI applies both. Reporting only the protocol said
+    # "true bitmap" on a textual-image whose probe marker had moved, while the
+    # poster came out as blocks -- doctor confidently describing something the app
+    # would not do, which is the exact failure #157 was about and which sent the
+    # first investigation of this after the wrong cause entirely.
+    if not _terminal_questions_all_answered():
+        return Check(
+            "cover art", False,
+            "unicode blocks — textual-image did not record a finished capability "
+            "probe, so a bitmap is refused rather than risk asking the terminal "
+            "once Textual owns the keyboard. Usually an unexpected textual-image "
+            'version: reinstall with uv tool install --force "anime-sh[tui]" and '
+            "report this line if it persists",
+        )
     if graphics_protocol_active():
         return Check("cover art", True, f"true bitmap — sharp ({_cell_size()})")
     return Check(
