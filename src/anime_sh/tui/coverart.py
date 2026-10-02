@@ -174,6 +174,49 @@ def _patient_probes():
         _terminal.capture_terminal_response = original
 
 
+@contextmanager
+def _bounded_probe_reads():
+    """Make "the reply can never arrive" end the probe instead of spinning.
+
+    textual-image reads the terminal's answer one byte at a time, in a loop that
+    ends when the answer is complete. A read that *times out* raises and ends it.
+    A read that returns **nothing** does not: the loop appends an empty string and
+    goes round again, forever, at a full core — and no timeout helps, because
+    nothing is waiting.
+
+    Which is what happens when stdout is a console but stdin cannot deliver the
+    reply. `anime home < NUL` hangs at launch and never draws a frame; measured
+    at 50,000 empty reads a second. Both of the library's backends get there:
+    Windows reads an exhausted handle straight through, and POSIX `select`
+    reports EOF as readable before `os.read` returns b"".
+
+    `isatty` is no defence — Windows reports NUL as a terminal, because it is a
+    character device. The empty read is the fact, so that is what this reads.
+    """
+    try:
+        from textual_image import _terminal
+    except Exception:
+        yield  # not installed; nothing to guard and nothing to restore
+        return
+
+    original = _terminal.read
+
+    def bounded(fd, length, timeout=None):
+        got = original(fd, length, timeout)
+        if not got:
+            # The library already reads a timeout as "this terminal is not
+            # answering", which is the right conclusion here too — and it is
+            # caught at the call site, so this degrades to block covers.
+            raise TimeoutError("stdin is at end of input; no reply can arrive")
+        return got
+
+    _terminal.read = bounded
+    try:
+        yield
+    finally:
+        _terminal.read = original
+
+
 def prime_graphics() -> None:
     """Trigger textual-image's terminal-capability probe.
 
@@ -204,7 +247,7 @@ def prime_graphics() -> None:
         # Both imports are cheap after the first; what matters is that the
         # questions are asked while we still own the terminal — and that it is
         # given long enough to answer them (see `_patient_probes`).
-        with _patient_probes():
+        with _patient_probes(), _bounded_probe_reads():
             import textual_image.renderable  # noqa: F401
             import textual_image.widget  # noqa: F401  (runs the cell-size query)
     except Exception as e:
