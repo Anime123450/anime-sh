@@ -20,7 +20,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import AsyncIterator, Callable
 
 from ...domain.errors import AnimeShError
 from ...domain.models import Stream, StreamKind
@@ -78,6 +78,40 @@ def build_ffmpeg_command(binary: str, stream: Stream, dest: Path) -> list[str]:
 # exit code 0, no output at "error" level, and a 4.04s file where 6.06s was
 # expected. anime-sh recorded that as a completed download.
 _SEGMENT_LOST = re.compile(r"failed too many times, skipping", re.IGNORECASE)
+
+# ffmpeg ends each `-stats` progress report with a carriage return so the next
+# one overwrites it, and only the very last report ends with a newline.
+_LINE_END = re.compile(r"[\r\n]+")
+
+
+async def _lines(stream) -> AsyncIterator[str]:
+    """ffmpeg's stderr, split on CR as well as LF.
+
+    `async for line in proc.stderr` splits on LF only, which looked harmless and
+    was not: every progress report accumulated into one unterminated line, and
+    asyncio's StreamReader raises `LimitOverrunError` once that passes its 64 KiB
+    buffer. Measured against ffmpeg 8.1 with the flags above — 20 seconds of
+    realtime work wrote 4485 bytes containing 38 CRs and one LF — that is ~118
+    bytes twice a second, so the limit lands about four and a half minutes into a
+    download. An episode on a slow connection passes that without trying, and
+    `download`'s cleanup then deleted the .part file: the whole transfer thrown
+    away by its own progress output.
+
+    Splitting on both is also what makes the reports reachable at all, which is
+    why nothing had noticed — `on_line` had never seen one.
+    """
+    buffered = ""
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+        buffered += chunk.decode(errors="replace")
+        parts = _LINE_END.split(buffered)
+        buffered = parts.pop()  # whatever follows the last terminator
+        for part in parts:
+            yield part
+    if buffered:
+        yield buffered
 
 
 def _ffprobe_for(ffmpeg_binary: str) -> str | None:
@@ -186,8 +220,8 @@ class FfmpegDownloader:
         finished = False
         try:
             try:
-                async for raw in proc.stderr:
-                    line = raw.decode(errors="replace").strip()
+                async for raw in _lines(proc.stderr):
+                    line = raw.strip()
                     if not line:
                         continue
                     if _SEGMENT_LOST.search(line):

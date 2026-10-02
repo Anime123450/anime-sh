@@ -169,10 +169,9 @@ async def test_cancelling_a_download_kills_ffmpeg(monkeypatch, tmp_path):
             self.killed = False
             self.stderr = self
 
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
+        # Stands in for the stderr StreamReader, which the pump reads in chunks
+        # rather than iterating — ffmpeg's progress reports end in CR, not LF.
+        async def read(self, _n=-1):
             await aio.sleep(3600)  # hang like a long download
 
         def kill(self):
