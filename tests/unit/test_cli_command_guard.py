@@ -168,3 +168,64 @@ def test_every_count_option_has_a_floor():
                 f"{name} {param.opts}: unbounded, so 0 and negatives get through"
             )
     assert checked >= 6, f"only found {checked} count options; did they move?"
+
+
+# --------------------------------------------------------------------------- #
+# Guessed command names — the half the list could not keep up with
+# --------------------------------------------------------------------------- #
+# `anime upcoming` is what proved the hand-written list too short. "upcoming"
+# scores nothing against `calendar`, so it fell through the sugar and started
+# PLAYING: it resolved a stream for Pokemon, the top AniList hit for the word,
+# and wrote a history row and a progress row for a show nobody asked for. A
+# wrong guess at a command name must cost an error message, not an entry in
+# your library.
+@pytest.mark.parametrize("word,expected", [
+    ("upcoming", "anime calendar"),
+    ("schedule", "anime calendar"),
+    ("airing", "anime calendar"),
+    ("settings", "anime config get"),
+    ("mylist", "anime list"),
+    ("watchlist", "anime list"),
+])
+def test_a_plausible_command_name_is_not_played_as_a_show(word, expected):
+    hint = _command_suggestion(word, KNOWN)
+    assert hint is not None, f"{word!r} would be searched for and played"
+    assert expected in hint
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("push", "anime sync push"),
+    ("pull", "anime sync pull"),
+    ("login", "anime auth login"),
+    ("logout", "anime auth logout"),
+    ("health", "anime providers health"),
+    ("clear", "anime cache clear"),
+    ("enable", "anime providers enable"),
+])
+def test_a_subcommand_typed_without_its_group_is_caught(word, expected):
+    """`anime push` is the obvious way to type `anime sync push`. None of these
+    are typos and none are close to a top-level command, so every one of them
+    used to be treated as a title."""
+    hint = _command_suggestion(word, KNOWN)
+    assert hint is not None, f"{word!r} would be searched for and played"
+    assert expected in hint
+
+
+def test_the_subcommand_map_is_read_off_the_app():
+    """Vacuous if the introspection returns nothing -- the same trap the
+    known-command check has. A group gaining a subcommand must close the hole on
+    its own, with no list to update."""
+    from anime_sh.cli.main import _subcommand_names
+
+    names = _subcommand_names()
+    assert len(names) > 10, "subcommand discovery came back empty"
+    assert names["push"] == "anime sync push"
+
+
+def test_no_subcommand_name_shadows_a_real_one_word_title():
+    """The cost of over-reaching: a title that stops playing. If a group ever
+    gains a subcommand called `bleach`, this is where it is caught."""
+    from anime_sh.cli.main import _subcommand_names
+
+    clash = sorted(set(_subcommand_names()) & set(REAL_TITLES))
+    assert clash == [], f"these titles would no longer play: {clash}"

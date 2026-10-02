@@ -126,6 +126,18 @@ _NOT_A_COMMAND = {
     "upgrade": "uv tool upgrade anime-sh",
     "install": "uv tool install 'anime-sh[tui]'",
     "uninstall": "uv tool uninstall anime-sh",
+    # `anime upcoming` is the one that proved the list was too short: it scores
+    # nothing against `calendar`, so it fell straight through to the sugar and
+    # started playing Pokemon -- writing a history row and a progress row for a
+    # show nobody had asked for.
+    "upcoming": "anime calendar",
+    "schedule": "anime calendar",
+    "airing": "anime calendar",
+    "settings": "anime config get",
+    "mylist": "anime list",
+    "watchlist": "anime list",
+    "tui": "anime",
+    "ui": "anime",
 }
 
 # Above the range real titles occupy. Measured over the command list against
@@ -133,6 +145,31 @@ _NOT_A_COMMAND = {
 # (serach 0.83, donwload 0.88, provider 0.94) while the worst-case real title
 # reaches 0.67. Lowering this starts refusing to play actual shows.
 _TYPO_CUTOFF = 0.75
+
+
+def _subcommand_names() -> dict[str, str]:
+    """``{"push": "anime sync push", ...}`` for every subcommand of every group.
+
+    Hand-listing these was never going to hold. `anime push` is the obvious
+    thing to type for `anime sync push`, scores 0.5 against the closest real
+    command and so went off to search for a show called "push"; the same is true
+    of `login`, `health`, `clear` and a dozen others. Reading them off the app
+    means a group gaining a subcommand cannot reopen the hole.
+
+    A name in two groups is ambiguous, so the first alphabetically is offered --
+    the point is to stop, not to guess perfectly.
+    """
+    import typer.main
+
+    out: dict[str, str] = {}
+    try:
+        group = typer.main.get_command(app)
+        for parent in sorted(group.commands):  # type: ignore[attr-defined]
+            for child in sorted(getattr(group.commands[parent], "commands", {}) or {}):
+                out.setdefault(child, f"anime {parent} {child}")
+    except Exception:
+        return {}
+    return out
 
 
 def _command_suggestion(word: str, known: set[str]) -> str | None:
@@ -152,6 +189,10 @@ def _command_suggestion(word: str, known: set[str]) -> str | None:
         return None
 
     target = _NOT_A_COMMAND.get(word.lower())
+    if target is None:
+        # A group's subcommand typed without its group: `anime push`, not a typo
+        # and not close to anything, but unmistakably a command someone meant.
+        target = _subcommand_names().get(word.lower())
     if target is None:
         close = difflib.get_close_matches(word.lower(), sorted(known), n=1,
                                           cutoff=_TYPO_CUTOFF)

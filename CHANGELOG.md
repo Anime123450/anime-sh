@@ -4,6 +4,23 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Guessing a command name started playing a random show.** `anime <query>` is
+  sugar for `anime play <query>`, guarded by a list of words that name a concept
+  but not a command. `anime upcoming` was not on it -- the command is `anime
+  calendar` -- so it searched AniList for "upcoming", took the top hit, and
+  began playing episode 1 of Pokemon, writing a history row and a progress row
+  for a show nobody had asked for. Had it played to the end it would have been
+  pushed to AniList.
+
+  The list has the obvious schedule words now, but hand-maintaining it was the
+  real problem, so every group's subcommands are read off the app instead:
+  `anime push`, `anime login`, `anime health` and fifteen others were all
+  one-word searches a moment ago. A group gaining a subcommand can no longer
+  reopen the hole. A wrong guess now costs an error message and exit 2, and the
+  message still says how to search for the word if that is what you meant.
+
 ## [0.2.90] - 2026-10-02
 
 ### Fixed
