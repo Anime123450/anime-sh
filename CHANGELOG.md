@@ -4,6 +4,66 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.87] - 2026-10-02
+
+### Fixed
+
+- **Cover art was the unicode-block fallback on every install, however capable
+  the terminal.** The bitmap path refuses to draw unless textual-image has already
+  finished asking the terminal what it supports — if that query fires once the TUI
+  owns the keyboard, the terminal's reply arrives as key presses and the app types
+  at itself. It checked for "already asked" by looking for a cached result on
+  textual-image's `get_cell_size`. textual-image 0.14 batched its graphics,
+  cell-size and device-attributes queries into a single `probe_terminal` and
+  remembers the answer there, leaving `get_cell_size` a delegate that never
+  records one again — so the check answered "still pending" forever, on every
+  terminal, and the fallback it exists to protect became the only path. Both
+  names are read now, rather than branching on a version number: the version is a
+  claim about the library, the cached answer is the fact. Nothing failed while this
+  was true, which is why it lasted: the lockfile resolves an older textual-image
+  than a real install does, so the whole test suite passed against a version
+  nobody had. CI now installs the built package into a clean environment — the one
+  place the newest dependency is resolved — and fails there if no name it knows
+  records a finished probe, naming the ones it looked for.
+
+- **`anime doctor` reported `true bitmap — sharp` while every poster was blocks.**
+  The TUI needs two things to draw a bitmap: a graphics protocol, and a finished
+  capability probe. Doctor checked only the first. A check that confidently
+  describes something the app will not do is worse than no check — it is what sent
+  the first investigation of this after the wrong cause entirely. It now applies
+  both, and a refused bitmap is reported as a fault with the reinstall that fixes
+  the usual cause, rather than as a terminal preference.
+
+- **`anime doctor` said a terminal had not answered a query it had answered.** The
+  character-cell size was reported as `assumed — this terminal did not answer
+  CSI 16 t` whenever it came out as 10x20. That is textual-image's fallback, but it
+  is also a real answer: Windows Terminal replies with exactly 10x20, so the line
+  was a flat untruth on the most common terminal anime-sh runs in. The two cases
+  cannot be told apart after the fact, so the reading is now named as ambiguous
+  instead of guessed at. The advice was the same either way, and a diagnostic
+  stating a fact it did not establish is the failure this line exists to catch.
+
+- **Two tests for the cover-art probe had quietly stopped testing anything.** One
+  asserted that every terminal query is asked before the app starts, by reading the
+  cached result under its pre-0.14 name — the same mistake the app was making,
+  written down as a passing test. The other measured how long the terminal is given
+  to answer by intercepting the per-query function 0.14 no longer calls, so it
+  collected an empty list and compared nothing. Both now ask the property rather
+  than one library version's name for it.
+
+- **The TUI hung at launch, at a full core, when its input was redirected.** The
+  capability probe reads the terminal's reply one byte at a time, in a loop that
+  ends when the reply is complete. A read that times out raises and ends it; a
+  read that returns *nothing* does not — the loop appends an empty string and goes
+  round again, forever, with no timeout able to help because nothing is waiting.
+  Reached whenever output is a real terminal but input cannot carry the reply
+  back: redirected from `NUL` or `/dev/null`, an exhausted pipe, or a parent
+  process that did not pass a console on. `anime home < NUL` never drew a frame.
+  An empty read now ends the probe the same way a timed-out one does, which is the
+  same conclusion — this terminal is not answering — so covers fall back to
+  unicode blocks and the app starts. `isatty` could not have been the guard:
+  Windows reports `NUL` as a terminal, because it is a character device.
+
 ## [0.2.86] - 2026-10-02
 
 ### Added
@@ -148,6 +208,7 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   raised left its database connection open with nothing able to close it, which
   kept the process alive and, on Windows, kept the file open while a recovery
   might be renaming it.
+
 ## [0.2.85] - 2026-10-01
 
 ### Security
