@@ -6,6 +6,18 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **`anime calendar` was a day offset from your own.** The window comes from
+  `date.today()` and is printed back in local time, so both ends mean your
+  calendar day -- but it was cut at UTC midnight, sliding the whole window by
+  your UTC offset. At +05:30 `anime calendar --days 1` asked for 05:30 today to
+  05:30 tomorrow: on a live schedule 3 of the 27 rows it returned were actually
+  *tomorrow* (listed under a heading that said "next 1d"), and everything airing
+  in the first five and a half hours of the day was missing outright. Whichever
+  way the offset points, one edge drops real episodes. The window now follows
+  local midnight, and the regression test forces a non-UTC zone because in UTC
+  -- where CI runs -- the two are the same instant and the bug cannot be
+  reproduced at all.
+
 - **A show AniList rejected was reported as a routine skip.** `anime sync push`
   counts a rejected show and keeps going, deliberately -- so that count is the
   only signal a failure ever produces, and it shared both a field and the word

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+import time
+from datetime import date, datetime, timezone
+from datetime import time as dtime
 from pathlib import Path
 
 import pytest
@@ -180,3 +183,70 @@ async def test_the_last_known_answer_is_served_when_the_upstream_is_down(cache):
     # nothing quietly would be worse than saying the upstream is down.
     with pytest.raises(RuntimeError):
         await meta._cached("never-seen", timedelta(hours=1), down)
+
+
+class _CapturingHttp:
+    """Keeps the GraphQL variables of every POST, so a test can assert the
+    window the adapter actually asked AniList for."""
+
+    def __init__(self, response):
+        self.calls = 0
+        self.variables = []
+        self._response = response
+
+    async def post_json(self, url, *, json=None, headers=None):
+        self.calls += 1
+        self.variables.append((json or {}).get("variables", {}))
+        return self._response
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="TZ cannot be forced on Windows")
+async def test_the_schedule_window_is_cut_at_local_midnight_not_utc(cache):
+    """`anime calendar` asks for `date.today()` and prints `.astimezone()`, so
+    both ends mean the user's calendar day. The window was built at UTC midnight
+    instead, sliding it by the whole UTC offset: at +05:30 it asked for 05:30
+    today to 05:30 tomorrow, so episodes airing in the first five and a half
+    hours of the user's own day were missing outright while the next morning's
+    early ones were listed under a heading that said today.
+
+    Forced to a non-UTC zone on purpose. CI runs in UTC, where local midnight
+    and UTC midnight are the same instant and this bug cannot be reproduced at
+    all -- which is why nothing caught it. Asia/Kolkata also has a half-hour
+    offset and no DST, so the arithmetic stays exact.
+    """
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "Asia/Kolkata"
+    time.tzset()
+    try:
+        http = _CapturingHttp(_SCHED)
+        meta = AniListMetadata(http=http, cache=cache)
+        d0, d1 = date(2027, 1, 4), date(2027, 1, 11)
+        await meta.airing_schedule(d0, d1)
+
+        sent = http.variables[0]
+        local_midnight = int(datetime.combine(d0, dtime.min).astimezone().timestamp())
+        utc_midnight = int(datetime(2027, 1, 4, tzinfo=timezone.utc).timestamp())
+
+        assert sent["start"] == local_midnight
+        assert sent["start"] == utc_midnight - 19800, "+05:30 earlier than UTC midnight"
+        assert sent["start"] != utc_midnight, "the window must follow the user's day"
+        # Still exactly the span that was asked for, just shifted onto it.
+        assert sent["end"] - sent["start"] == 7 * 86400
+    finally:
+        if before is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = before
+        time.tzset()
+
+
+async def test_a_schedule_window_is_still_the_span_that_was_asked_for(cache):
+    """Runs everywhere, including Windows and UTC: whatever the local zone, the
+    two ends stay the requested number of days apart and in order."""
+    http = _CapturingHttp(_SCHED)
+    meta = AniListMetadata(http=http, cache=cache)
+    await meta.airing_schedule(date(2027, 3, 1), date(2027, 3, 4))
+
+    sent = http.variables[0]
+    assert sent["start"] < sent["end"]
+    assert sent["end"] - sent["start"] == 3 * 86400
