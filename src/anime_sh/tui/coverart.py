@@ -17,6 +17,8 @@ the detail screen simply omits the art and never breaks.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from rich.text import Text
 
 
@@ -105,6 +107,70 @@ def _read_pending() -> str:
     return "".join(out)
 
 
+#: How long to let the terminal take over each byte of a capability reply.
+#:
+#: textual-image hardcodes 0.1s, and `drain_terminal_replies` above already
+#: records this terminal answering slower than that. A probe that times out is
+#: indistinguishable from "this terminal has no Sixel", so the library quietly
+#: picks half-cell rendering, `graphics_protocol_active` says no, and the poster
+#: drops to the block render — sharp one launch and blocky the next, decided by
+#: how busy the machine was.
+#:
+#: The budget is *per byte* and the read stops at the end of the reply, so this
+#: is free for the query it matters for: device attributes is answered by every
+#: terminal, so a slow one gets its answer in and a quick one still returns at
+#: once. Nothing waits the full budget here.
+_PROBE_TIMEOUT_S = 0.5
+
+#: …but the kitty and cell-size queries are *not* answered by every terminal, and
+#: an unanswered probe waits out its whole budget. Giving those 0.5s too took a
+#: silent terminal from 0.53s of priming to 1.73s, measured — a second and a half
+#: charged for a feature it does not have. At 0.2s the same terminal costs 1.14s,
+#: and that is the floor for the worst case there is: every real terminal answers
+#: device attributes, so it is only the two optional queries that can ever wait.
+_QUIET_PROBE_TIMEOUT_S = 0.2
+
+#: The end marker of the device-attributes reply — `ESC [ ? … c`, the query whose
+#: answer decides whether Sixel is on offer. Matching on it is how the two
+#: budgets above are told apart. If the library ever changes the sequence this
+#: stops matching and every probe takes the smaller rise, which is the safe way
+#: to be wrong: still better than the 0.1s that caused this, never slower.
+_DEVICE_ATTRIBUTES_END = "c"
+
+
+@contextmanager
+def _patient_probes():
+    """Widen textual-image's per-byte probe timeout for the capability imports.
+
+    The library takes its timeout from the call site, with no way to configure
+    it, and the decision is made once at import time — so this has to be in place
+    *before* the import, and is put back straight after. Scoped to priming on
+    purpose: that is the one moment anime-sh owns the terminal and can afford to
+    wait.
+    """
+    try:
+        from textual_image import _terminal
+    except Exception:
+        yield  # not installed; nothing to widen and nothing to restore
+        return
+
+    original = _terminal.capture_terminal_response
+
+    def patient(start_marker, end_marker, timeout=None):
+        # `None` means the library deliberately wants no timeout; leave it.
+        if timeout is not None:
+            floor = (_PROBE_TIMEOUT_S if end_marker == _DEVICE_ATTRIBUTES_END
+                     else _QUIET_PROBE_TIMEOUT_S)
+            timeout = max(timeout, floor)
+        return original(start_marker, end_marker, timeout)
+
+    _terminal.capture_terminal_response = patient
+    try:
+        yield
+    finally:
+        _terminal.capture_terminal_response = original
+
+
 def prime_graphics() -> None:
     """Trigger textual-image's terminal-capability probe.
 
@@ -133,9 +199,11 @@ def prime_graphics() -> None:
         # opened the theme picker on every launch.
         #
         # Both imports are cheap after the first; what matters is that the
-        # questions are asked while we still own the terminal.
-        import textual_image.renderable  # noqa: F401
-        import textual_image.widget  # noqa: F401  (import runs the cell-size query)
+        # questions are asked while we still own the terminal — and that it is
+        # given long enough to answer them (see `_patient_probes`).
+        with _patient_probes():
+            import textual_image.renderable  # noqa: F401
+            import textual_image.widget  # noqa: F401  (runs the cell-size query)
     except Exception:
         pass
     finally:
