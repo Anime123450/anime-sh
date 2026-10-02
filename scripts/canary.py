@@ -36,6 +36,7 @@ import glob
 import json
 import sys
 import time
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 from anime_sh.domain.models import Audio
@@ -147,7 +148,21 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
             dead_stream = why
         result["resolvable_hosts"] = tried
 
-        detail = f"{len(episodes)} eps, {len(candidates)} hosts"
+        # Distinct origins, not labels. anikoto offers "HD-1", "Vidstream-1" and
+        # "Vidstream-2", and all three are megaplay.buzz -- so "0 of 3 resolved"
+        # read as three independent chances missed, which invites waiting for one
+        # of them to come back. There is only ever one host, and when it refuses
+        # the provider is gone until that host changes. Four genuinely different
+        # hosts failing and one host failing three times need to look different.
+        origins = sorted({urlparse(c.url).netloc for c in candidates if c.url})
+        result["hosts"] = len(origins)
+        if len(origins) < len(candidates):
+            one = "1 host" if len(origins) == 1 else f"{len(origins)} hosts"
+            counted = f"{len(candidates)} labels for {one} ({', '.join(origins)})"
+        else:
+            counted = f"{len(candidates)} hosts"
+
+        detail = f"{len(episodes)} eps, {counted}"
         if result["playable"]:
             result.update(status="ok", detail=detail)
         elif resolved:

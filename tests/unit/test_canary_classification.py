@@ -92,8 +92,11 @@ class _Provider:
 
     name = "probe"
 
-    def __init__(self, hosts=("HostA", "HostB")):
+    def __init__(self, hosts=("HostA", "HostB"), origin=None):
         self.hosts = hosts
+        #: One origin shared by every label, the way anikoto serves three names
+        #: for megaplay.buzz. None gives each label its own host.
+        self.origin = origin
 
     async def match(self, *a, **k):
         return ProviderRef(provider="probe", anime_key="1", audio=Audio.SUB)
@@ -102,7 +105,10 @@ class _Provider:
         return [Episode(anime_id=anime_id, number=1.0, provider_ref=ref, episode_key="1")]
 
     async def candidates(self, episode):
-        return [StreamCandidate(host=h, url=f"https://{h}.test/e/1") for h in self.hosts]
+        return [
+            StreamCandidate(host=h, url=f"https://{self.origin or h + '.test'}/e/1")
+            for h in self.hosts
+        ]
 
 
 class _Resolver:
@@ -123,14 +129,16 @@ class _Resolver:
                        quality=Quality.UNKNOWN)]
 
 
-async def _check(resolvers, serves, monkeypatch):
+async def _check(resolvers, serves, monkeypatch, provider=None):
     import scripts.canary as canary
 
     async def fake_playlist(stream):
         return serves
 
     monkeypatch.setattr(canary, "_playlist_serves", fake_playlist)
-    return await canary.check_provider("probe", _Provider(), _Metadata(), resolvers)
+    return await canary.check_provider(
+        "probe", _Provider(**(provider or {})), _Metadata(), resolvers
+    )
 
 
 async def test_a_stream_that_loads_is_healthy(monkeypatch):
@@ -192,3 +200,35 @@ async def test_a_resolver_that_returns_nothing_says_so_rather_than_nothing(monke
     result = await _check([_Empty("ok")], None, monkeypatch)
     assert result["status"] == "degraded"
     assert "no streams" in result["detail"]
+
+
+async def test_three_labels_for_one_host_do_not_read_as_three_hosts(monkeypatch):
+    """anikoto offers "HD-1", "Vidstream-1" and "Vidstream-2". All three are
+    megaplay.buzz.
+
+    The line counted candidates, so it said "3 hosts, 0 of 3 resolved" -- which
+    reads as three independent chances missed, the shape of a flaky afternoon you
+    wait out. There was only ever one host, and once it started encrypting its
+    playlists the provider was gone until *it* changed. Naming the origin is the
+    difference between "try again later" and "this provider is finished".
+    """
+    result = await _check(
+        [_Resolver("raise")], None, monkeypatch,
+        provider={"hosts": ("HD-1", "Vidstream-1", "Vidstream-2"),
+                  "origin": "megaplay.buzz"},
+    )
+    assert result["status"] == "degraded"
+    assert "3 labels for 1 host (megaplay.buzz)" in result["detail"]
+    assert result["hosts"] == 1
+    assert result["candidates"] == 3
+
+
+async def test_genuinely_different_hosts_are_still_counted_as_hosts(monkeypatch):
+    """hianime's four hosts really are four, and must not be relabelled."""
+    result = await _check(
+        [_Resolver("raise")], None, monkeypatch,
+        provider={"hosts": ("HostA", "HostB", "HostC")},
+    )
+    assert "3 hosts" in result["detail"]
+    assert "labels" not in result["detail"]
+    assert result["hosts"] == 3
