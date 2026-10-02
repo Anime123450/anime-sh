@@ -440,7 +440,7 @@ anime auth logout
 anime list --status watching
 anime rate "Frieren" 9
 anime status "Frieren" completed
-anime sync push                # local progress  ->  AniList
+anime sync push                # episodes you finished  ->  AniList
 anime sync pull                # AniList  ->  local library
 
 # ⬇️  Downloads

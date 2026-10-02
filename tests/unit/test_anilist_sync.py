@@ -273,7 +273,8 @@ class _FakeTracker:
 async def test_sync_push_sends_all_rows_with_totals():
     lib = FakeLibrary()
     await lib.save_anime(Anime(id=AnimeId(anilist=1), title=Title(romaji="A"), episode_count=12))
-    await lib.save_progress(WatchProgress(AnimeId(anilist=1), 4.0, 0, 0, datetime.now(timezone.utc)))
+    await lib.save_progress(WatchProgress(AnimeId(anilist=1), 4.0, 0, 0,
+                                          datetime.now(timezone.utc), completed=True))
     tracker = _FakeTracker()
     result = await SyncService(lib, tracker).push()
     assert result.pushed == 1
@@ -284,7 +285,8 @@ async def test_sync_pull_imports_media_and_progress():
     lib = FakeLibrary()
     tracker = _FakeTracker()
     tracker._pull = [
-        (WatchProgress(AnimeId(anilist=9), 3.0, 0, 0, datetime.now(timezone.utc)),
+        (WatchProgress(AnimeId(anilist=9), 3.0, 0, 0, datetime.now(timezone.utc),
+                       completed=True),
          Anime(id=AnimeId(anilist=9), title=Title(romaji="B"), episode_count=24)),
     ]
     result = await SyncService(lib, tracker).pull()
@@ -349,7 +351,9 @@ async def test_sync_push_sends_one_call_per_show_not_per_episode():
                                episode_count=28))
     now = datetime.now(timezone.utc)
     for ep in (1.0, 2.0, 3.0, 28.0):
-        await lib.save_progress(WatchProgress(AnimeId(anilist=1), ep, 0, 0, now))
+        await lib.save_progress(
+            WatchProgress(AnimeId(anilist=1), ep, 0, 0, now, completed=True)
+        )
     tracker = _FakeTracker()
     result = await SyncService(lib, tracker).push()
 
@@ -367,7 +371,9 @@ async def test_sync_push_never_sets_a_show_below_where_you_are():
                                episode_count=28))
     now = datetime.now(timezone.utc)
     for ep in (1.0, 2.0, 3.0, 28.0):
-        await lib.save_progress(WatchProgress(AnimeId(anilist=1), ep, 0, 0, now))
+        await lib.save_progress(
+            WatchProgress(AnimeId(anilist=1), ep, 0, 0, now, completed=True)
+        )
     tracker = _FakeTracker()
     await SyncService(lib, tracker).push()
 
@@ -383,7 +389,7 @@ async def test_sync_push_picks_the_furthest_even_if_rows_arrive_unordered():
 
     class Library:
         async def all_progress_rows(self):
-            return [WatchProgress(AnimeId(anilist=1), ep, 0, 0, now)
+            return [WatchProgress(AnimeId(anilist=1), ep, 0, 0, now, completed=True)
                     for ep in (12.0, 3.0, 7.0)]
 
         async def get_anime(self, anime_id):
@@ -460,3 +466,70 @@ async def test_a_whole_episode_arriving_as_a_float_still_pushes():
     http = _FakeHttp(_statuses((196187, "CURRENT", 3)) + [{"data": {"SaveMediaListEntry": {"id": 1}}}])
     await _push(http, 196187, 6.0, 12)
     assert _saved(http)["progress"] == 6
+
+
+# -- a push must only ever claim episodes you finished ----------------------- #
+# `progress` on a tracker entry means "this many episodes are done". The episode
+# you are part-way through is a position, not a count, and sending it claimed an
+# episode nobody had watched. Measured on a real library, `anime push` was about
+# to tell AniList: episode 1 finished for a show 1% in, and three episodes
+# finished for one where nothing was finished at all and episode 3 was half way.
+#
+# `pull` then writes the tracker's answer back as completed with position 0, so
+# the round trip also deleted the place playback had stored.
+async def test_push_does_not_claim_an_episode_you_are_only_part_way_through():
+    lib = FakeLibrary()
+    await lib.save_anime(Anime(id=AnimeId(anilist=1), title=Title(romaji="A"),
+                               episode_count=12))
+    now = datetime.now(timezone.utc)
+    for ep in (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0):
+        await lib.save_progress(
+            WatchProgress(AnimeId(anilist=1), ep, 0, 0, now, completed=True)
+        )
+    # 18% into episode 8 -- the real Skeleton Knight S2 row.
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=1), 8.0, 262, 1429, now, completed=False)
+    )
+    tracker = _FakeTracker()
+    await SyncService(lib, tracker).push()
+
+    assert [ep for _, ep, _ in tracker.pushed] == [7], (
+        "pushed the episode being watched as though it were finished"
+    )
+
+
+async def test_a_show_with_nothing_finished_is_not_pushed_at_all():
+    """BOCCHI THE ROCK!, half way through episode 3 with nothing completed, was
+    about to be reported as three episodes watched. Zero finished episodes is
+    nothing to report, not something to round up."""
+    lib = FakeLibrary()
+    await lib.save_anime(Anime(id=AnimeId(anilist=1), title=Title(romaji="A"),
+                               episode_count=12))
+    now = datetime.now(timezone.utc)
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=1), 3.0, 700, 1400, now, completed=False)
+    )
+    tracker = _FakeTracker()
+    result = await SyncService(lib, tracker).push()
+
+    assert tracker.pushed == []
+    assert result.pushed == 0
+    assert result.skipped == 0, (
+        "a show with nothing finished is a correct outcome, not a rejected row"
+    )
+
+
+async def test_a_finished_episode_behind_the_frontier_is_still_pushed():
+    """The fix must not become "push nothing while anything is unfinished":
+    seven finished episodes are still seven, whatever episode eight is doing."""
+    lib = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=4), 11.0, 0, 0, now, completed=True)
+    )
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=4), 12.0, 30, 1400, now, completed=False)
+    )
+    tracker = _FakeTracker()
+    await SyncService(lib, tracker).push()
+    assert [ep for _, ep, _ in tracker.pushed] == [11]
