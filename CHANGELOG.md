@@ -4,6 +4,46 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.88] - 2026-10-02
+
+### Fixed
+
+- **A provider that cannot play anything no longer reads as healthy.** `anime
+  doctor` reported `providers: anikoto, hianime` while anikoto's circuit breaker
+  sat half-open on three straight failures and the provider could not play a
+  single episode. That check answers which plugins *load*, which is a different
+  question — but doctor output is what goes into a bug report, so a new
+  `provider health` line now reads the breaker state the app has already written
+  down and names any provider that is open or half-open, with the failure count
+  that got it there. It contacts nothing; `anime doctor --streams` remains the
+  check that actually plays through each provider. One dead provider is not
+  treated as a fault, because that is the normal operating state here and the
+  fan-out routes around it — a permanently red doctor is one nobody reads. It
+  fails only when no provider is left with a closed breaker, which is the case
+  where the next play has nowhere to go. A database that cannot be opened is
+  reported as "not recorded yet" rather than as a verdict, so a fresh install is
+  never told its providers are broken.
+
+- **A resolver that cannot open an encrypted playlist said the response was
+  empty.** anikoto's three stream hosts are all megaplay, and megaplay stopped
+  serving its playlist in the clear: the reply still carries subtitles and
+  intro/outro marks but puts the stream behind an `enc` blob whose key is not in
+  the payload. The resolver reported `getSources returned no file`, which reads as
+  a failed or truncated response and sends an investigation looking for one — the
+  envelope is intact, only the contents are shut. It now says that, and the
+  genuinely-empty case stays distinguishable. Decrypting it is deliberately not
+  attempted: a per-build key is the road this project does not take, and the
+  candidate simply stays unresolvable so the fan-out moves on to a provider that
+  works.
+
+- **The provider canary threw away the reason every host refused.** It caught each
+  resolver's exception and continued, so the status line read `0 of 3 resolved —
+  nothing playable`: a count, with the cause only ever in an exception nobody
+  kept, and finding it meant re-running the whole provider walk by hand with the
+  `except` clause removed. It now carries the first refusal into the line it
+  already prints. A resolver returning an empty list raises nothing, so that case
+  is named separately rather than appearing as silence.
+
 ## [0.2.87] - 2026-10-02
 
 ### Fixed
