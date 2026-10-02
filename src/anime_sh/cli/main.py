@@ -2035,13 +2035,17 @@ def next_unwatched(progress, episode_count: int | None) -> float | None:
 def has_aired(anime, episode: float) -> bool:
     """Whether this episode exists yet.
 
-    ``next_airing_episode`` is the first one that has *not* aired, so anything
-    at or past it is still in the future. Unknown means we cannot tell, and the
-    honest answer there is to try: a show with no airing data is usually one
-    that finished years ago.
+    Unknown means we cannot tell, and the honest answer there is to try: a show
+    with no airing data is usually one that finished years ago.
+
+    The boundary itself is `Anime.aired_through`, which knows that the episode
+    a schedule names stops being "in the future" the moment its air time
+    passes. Comparing against ``next_airing_episode`` directly refused the
+    newest episode of every airing show for as long as the cached row went
+    unrefreshed.
     """
-    upcoming = getattr(anime, "next_airing_episode", None)
-    return upcoming is None or episode < upcoming
+    aired = getattr(anime, "aired_through", lambda now=None: None)()
+    return aired is None or episode <= aired
 
 
 async def _prefetch(count: int, shows: int, dub: bool, dry_run: bool) -> None:
