@@ -336,3 +336,109 @@ def test_the_terminal_gets_longer_than_a_tenth_of_a_second_to_answer():
         f"the terminal was given {min(budgets)}s to say whether it does Sixel; a "
         f"slow one times out and its support is read as absent"
     )
+
+
+# --------------------------------------------------------------------------- #
+# A stdin that can never answer must not spin the probe
+# --------------------------------------------------------------------------- #
+def test_the_probe_loop_cannot_spin_on_a_stdin_that_will_never_answer():
+    """`anime home < NUL` hung at launch and never drew a frame.
+
+    textual-image reads the reply one byte at a time until it is complete. A read
+    that times out raises and ends that loop; a read that returns *nothing* does
+    not -- the loop appends an empty string and goes round again, forever, at a
+    full core. Measured at 50,000 empty reads a second on a real Windows Terminal
+    tab with stdin redirected from NUL, while stdout was still the console.
+
+    `isatty` cannot be the guard: Windows reports NUL as a terminal, because it
+    is a character device, so the only honest signal is the empty read itself.
+
+    The fake read stops itself after 10,000 calls. That bounds the *test*, not
+    the bug: without the guard this loop never ends, and a test that hangs
+    reports nothing at all. The assertion is on the call count, so the failure
+    reads as "the loop went round again" rather than as a timeout.
+    """
+    import pytest
+
+    _terminal = pytest.importorskip("textual_image._terminal")
+
+    calls = {"n": 0}
+    real_read = _terminal.read
+    real_capture_mode = _terminal.capture_mode
+
+    def dead_read(fd, length, timeout=None):
+        calls["n"] += 1
+        if calls["n"] > 10_000:
+            raise TimeoutError("instrumented stop -- the loop was spinning")
+        return ""
+
+    import contextlib
+    import io
+    import sys
+
+    class _Stdin(io.StringIO):
+        def isatty(self):
+            return True
+
+        @property
+        def buffer(self):
+            return self
+
+        def fileno(self):
+            return 0
+
+    _terminal.read = dead_read
+    _terminal.capture_mode = contextlib.nullcontext
+    original_stdin = sys.__stdin__
+    sys.__stdin__ = _Stdin()
+    try:
+        with coverart._bounded_probe_reads():
+            with pytest.raises(TimeoutError):
+                if hasattr(_terminal, "capture_until_primary_da"):
+                    with _terminal.capture_until_primary_da(0.1):
+                        pass
+                else:
+                    with _terminal.capture_terminal_response("\x1b[", "c", 0.1):
+                        pass
+    finally:
+        sys.__stdin__ = original_stdin
+        _terminal.capture_mode = real_capture_mode
+        _terminal.read = real_read
+
+    assert calls["n"] == 1, (
+        f"the empty read was not treated as the end of the reply: the loop went "
+        f"round {calls['n']} times"
+    )
+
+
+def test_the_read_guard_is_put_back_afterwards():
+    """It is in place for the one moment anime-sh owns the terminal, not for the
+    life of the process -- Textual does its own reading afterwards."""
+    import pytest
+
+    _terminal = pytest.importorskip("textual_image._terminal")
+
+    before = _terminal.read
+    with coverart._bounded_probe_reads():
+        assert _terminal.read is not before
+    assert _terminal.read is before
+
+
+def test_a_missing_textual_image_does_not_break_the_read_guard():
+    """Same contract as `_patient_probes`: it runs before the imports it is
+    guarding, so it cannot assume the package is importable."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _boom(name, *args, **kwargs):
+        if name.startswith("textual_image"):
+            raise RuntimeError("not installed")
+        return real_import(name, *args, **kwargs)
+
+    builtins.__import__ = _boom
+    try:
+        with coverart._bounded_probe_reads():
+            pass  # must not raise
+    finally:
+        builtins.__import__ = real_import
