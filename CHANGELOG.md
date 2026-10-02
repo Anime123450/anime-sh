@@ -6,6 +6,21 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **`anime sync push` told AniList you had finished episodes you were part-way
+  through.** A tracker entry's `progress` counts episodes *done*, and this sent
+  the furthest progress row per show without asking whether that episode was
+  finished -- so the one episode you are in the middle of, the only row that is a
+  position rather than a count, was the one being reported. On a real library it
+  was about to claim episode 1 watched for a show 1% in, and three episodes
+  watched for one where nothing had been finished and episode 3 was half way
+  through. It now sends the furthest *finished* episode, and a show with nothing
+  finished is left alone rather than rounded up.
+
+  This also lost data on the way back: `pull` writes the tracker's answer with no
+  position, so pushing while part-way through an episode and pulling afterwards
+  overwrote where you had stopped with zero. Those episodes then read as finished
+  and `resume` moved past them.
+
 - **`anime stats` counted your AniList list as time spent in anime-sh.** It led
   with every episode marked finished by any route and put local hours on the
   next line, so the two divided to six minutes an episode: of 142 "finished"

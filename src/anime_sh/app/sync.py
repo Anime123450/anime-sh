@@ -39,8 +39,15 @@ class SyncService:
 
     async def push(self) -> SyncResult:
         """Push local progress to the tracker: one call per show, carrying the
-        furthest episode. Uses cached metadata for the planned total so finales
-        are marked COMPLETED.
+        furthest *finished* episode. Uses cached metadata for the planned total
+        so finales are marked COMPLETED.
+
+        Finished, not furthest. A tracker entry's number means "this many
+        episodes are done", so the episode you are in the middle of is a
+        position and not a count -- and sending it claimed an episode you had
+        not watched. Worse, `pull` then wrote that claim back as completed with
+        no position, so a round trip through the tracker deleted the place you
+        had stopped at.
 
         Per *show*, not per progress row. A tracker entry holds one number, so
         sending every row for a show just set the same entry over and over,
@@ -60,6 +67,19 @@ class SyncService:
         for progress in await self._library.all_progress_rows():
             if progress.anime_id.anilist is None or progress.episode <= 0:
                 skipped += 1
+                continue
+            if not progress.completed:
+                # AniList's `progress` counts episodes *finished*, so the
+                # frontier row -- the one episode you are part-way through -- is
+                # the one thing that must not be sent. It was, because this took
+                # the furthest row and never asked. On a real library that meant
+                # telling AniList "episode 1 watched" for a show 1% in, and "3
+                # episodes watched" for one where nothing had been finished at
+                # all and episode 3 was half-way through.
+                #
+                # Not counted as skipped: a show you have started and not
+                # finished anything in has nothing to report, which is a correct
+                # outcome rather than a rejected row.
                 continue
             best = furthest.get(progress.anime_id.anilist)
             # Not relying on the repository's ORDER BY: "the furthest episode"
