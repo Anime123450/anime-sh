@@ -161,6 +161,10 @@ class LibraryService:
                 genres[g] += 1
         return WatchStats(
             episodes_completed=sum(1 for p in progress if p.completed),
+            # Distinct (show, episode), not the row count: watching one episode
+            # twice is two sessions and one episode, and `wrapped` reports the
+            # same pair of numbers from the same rows.
+            episodes_here=len({(h.anime.id.anilist, h.episode) for h in history}),
             shows=len({p.anime_id.anilist for p in progress if p.anime_id.anilist}),
             shows_completed=len(
                 {p.anime_id.anilist for p in progress

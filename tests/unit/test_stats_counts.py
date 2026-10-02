@@ -102,3 +102,53 @@ def test_has_wider_total_only_when_marked_exceeds_played():
     assert played_more.has_wider_total is False
     wider = summarise([], progress=_library())
     assert wider.has_wider_total is True, "3 marked vs 0 played"
+
+
+# -- stats and wrapped must agree about "watched here" ---------------------- #
+def test_stats_and_wrapped_count_episodes_watched_here_the_same_way():
+    """The two commands read the same history table and must land on the same
+    number for it.
+
+    `stats` led with `episodes_completed` -- progress rows, so everything `anime
+    mark` wrote and everything an AniList pull imported -- directly above hours
+    that only playback can produce. On a real library that was 142 episodes
+    against 14.5 hours: six minutes an episode, under a heading reading "Your
+    anime-sh stats", when 115 of the 142 had come from AniList and none had been
+    watched here at all.
+
+    `wrapped` had already been given the careful wording for this; `stats` was
+    left behind, which is how the two came to describe one library in numbers
+    that could not both be right.
+    """
+    from anime_sh.domain.wrapped import summarise
+    from anime_sh.domain.models import Anime, HistoryItem, Title
+
+    now = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
+    show = Anime(id=AnimeId(anilist=1), title=Title(romaji="A"))
+    history = [
+        HistoryItem(anime=show, episode=ep, watched_at=now, provider="hianime",
+                    seconds_watched=1400)
+        # episode 1 twice: three sittings, two episodes
+        for ep in (1.0, 1.0, 2.0)
+    ]
+
+    here = len({(h.anime.id.anilist, h.episode) for h in history})
+    w = summarise(history, local_dates=False)
+
+    assert here == 2, "two distinct episodes across three sittings"
+    assert w.episodes == here, (
+        f"wrapped says {w.episodes} episodes played here and stats says {here} "
+        "for the same rows"
+    )
+    assert w.sessions == len(history) == 3
+
+
+def test_the_wider_total_is_only_mentioned_when_it_is_wider():
+    """The extra line exists to explain a gap. With nothing imported there is no
+    gap, and printing it anyway would invent a distinction the library does not
+    have."""
+    stats = WatchStats(
+        episodes_completed=2, shows=1, sessions=3, total_seconds=4200,
+        shows_completed=1, episodes_here=2,
+    )
+    assert stats.episodes_completed == stats.episodes_here

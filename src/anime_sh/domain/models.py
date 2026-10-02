@@ -341,6 +341,13 @@ class WatchStats:
     #: episodes finished across 76 shows", which was not true: those 137
     #: spanned 59 shows, and the other 17 were started and never finished.
     shows_completed: int = 0
+    #: Distinct episodes actually played through anime-sh. Kept separate from
+    #: ``episodes_completed`` because that counts progress rows, which include
+    #: everything `anime mark` wrote and everything an AniList pull imported --
+    #: on a real library 142 of 142 "finished" episodes had arrived that way and
+    #: none had been watched here, while the hours beside them came only from
+    #: playback. Dividing one by the other gave six minutes an episode.
+    episodes_here: int = 0
     top_providers: tuple[tuple[str, int], ...] = ()
     top_genres: tuple[tuple[str, int], ...] = ()
 

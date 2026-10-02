@@ -40,6 +40,9 @@ def test_an_empty_history_is_empty_not_an_error():
 
 
 def test_counts_episodes_hours_and_distinct_shows():
+    """Three sittings, and two of them are the same episode of A -- so two
+    episodes, not three. This fixture always said that; the count did not,
+    because it was the row count."""
     a, b = _show("A", anilist=1), _show("B", anilist=2)
     history = [
         _watched(a, _day(2026, 3, 1), seconds=1800),
@@ -47,8 +50,29 @@ def test_counts_episodes_hours_and_distinct_shows():
         _watched(b, _day(2026, 3, 3), seconds=3600),
     ]
     w = summarise(history, local_dates=False)
-    assert (w.episodes, w.shows, w.hours) == (3, 2, 2.0)
+    assert (w.episodes, w.shows, w.hours) == (2, 2, 2.0)
+    assert w.sessions == 3, "the three sittings are still three sittings"
     assert w.top_shows[0] == ("A", 2)
+
+
+def test_rewatching_an_episode_is_another_session_not_another_episode():
+    """On a real library 47 sittings covered 39 episodes, and the line read
+    "47 episodes played here". Finishing something a second time cannot add to
+    how much you have seen."""
+    a = _show("A")
+    history = [_watched(a, _day(2026, 3, d), episode=1.0) for d in (1, 2, 3)]
+    w = summarise(history, local_dates=False)
+    assert w.episodes == 1
+    assert w.sessions == 3
+
+
+def test_separate_episodes_of_one_show_each_count():
+    """The other direction: distinctness is per (show, episode), not per show,
+    so a season watched straight through is not one episode."""
+    a = _show("A")
+    history = [_watched(a, _day(2026, 3, n), episode=float(n)) for n in (1, 2, 3)]
+    w = summarise(history, local_dates=False)
+    assert (w.episodes, w.sessions, w.shows) == (3, 3, 1)
 
 
 def test_a_year_filter_keeps_only_that_year():

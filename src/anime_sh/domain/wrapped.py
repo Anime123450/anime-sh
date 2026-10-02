@@ -21,6 +21,12 @@ class Wrapped:
     hours, streaks and the busiest day can only be computed from playback
     sessions — nothing else records how long you watched or when.
 
+    ``episodes`` counts distinct episodes and ``sessions`` counts sittings. They
+    were one number, the row count, printed as "47 episodes played here" when 47
+    sittings had covered 39 episodes: finishing an episode you had already seen
+    added another "episode". `anime stats` reports the same pair from the same
+    rows, so the two commands cannot drift apart again.
+
     That is not the same number as `anime stats` reports, which counts progress
     rows and therefore includes everything marked watched or imported from
     AniList. On a real library the two differed threefold, with both labelled
@@ -33,6 +39,8 @@ class Wrapped:
     episodes: int
     shows: int
     seconds: int
+    #: Playback sittings. More than ``episodes`` when something was rewatched.
+    sessions: int = 0
     top_shows: tuple[tuple[str, int], ...] = ()
     top_genres: tuple[tuple[str, int], ...] = ()
     longest_streak: int = 0
@@ -84,7 +92,7 @@ def summarise(history, *, year: int | None = None, local_dates=True,
     rows = [h for h in history if year is None or _day(h, local_dates).year == year]
     if not rows:
         return Wrapped(
-            year=year, episodes=0, shows=0, seconds=0,
+            year=year, episodes=0, shows=0, seconds=0, sessions=0,
             marked_episodes=marked_eps, marked_shows=marked_shows,
         )
 
@@ -94,6 +102,7 @@ def summarise(history, *, year: int | None = None, local_dates=True,
     months = [0] * 12
     seconds = 0
     seen_ids = set()
+    seen_episodes = set()
 
     for h in rows:
         seconds += max(h.seconds_watched, 0)
@@ -105,14 +114,16 @@ def summarise(history, *, year: int | None = None, local_dates=True,
         per_day[day] += 1
         months[day.month - 1] += 1
         seen_ids.add(h.anime.id.anilist or title)
+        seen_episodes.add((h.anime.id.anilist or title, h.episode))
 
     streak, streak_end = _longest_streak(per_day)
     busiest, busiest_count = per_day.most_common(1)[0]
     return Wrapped(
         year=year,
-        episodes=len(rows),
+        episodes=len(seen_episodes),
         shows=len(seen_ids),
         seconds=seconds,
+        sessions=len(rows),
         top_shows=tuple(shows.most_common(5)),
         top_genres=tuple(genres.most_common(5)),
         longest_streak=streak,
