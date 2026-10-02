@@ -4,6 +4,8 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.86] - 2026-10-02
+
 ### Added
 
 - **One-line installers for Windows and for macOS/Linux.** `install.ps1` and
@@ -13,6 +15,15 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   next one. Both take `--dry-run`, both are safe to run twice, and the Windows
   one warns rather than silently adding a second copy when `anime` is already
   installed by something else.
+
+- **`anime doctor` reports how cover art will be drawn.** Which renderer the TUI
+  will reach for — a true bitmap or the unicode-block fallback — and, for a
+  bitmap, the character-cell size it will be scaled against and whether that was
+  measured or assumed. The difference between the two renderers is plainly
+  visible and its cause is not, so without this line a soft poster is a bug
+  report with nothing underneath it. It reports a pipe as a pipe rather than as a
+  verdict: redirecting doctor's output skips the probe instead of answering it,
+  and piping doctor into a bug report is the common case.
 
 ### Changed
 
@@ -28,6 +39,115 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   `packaging/README.md` records the reasoning so this is not retried as though
   it were a manifest problem. Windows installs come from Scoop and Chocolatey.
 
+### Fixed
+
+- **A show that had finished airing still had a "next episode".** The cached
+  metadata never clears `next_airing_episode` once a season ends, so a show kept
+  the last pending episode it ever had — and three readers believed it. The worst
+  of them, `has_aired`, treats anything at or past that number as unreleased: a
+  twelve-episode show cached while episode 10 was pending reported 10, 11 and 12
+  as not yet aired, so `play` and `prefetch` refused the last quarter of a season
+  that finished months ago. Auto-next stopped at the same stale boundary, which
+  quietly ended the queue after episode 8. And two formatters counted down to a
+  date in the past. Only reachable when the show came from the local cache rather
+  than a live fetch — offline, or a Continue Watching row painted straight from
+  the database. A schedule only describes a show that is airing, so it is now
+  handed back only for one, which retires it in every reader at once.
+
+- **`ANIME_SH_*` environment variables were ignored.** Precedence is documented
+  as CLI flag, then environment, then config file, then defaults. It was not that
+  order: the file is handed to the settings model as constructor arguments, which
+  the settings library ranks *above* the environment — so a variable did nothing
+  for any setting the file also mentioned, which is most of them once
+  `config set` has written one. It failed silently, with no error and no warning,
+  for exactly the setting you were most likely trying to override. The variables
+  now win over the file, per setting, so overriding `ui.theme` leaves
+  `ui.episodes` as the file set it. Documented in the README, which had never
+  mentioned them at all. Related: `config set` validated against the merged
+  settings, which read the environment, so with a matching variable set the value
+  that got validated was not the one being written — `anime config set ui.theme`
+  with a typo reported success and left a config that refused to load.
+
+- **A provider's "Show S2" was not matched to AniList's "Show Season 2".** The
+  function that reads a season number out of a title understood four spellings of
+  the marker; the one that strips those markers before comparing *which show* a
+  title names stripped three. The missing one was the `S2` / `S02` shorthand, so
+  two titles for the same season agreed on the season number and were then ruled
+  different shows, because `s2` survived as a word its "Season 2" spelling did not
+  carry. That filtered the right source out — and when the season filter is left
+  with nothing it falls back to an unfiltered, similarity-ranked list, which can
+  hand back a different season. Which is the failure the filter exists to
+  prevent: episodes playing from one season while progress is written against
+  another. Both functions now read one list of markers.
+
+- **`anime doctor` named an mpv it would never launch.** It located the player
+  with a plain PATH lookup, which on Windows finds `mpv.COM` — the console build.
+  Playback does not use that one: it deliberately switches to the `mpv.exe` beside
+  it, because the console build can attach to the parent terminal and never open a
+  video window. So doctor named the single binary that cannot be the cause of the
+  symptom people run doctor about, and doctor output is what goes into a bug
+  report. Both now resolve through one function.
+
+- **Cover art rendered as unicode blocks instead of a bitmap.** textual-image
+  chooses its renderer once, at import, from a capability probe that allowed the
+  terminal a tenth of a second per byte to answer — and a probe that times out is
+  indistinguishable from a terminal that has no Sixel or kitty graphics. The TUI's
+  own terminal-draining code already recorded Windows Terminal answering slower
+  than that, so the same terminal on the same machine drew a crisp poster one
+  launch and a blocky one the next, decided by how busy the machine was. The
+  budget is now widened while the capability imports run and put straight back
+  afterwards: half a second for the device-attributes query, which every terminal
+  answers and which is the one that decides Sixel, and a fifth of a second for the
+  kitty and cell-size queries, which an unsupporting terminal leaves to time out
+  and so would be charged for in full.
+
+- **Auto-next never advanced on a show with no announced episode total.** AniList
+  leaves the episode count null for a currently-airing show whose full run has
+  never been announced — One Piece and its kind, which is exactly what people sit
+  down and binge. The gate tested that field before the airing schedule and so
+  answered "there is no next episode" from episode 1 onwards. The schedule goes
+  first now, which it should have anyway: the count is the *planned* total and runs
+  ahead of what has actually been released. `anime prefetch` already got this
+  right, so it would download the episodes auto-next then refused to play.
+
+- **One rate-limited query could roll your AniList list backwards.** A push
+  refuses to lower your progress, which needs knowing where the list already is —
+  fetched once and cached per process. A *failed* fetch was cached too, as an
+  empty list, which reads as "this show is not on your list" and takes the guard
+  out of the path entirely. The tracker lives as long as the process and a binge
+  is a push per episode, so a single rate limit on the first episode left every
+  later push blind, and a blind push sends whatever episode just finished:
+  rewatching a show you had completed reset it. A failed read is no longer cached,
+  so the next push asks again.
+
+- **A download longer than about four and a half minutes died on its own progress
+  output.** ffmpeg ends each progress report with a carriage return so the next
+  one overwrites it, and only the very last report ends with a newline — so
+  reading its stderr line by line, which splits on newlines, saw one line that
+  never terminated. asyncio gives up on that once it passes 64 KiB, which at the
+  measured rate of about 118 bytes twice a second lands four and a half minutes
+  in. Worse than a crash: the cleanup treats it as an unfinished download and
+  deletes the partial file, so an episode that was downloading perfectly well was
+  thrown away by the output saying so. Reading in chunks and splitting on carriage
+  returns as well as newlines also makes those reports reachable for the first
+  time — nothing had ever seen one, which is why this looked fine.
+
+- **A migration that failed halfway could not be retried, and the app never
+  started again.** The version a migration file gets recorded under is written
+  only after the whole file has run, and the runner used `executescript`, which is
+  not one transaction — it commits as it goes, and SQLite commits each schema
+  change on its own. So a file whose second statement failed left the first one
+  applied and durable with no version recorded, and the next startup replayed it,
+  where adding a column that is already there raises. Migrations run as part of
+  opening the database, which every command does, so this was not a failed
+  migration but an install that could never be opened again. The trigger is not a
+  typo, which CI would catch: it is a later statement failing on one person's
+  data, an I/O error partway through, or the process being killed between two
+  schema changes. Each file and its version row now run in one transaction, so a
+  migration either lands completely or leaves no trace. Related: a migration that
+  raised left its database connection open with nothing able to close it, which
+  kept the process alive and, on Windows, kept the file open while a recovery
+  might be renaming it.
 ## [0.2.85] - 2026-10-01
 
 ### Security
