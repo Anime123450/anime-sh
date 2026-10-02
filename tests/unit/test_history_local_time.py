@@ -81,6 +81,24 @@ def test_the_json_output_keeps_the_unambiguous_instant(container):
     assert "2026-10-02T16:38:00+00:00" in result.stdout
 
 
+def test_the_instants_the_forced_zone_test_asserts_are_the_right_ones():
+    """The arithmetic behind the skipped test, against an explicit +05:30 rather
+    than the process zone -- so it runs everywhere, Windows included.
+
+    The test below only executes where `TZ` can be forced, which is not the
+    machine this is usually developed on. Its expected strings were therefore
+    first run by CI, and one of them was wrong: `replace(hour=20)` keeps the
+    minutes, so "20:00 UTC" was really 20:38 and read back as 02:08, not 01:30.
+    Pinning the offset here puts that check where it fails immediately.
+    """
+    ist = timezone(timedelta(hours=5, minutes=30))
+    assert WATCHED_AT.astimezone(ist).strftime("%Y-%m-%d %H:%M") == "2026-10-02 22:08"
+
+    rolls_over = WATCHED_AT.replace(hour=20, minute=0)
+    assert rolls_over.astimezone(ist).strftime("%Y-%m-%d %H:%M") == "2026-10-03 01:30"
+    assert rolls_over.date() != rolls_over.astimezone(ist).date()
+
+
 @pytest.mark.skipif(not hasattr(time, "tzset"), reason="TZ cannot be forced on Windows")
 def test_a_late_evening_watch_is_not_filed_under_the_day_before(container):
     """The half that loses a whole day, forced to a zone where it happens.
@@ -102,9 +120,11 @@ def test_a_late_evening_watch_is_not_filed_under_the_day_before(container):
         assert "16:38" not in result.stdout, "that is the UTC wall time, not the user's"
 
         # The date-rollover half: 20:00 UTC is already the next day at +05:30.
-        rolls_over = WATCHED_AT.replace(hour=20)
+        rolls_over = WATCHED_AT.replace(hour=20, minute=0)
         assert rolls_over.astimezone().strftime("%Y-%m-%d %H:%M") == "2026-10-03 01:30"
-        assert rolls_over.date() != rolls_over.astimezone().date()
+        assert rolls_over.date() != rolls_over.astimezone().date(), (
+            "the stored date and the user's date are different days here"
+        )
     finally:
         if before is None:
             os.environ.pop("TZ", None)
