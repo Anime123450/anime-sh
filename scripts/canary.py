@@ -120,6 +120,7 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
         tried = 0
         resolved = False
         dead_stream = ""
+        first_refusal = ""
         for cand in candidates:
             resolver = next((r for r in resolvers if r.handles(cand)), None)
             if resolver is None:
@@ -127,9 +128,16 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
             tried += 1
             try:
                 streams = await resolver.resolve(cand)
-            except Exception:
+            except Exception as e:
+                # Keep the first reason. It was swallowed outright, so "0 of 3
+                # resolved" named a count and nothing else, and finding out *why*
+                # meant re-running the whole walk by hand with the except clause
+                # taken out. The resolver already knows; it just had nowhere to
+                # say it.
+                first_refusal = first_refusal or f"{type(e).__name__}: {e}"
                 continue
             if not streams:
+                first_refusal = first_refusal or "resolver returned no streams"
                 continue
             resolved = True
             why = await _playlist_serves(streams[0])
@@ -163,9 +171,11 @@ async def check_provider(name, provider, metadata, resolvers) -> dict:
             # 13/09/2026 — its megaplay hosts moved to an encrypted payload —
             # and the canary said "All checked providers healthy" for five
             # mornings while nothing it offered could be played.
+            because = f" — {first_refusal}" if first_refusal else ""
             result.update(
                 status="degraded",
-                detail=f"{detail}, 0 of {tried} resolved — nothing playable",
+                detail=f"{detail}, 0 of {tried} resolved — nothing playable"
+                       f"{because}",
             )
     except Exception as e:
         if _is_cloudflare(e):

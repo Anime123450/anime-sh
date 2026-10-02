@@ -66,6 +66,28 @@ class VidtubeResolver:
 
         file_url = ((data or {}).get("sources") or {}).get("file")
         if not file_url:
+            # Measured 02/10/2026: megaplay stopped serving the playlist in the
+            # clear. getSources now answers `{enc, t, server, intro, outro,
+            # tracks}` — no `sources` at all — where `enc` is 128 bytes of
+            # URL-safe base64, an exact multiple of the block size, and no
+            # repeating-XOR key recovers any plausible JSON prefix from it. The
+            # key is not in the payload.
+            #
+            # That is the AllAnime road, which this project does not take: the
+            # zoko resolver's docstring recovers a key *from a crib in the
+            # payload* and says why a per-build key plus a live nonce was dropped
+            # rather than chased. So the candidate stays unresolvable and the
+            # fan-out moves on to another provider.
+            #
+            # Named separately because "returned no file" reads as an empty or
+            # failed response, and sent one investigation looking for exactly
+            # that. The shape is intact; it is the contents that are shut.
+            if (data or {}).get("enc"):
+                raise ResolverError(
+                    "megaplay: the playlist is encrypted (`enc`) rather than "
+                    "served in the clear, and the key is not in the payload — "
+                    "no installed resolver can open it"
+                )
             raise ResolverError("megaplay: getSources returned no file")
 
         return [

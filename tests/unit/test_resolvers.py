@@ -119,3 +119,80 @@ async def test_megaplay_falls_back_to_cidu_without_dataid():
     cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-5/830671/sub")
     await r.resolve(cand)
     assert http.getsources_id == "ABC123"
+
+
+class _EncryptedMegaplayHttp(_FakeMegaplayHttp):
+    """What megaplay actually answers since 02/10/2026.
+
+    Recorded from the live endpoint: no `sources` key at all, an `enc` string in
+    its place, and the rest of the envelope unchanged. The `enc` here is the real
+    length and alphabet -- 171 URL-safe base64 characters decoding to 128 bytes,
+    an exact multiple of the block size -- because the shape is the evidence that
+    this is a cipher rather than a truncated response.
+    """
+
+    async def get_json(self, url, *, params=None, headers=None):
+        self.getsources_id = params["id"]
+        return {
+            "enc": "wdeBruh3qqn_i5wUNnyaPcXqidp1UWP84FfPHzGyKXAz4mAVkH6j3Due"
+                   "swO2yXLWn8H-XMHNvbAo5Gsg7zIcFBuQI_zsUvMGI1gKwQsPTSHQHiF5"
+                   "5R4BopgEQ-7jebQQ4C0Gu7YhaMucopp6d3Q8yAY9b5GdsSvPGq6CUn7SHyc",
+            "t": 1,
+            "server": 4,
+            "intro": {"start": 0, "end": 89},
+            "outro": {"start": 1460, "end": 1549},
+            "tracks": [{"file": "https://sub/en.vtt", "label": "English",
+                        "kind": "captions", "default": True}],
+        }
+
+
+async def test_megaplay_says_the_playlist_is_encrypted_rather_than_missing():
+    """The message is the whole value of this.
+
+    anikoto offers three hosts and all three are megaplay, so when megaplay shut
+    its playlist the provider served 28 episodes and played none of them. The
+    resolver reported "getSources returned no file", which reads as an empty or
+    failed response -- and sent one investigation looking for exactly that, when
+    the envelope was intact and only the contents were shut.
+
+    Decrypting it is deliberately not attempted: the key is not in the payload,
+    which is the AllAnime road the zoko resolver's docstring explains was dropped
+    rather than chased. Raising is correct; raising something true is the fix.
+    """
+    import pytest
+
+    from anime_sh.domain.errors import ResolverError
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    r = VidtubeResolver(http=_EncryptedMegaplayHttp(data_id="13461"))
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-2/107257/sub")
+
+    with pytest.raises(ResolverError) as caught:
+        await r.resolve(cand)
+
+    message = str(caught.value)
+    assert "encrypted" in message
+    assert "enc" in message
+    assert "no file" not in message, "the envelope was not empty; do not say it was"
+
+
+async def test_an_empty_getsources_is_still_reported_as_empty():
+    """The other branch has to stay distinguishable, or the new message just
+    replaces one wrong diagnosis with another."""
+    import pytest
+
+    from anime_sh.domain.errors import ResolverError
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    class _Empty(_FakeMegaplayHttp):
+        async def get_json(self, url, *, params=None, headers=None):
+            self.getsources_id = params["id"]
+            return {}
+
+    r = VidtubeResolver(http=_Empty(data_id="13461"))
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-2/1/sub")
+
+    with pytest.raises(ResolverError) as caught:
+        await r.resolve(cand)
+    assert "no file" in str(caught.value)
+    assert "encrypted" not in str(caught.value)
