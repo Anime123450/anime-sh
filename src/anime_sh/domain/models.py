@@ -251,16 +251,23 @@ class WatchProgress:
         return min(1.0, self.position_s / self.duration_s)
 
     @property
-    def part_way(self) -> bool:
-        """Stopped in the middle of *this* episode, so this is the one to resume.
+    def resumable(self) -> bool:
+        """Stopped in the middle of *this* episode, so this is the one to open.
 
-        A completed episode and one never started both have no meaningful
-        position, and a completed episode is exactly what keeps a show in
-        Continue Watching once you have finished its latest one — so "has a row"
-        does not mean "is half-watched". This predicate was spelled out by hand in
-        three places, and the place that left it out played the wrong episode.
+        A completed episode is exactly what keeps a show in Continue Watching once
+        you have finished its latest one, so "has a row" does not mean "is
+        half-watched" — which is the mistake that had `anime resume` replaying the
+        episode you had just finished.
+
+        **Deliberately does not require a known duration.** Whether a percentage
+        can be drawn and which episode to open are two different questions, and
+        the first one's answer was briefly used for both: with a position but no
+        duration — mpv quitting before it reported one — a row that should resume
+        where you stopped was sent to the next episode instead, losing your place.
+        That is worse than the bug it came from. Sites that need a percentage ask
+        `fraction`, which is already 0.0 when the duration is unknown.
         """
-        return not self.completed and self.position_s > 0 and self.duration_s > 0
+        return not self.completed and self.position_s > 0
 
     @property
     def next_episode(self) -> float:
@@ -273,7 +280,7 @@ class WatchProgress:
         correctly for its own rows; the CLI did not, and the two disagreed about
         the same database.
         """
-        return self.episode if self.part_way else self.episode + 1
+        return self.episode if self.resumable else self.episode + 1
 
 
 @dataclass(frozen=True, slots=True)
