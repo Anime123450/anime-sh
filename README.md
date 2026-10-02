@@ -147,16 +147,17 @@ brew install anime-sh
 
 mpv comes with it. For downloads, `brew install ffmpeg`.
 
-> **This builds from source: about 15 minutes.** CI measured 0.2.89 at 14
-> minutes on Linux and 11 on macOS. A tap carries no prebuilt bottles, so
-> Homebrew builds anime-sh and any dependency it cannot pour — `pydantic-core`
-> is Rust, and it is most of that time. Upgrades reuse what is already built.
+> **This builds from source: 10–20 minutes.** Two CI runs of 0.2.89 measured
+> 11m and 12m on macOS, 14m and 20m on Linux — runner speed is most of the
+> spread. A tap carries no prebuilt bottles, so Homebrew builds anime-sh and any
+> dependency it cannot pour — `pydantic-core` is Rust, and it is most of that
+> time. Upgrades reuse what is already built.
 >
 > It used to be closer to an hour, almost all of it compiling `Pillow`; 0.2.89
 > pours Homebrew's instead.
 >
-> If 15 minutes is still unappealing, the one-liner at the top uses uv and
-> finishes in seconds.
+> If that is still unappealing, the one-liner at the top uses uv and finishes
+> in seconds.
 
 ### 🐍 uv — any OS, no Python needed
 
