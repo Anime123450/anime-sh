@@ -514,8 +514,16 @@ class AniListMetadata:
         return _anime_list(media)
 
     async def airing_schedule(self, start: date, end: date) -> list[AiringEvent]:
-        start_ts = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
-        end_ts = int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp())
+        # Local midnight, not UTC midnight. These dates come from `date.today()`
+        # and are rendered back with `.astimezone()`, so they mean the user's
+        # calendar day at both ends -- but the window was cut at UTC midnight,
+        # sliding it by the whole UTC offset. At +05:30 that asked for 05:30
+        # today to 05:30 tomorrow: episodes airing in the first five hours of
+        # the user's own day were missing outright, while the next morning's
+        # early ones were listed under a heading that said "today".
+        # A naive datetime is assumed to be local time, which is the whole fix.
+        start_ts = int(datetime(start.year, start.month, start.day).astimezone().timestamp())
+        end_ts = int(datetime(end.year, end.month, end.day).astimezone().timestamp())
         key = f"schedule:{start_ts}:{end_ts}"
 
         async def produce():

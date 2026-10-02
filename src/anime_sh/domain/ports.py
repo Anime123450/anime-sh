@@ -55,7 +55,15 @@ class MetadataSource(Protocol):
 
     async def airing_schedule(
         self, start: date, end: date
-    ) -> list[AiringEvent]: ...
+    ) -> list[AiringEvent]:
+        """Episodes airing from the start of ``start`` to the start of ``end``.
+
+        Both are *local* calendar dates, bounded at local midnight: callers get
+        them from `date.today()` and show the results in local time, so a UTC
+        boundary here slides the window by the user's UTC offset and drops real
+        events off whichever edge the offset moves.
+        """
+        ...
 
 
 @runtime_checkable

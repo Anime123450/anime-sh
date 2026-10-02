@@ -1797,7 +1797,13 @@ async def _history(limit: int, as_json: bool) -> None:
     table.add_column("Provider")
     for it in items:
         table.add_row(
-            it.watched_at.strftime("%Y-%m-%d %H:%M"),
+            # Local time. `watched_at` is stored UTC, and printing it raw told
+            # you that you watched something at 16:38 when it was 22:08 where
+            # you were sitting -- and, for anything watched late in the evening
+            # east of UTC, dated it to the day before. Every other view of this
+            # field already converts (`anime wrapped` buckets its days this way
+            # on purpose); the plainest view of it was the one that did not.
+            it.watched_at.astimezone().strftime("%Y-%m-%d %H:%M"),
             it.anime.title.preferred,
             f"{it.episode:g}",
             it.provider or "—",
