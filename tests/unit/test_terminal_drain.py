@@ -151,15 +151,21 @@ def test_every_terminal_query_is_asked_before_the_app_starts():
     effect*: once `textual_image.widget` is in `sys.modules`, importing it again
     does nothing, and clearing the cache by hand tests only the clearing. The
     first version of this test did exactly that and failed against the fix.
+
+    Asked through `_terminal_questions_all_answered` rather than by naming
+    `get_cell_size._result` directly, because this test went green through the
+    whole of the 0.14 outage: 0.14 batched the queries into `probe_terminal` and
+    caches there, so the name this test was reading never gained `_result` and
+    neither did the app's gate. The property is "nothing is left to ask"; the
+    function that answers it is the one the app asks.
     """
     import subprocess
     import sys
 
     code = (
-        "from anime_sh.tui.coverart import prime_graphics;"
-        "prime_graphics();"
-        "from textual_image._terminal import get_cell_size;"
-        "print(hasattr(get_cell_size, '_result'))"
+        "from anime_sh.tui import coverart;"
+        "coverart.prime_graphics();"
+        "print(coverart._terminal_questions_all_answered())"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     if out.returncode != 0 and "textual_image" in out.stderr:
@@ -277,6 +283,14 @@ def test_the_terminal_gets_longer_than_a_tenth_of_a_second_to_answer():
     Subprocess, and stdout faked into claiming to be a terminal, because the
     renderer is chosen once as an import side effect and skipped entirely when
     there is no tty -- which under pytest there never is.
+
+    Both capture entry points are intercepted, because which one carries the
+    Sixel question depends on the installed version: 0.13 and earlier ask through
+    `capture_terminal_response`, once per question, while 0.14 batches them into
+    `capture_until_primary_da`. Reading only the 0.13 name made this test assert
+    nothing whatever on 0.14 -- it collected an empty list, which is also exactly
+    what a probe that never ran looks like. The budget is the property being
+    held; whose function carries it is not.
     """
     import subprocess
     import sys
@@ -288,19 +302,23 @@ def test_the_terminal_gets_longer_than_a_tenth_of_a_second_to_answer():
         "sys.__stdout__ = _Tty(); sys.__stdin__ = _Tty()\n"
         "import textual_image._terminal as t\n"
         "seen = []\n"
+        # 0.13 and earlier: one call per question, the Sixel one ending in `c`.
         "def fake(start, end, timeout=None):\n"
-        "    seen.append((end, timeout))\n"
+        "    if end == 'c':\n"
+        "        seen.append(timeout)\n"
         "    raise t.TerminalError('this terminal is slow')\n"
         "t.capture_terminal_response = fake\n"
+        # 0.14: one batched call, which the Sixel answer arrives inside.
+        "def fake_batch(timeout=None):\n"
+        "    seen.append(timeout)\n"
+        "    raise t.TerminalError('this terminal is slow')\n"
+        "if hasattr(t, 'capture_until_primary_da'):\n"
+        "    t.capture_until_primary_da = fake_batch\n"
         "from anime_sh.tui.coverart import prime_graphics\n"
         "prime_graphics()\n"
         # Only `sys.__stdout__` was faked, so `sys.stdout` is still the pipe --
         # and the library logs its own warnings to stderr, so this arrives clean.
-        # The device-attributes query is the one that decides Sixel; report what
-        # it alone was given.
-        "da = [x[1] for x in seen if x[0] == 'c' and x[1] is not None]\n"
-        # Only `sys.__stdout__` was faked, so `sys.stdout` is still the pipe --
-        # and the library logs its own warnings to stderr, so this arrives clean.
+        "da = [x for x in seen if x is not None]\n"
         "sys.stdout.write('BUDGETS=' + repr(da))\n"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
