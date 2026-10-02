@@ -638,7 +638,7 @@ def continue_watching(
     as_json: bool = typer.Option(False, "--json"),
     limit: int = typer.Option(20, "-n", "--limit", min=1),
 ) -> None:
-    """Show episodes you've started but not finished."""
+    """Show what to watch next in each show you have going."""
     _run(_continue(limit, as_json))
 
 
@@ -647,7 +647,7 @@ def resume(
     dub: bool = typer.Option(False, "--dub"),
     quality: str = typer.Option(None, "-q", "--quality"),
 ) -> None:
-    """Resume the most recently watched unfinished episode."""
+    """Pick up the show you watched most recently, at the right episode."""
     _run(_resume(dub, quality))
 
 
@@ -1613,7 +1613,13 @@ async def _continue(limit: int, as_json: bool) -> None:
                 {
                     "anilist_id": it.anime.id.anilist,
                     "title": it.anime.title.preferred,
+                    # The episode reached, and the one to act on. They differ for
+                    # every row whose latest episode is finished, and with only
+                    # the first of them a consumer could not tell a half-watched
+                    # episode from a finished one: both reported 0%.
                     "episode": it.progress.episode,
+                    "next_episode": it.progress.next_episode,
+                    "completed": it.progress.completed,
                     "position_s": it.progress.position_s,
                     "duration_s": it.progress.duration_s,
                     "percent": round(it.progress.fraction * 100),
@@ -1632,10 +1638,18 @@ async def _continue(limit: int, as_json: bool) -> None:
     table.add_column("Episode", justify="right")
     table.add_column("Progress", justify="right")
     for it in items:
+        # A finished episode has no position, so a percentage of it said "0%" —
+        # which reads as untouched for the one state that means the opposite. Name
+        # the episode to watch and say it is ready, rather than measuring how far
+        # into it you are: nought.
+        if it.progress.part_way:
+            status = f"{round(it.progress.fraction * 100)}%"
+        else:
+            status = "ready"
         table.add_row(
             it.anime.title.preferred,
-            f"{it.progress.episode:g}",
-            f"{round(it.progress.fraction * 100)}%",
+            f"{it.progress.next_episode:g}",
+            status,
         )
     console.print(table)
 
@@ -1652,11 +1666,24 @@ async def _resume(dub: bool, quality: str | None) -> None:
             err.print("[yellow]Nothing to resume.[/]")
             raise typer.Exit(code=1)
         top = items[0]
-        err.print(
-            f"[cyan]▶[/] Resuming {top.anime.title.preferred} — "
-            f"Episode {top.progress.episode:g} at {top.progress.position_s}s"
-        )
-        await c.playback.play_and_track(top.anime, top.progress.episode, audio=audio)
+        # `progress.episode` is the FURTHEST episode reached, which is usually one
+        # already finished — Continue Watching keeps a show listed after its latest
+        # episode is done, which is the point of it while a season is still airing.
+        # Playing that number replayed the episode you had just watched and
+        # announced it "at 0s". The TUI never did this: it asks the same question
+        # per row and acts on the answer.
+        episode = top.progress.next_episode
+        if top.progress.part_way:
+            err.print(
+                f"[cyan]▶[/] Resuming {top.anime.title.preferred} — "
+                f"Episode {episode:g} at {top.progress.position_s}s"
+            )
+        else:
+            err.print(
+                f"[cyan]▶[/] {top.anime.title.preferred} — Episode {episode:g} "
+                f"(you finished {top.progress.episode:g})"
+            )
+        await c.playback.play_and_track(top.anime, episode, audio=audio)
     except AnimeShError as e:
         err.print(f"[red]{e}[/]")
         raise typer.Exit(code=2)
