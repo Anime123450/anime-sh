@@ -9,6 +9,7 @@ commit #1.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sqlite3
 import time
@@ -153,6 +154,29 @@ def _salvage_rebuild(path: Path) -> bool:
     return True
 
 
+def _statements(script: str) -> list[str]:
+    """Split a migration file into its statements.
+
+    Needed because the atomic path cannot use ``executescript``, which commits
+    rather than joining a transaction. ``sqlite3.complete_statement`` is the same
+    check sqlite3's own shell uses to decide whether it has a whole statement
+    yet, so quoted semicolons and comments are its problem rather than ours.
+    """
+    statements: list[str] = []
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            statements.append(pending)
+            pending = ""
+    if pending.strip():
+        # A trailing statement with no semicolon. SQLite accepts it; passing it
+        # on means a migration author's missing semicolon is their error to see,
+        # not something silently dropped here.
+        statements.append(pending)
+    return statements
+
+
 async def _quick_check_ok(conn: aiosqlite.Connection) -> bool:
     """Integrity-probe the *already-open* connection. Doing this on the live
     connection (rather than opening a second one) is essential on Windows: a
@@ -244,7 +268,18 @@ class Database:
         # otherwise surface as "database is locked" on whatever the user was
         # loading at that moment.
         await conn.execute("PRAGMA busy_timeout=5000")
-        await self._migrate(conn)
+        # A migration that raises used to leak this connection: it is not yet
+        # `self._conn`, so `close()` cannot find it, and aiosqlite runs each
+        # connection on its own non-daemon thread — the process would not even
+        # exit, which is how this was noticed. Worse on Windows, where the file
+        # stays open while a later recovery may be renaming it: the state this
+        # module's own comments blame for the corruption it keeps repairing.
+        try:
+            await self._migrate(conn)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await conn.close()
+            raise
         self._conn = conn
         return conn
 
@@ -266,12 +301,32 @@ class Database:
             if version in applied:
                 continue
             log.info("applying migration %s", sql_file.name)
-            await conn.executescript(sql_file.read_text(encoding="utf-8"))
-            await conn.execute(
-                "INSERT INTO schema_version (version, applied_at) "
-                "VALUES (?, datetime('now'))",
-                (version,),
-            )
+            # One transaction for the whole file *and* its version row, because
+            # `executescript` is not one. It commits as it goes, so a script that
+            # failed partway left the earlier statements applied and the version
+            # unrecorded -- and the next startup replayed the file, where
+            # `ALTER TABLE anime ADD COLUMN next_airing_episode` now raises
+            # "duplicate column name". `_migrate` runs inside `_open`, so that is
+            # not a failed migration, it is an app that can never start again.
+            # Verified: a two-ALTER script whose second statement fails leaves the
+            # first column added, and replaying it raises every time.
+            #
+            # SQLite rolls DDL back like anything else, so this is all-or-nothing:
+            # a migration either lands with its version row or leaves no trace.
+            await conn.execute("BEGIN")
+            try:
+                for statement in _statements(sql_file.read_text(encoding="utf-8")):
+                    await conn.execute(statement)
+                await conn.execute(
+                    "INSERT INTO schema_version (version, applied_at) "
+                    "VALUES (?, datetime('now'))",
+                    (version,),
+                )
+            except BaseException:
+                # BaseException on purpose: a cancelled TUI worker must not leave
+                # a half-migrated schema behind either.
+                await conn.rollback()
+                raise
             await conn.commit()
 
     async def schema_version(self) -> int:
