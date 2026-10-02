@@ -106,13 +106,21 @@ def test_a_measured_cell_size_is_reported_as_measured(monkeypatch):
     assert "assumed" not in detail
 
 
-def test_the_vt340_default_is_reported_as_an_assumption(monkeypatch):
-    """10x20 is the library's fallback, so it cannot be told apart from a real
-    measurement of 10x20 — and claiming a measurement we did not take is the
-    worse of the two mistakes, since it sends someone looking elsewhere."""
+def test_10x20_is_reported_as_ambiguous_rather_than_as_either_one(monkeypatch):
+    """10x20 is the library's fallback *and* a real answer.
+
+    Windows Terminal replies `CSI 6;20;10t` — genuinely 10x20 — so the earlier
+    wording ("this terminal did not answer CSI 16 t") was a flat untruth on the
+    most common terminal this runs on. The two cases are indistinguishable from
+    the cached value, and a diagnostic that states a fact it did not establish is
+    the failure this check exists to stop.
+    """
     _cells(monkeypatch, 10, 20)
     detail = doctor._cell_size()
-    assert "assumed" in detail and "CSI 16 t" in detail
+    assert "10x20px cells" in detail
+    assert "VT340" in detail, "must say the default is one of the possibilities"
+    assert "did not answer" not in detail, "we have no idea whether it answered"
+    assert "measured" not in detail, "nor that it did"
 
 
 def test_an_unreadable_cell_size_says_so_rather_than_guessing(monkeypatch):

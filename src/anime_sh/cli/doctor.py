@@ -164,11 +164,14 @@ def _cell_size() -> str:
         measured = f"{size.width}x{size.height}px cells"
     except Exception:
         return "cell size unknown"
-    # 10x20 is the library's documented default, so a terminal that genuinely
-    # measures 10x20 is reported as assumed. Harmless: the advice is the same
-    # either way, and claiming a measurement we did not take is not.
+    # 10x20 is both the library's fallback and a real answer: Windows Terminal
+    # replies `CSI 6;20;10t`, which is exactly 10x20. So this cannot be reported
+    # as "did not answer" -- that sentence was simply false there, and a
+    # diagnostic that states a fact it did not establish is the failure this
+    # whole check exists to stop. Name the ambiguity instead; the advice is the
+    # same either way.
     if (size.width, size.height) == (10, 20):
-        return f"{measured}, assumed — this terminal did not answer CSI 16 t"
+        return f"{measured} — either this terminal's answer or the VT340 default"
     return f"{measured}, measured"
 
 
