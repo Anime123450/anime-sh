@@ -50,6 +50,20 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   to answer by intercepting the per-query function 0.14 no longer calls, so it
   collected an empty list and compared nothing. Both now ask the property rather
   than one library version's name for it.
+
+- **The TUI hung at launch, at a full core, when its input was redirected.** The
+  capability probe reads the terminal's reply one byte at a time, in a loop that
+  ends when the reply is complete. A read that times out raises and ends it; a
+  read that returns *nothing* does not — the loop appends an empty string and goes
+  round again, forever, with no timeout able to help because nothing is waiting.
+  Reached whenever output is a real terminal but input cannot carry the reply
+  back: redirected from `NUL` or `/dev/null`, an exhausted pipe, or a parent
+  process that did not pass a console on. `anime home < NUL` never drew a frame.
+  An empty read now ends the probe the same way a timed-out one does, which is the
+  same conclusion — this terminal is not answering — so covers fall back to
+  unicode blocks and the app starts. `isatty` could not have been the guard:
+  Windows reports `NUL` as a terminal, because it is a character device.
+
 ## [0.2.86] - 2026-10-02
 
 ### Added
@@ -194,6 +208,7 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   raised left its database connection open with nothing able to close it, which
   kept the process alive and, on Windows, kept the file open while a recovery
   might be renaming it.
+
 ## [0.2.85] - 2026-10-01
 
 ### Security
