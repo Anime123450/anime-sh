@@ -164,3 +164,31 @@ async def test_a_resolved_stream_that_does_not_load_is_not_healthy(monkeypatch):
     assert result["status"] == "degraded"
     assert "did not load" in result["detail"] and "522" in result["detail"]
     assert result["playable"] is False
+
+
+async def test_the_reason_every_host_refused_is_carried_into_the_detail(monkeypatch):
+    """The line said how many and never why.
+
+    `0 of 3 resolved — nothing playable` is a count. The resolver raised something
+    specific for each host and the canary swallowed it, so finding out what took
+    re-running the whole walk by hand with the `except` clause removed. anikoto
+    read exactly like that for weeks: the status was right, the cause was only in
+    an exception nobody kept.
+    """
+    result = await _check([_Resolver("raise")], None, monkeypatch)
+    assert "0 of 2 resolved" in result["detail"]
+    assert "host refused" in result["detail"], "the resolver's reason must survive"
+    assert "RuntimeError" in result["detail"], "and what kind of failure it was"
+
+
+async def test_a_resolver_that_returns_nothing_says_so_rather_than_nothing(monkeypatch):
+    """The quieter half: returning an empty list raises nothing at all, so there
+    was no exception to carry and the detail stayed a bare count."""
+
+    class _Empty(_Resolver):
+        async def resolve(self, candidate):
+            return []
+
+    result = await _check([_Empty("ok")], None, monkeypatch)
+    assert result["status"] == "degraded"
+    assert "no streams" in result["detail"]
