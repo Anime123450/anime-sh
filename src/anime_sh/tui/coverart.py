@@ -17,9 +17,12 @@ the detail screen simply omits the art and never breaks.
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 
 from rich.text import Text
+
+log = logging.getLogger(__name__)
 
 
 def _graphics_disabled() -> bool:
@@ -204,8 +207,8 @@ def prime_graphics() -> None:
         with _patient_probes():
             import textual_image.renderable  # noqa: F401
             import textual_image.widget  # noqa: F401  (runs the cell-size query)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("graphics priming failed, covers will use blocks: %r", e)
     finally:
         drain_terminal_replies()
 
@@ -223,25 +226,43 @@ def graphics_protocol_active() -> bool:
         return False
 
 
+#: Where textual-image remembers that it has already asked the terminal. Which
+#: function holds it has moved: 0.13 and earlier cache on `get_cell_size`, while
+#: 0.14 batched the TGP, cell-size and device-attributes queries into one
+#: `probe_terminal` and caches there — leaving `get_cell_size` a thin delegate
+#: that never gains `_result` again. Reading only the old name answered "still
+#: pending" forever on 0.14, so `graphics_cover_widget` refused every bitmap and
+#: every terminal got unicode blocks however good its graphics were. The repo's
+#: lock resolves 0.12/0.13, so the suite passed while a real `uv tool install`
+#: resolved 0.14 and drew blocks.
+#:
+#: Both names are checked rather than branching on a version number, because the
+#: version is a claim about the library and the marker is the fact itself.
+_PROBE_MARKERS = ("probe_terminal", "get_cell_size")
+
+
 def _terminal_questions_all_answered() -> bool:
     """True when nothing textual-image might ask the terminal is still pending.
 
-    The one deferred question is the cell size, cached on `get_cell_size` after
-    its first call. `prime_graphics` triggers it before Textual starts; this is
-    the check that we are not about to trigger it *after*.
+    The deferred question is the capability probe, the cell size among it, which
+    `prime_graphics` triggers before Textual starts. This is the check that we are
+    not about to trigger it *after*, when the reply arrives as key presses
+    instead.
 
-    Belt and braces on purpose. Twice now a query has turned out to fire later
-    than expected, and the symptom — the terminal's reply arriving as key
-    presses — looks nothing like a graphics bug, so it is worth making the
-    unsafe path unreachable rather than trusting that priming covered
-    everything.
+    Belt and braces on purpose. Three times now one of these queries has turned
+    out to fire later, or to be remembered somewhere else, than expected — and
+    the symptom looks nothing like a graphics bug either way.
+
+    A library exposing neither marker answers False, which costs sharpness and
+    keeps the app from typing at itself. That is the right way round to be wrong.
     """
     try:
-        from textual_image._terminal import get_cell_size
-
-        return hasattr(get_cell_size, "_result")
+        from textual_image import _terminal
     except Exception:
         return False
+    return any(
+        hasattr(getattr(_terminal, name, None), "_result") for name in _PROBE_MARKERS
+    )
 
 
 def graphics_cover_widget(data: bytes, width_cells: int):
@@ -253,6 +274,7 @@ def graphics_cover_widget(data: bytes, width_cells: int):
         # cell size. Doing that from here means asking while Textual owns
         # stdin, and the reply comes back as key presses. A slightly softer
         # poster is a much better outcome than the app typing at itself.
+        log.debug("bitmap cover refused: the capability probe is not recorded as done")
         return None
     try:
         import io
@@ -265,7 +287,11 @@ def graphics_cover_widget(data: bytes, width_cells: int):
         widget.styles.width = width_cells
         widget.styles.height = "auto"
         return widget
-    except Exception:
+    except Exception as e:
+        # Falling back silently is what made the last two breaks here so
+        # expensive to find: the only symptom was a softer picture, which looks
+        # like a deliberate design choice rather than a library that moved.
+        log.debug("bitmap cover failed, falling back to blocks: %r", e)
         return None
 
 

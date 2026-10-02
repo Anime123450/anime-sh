@@ -95,7 +95,11 @@ def _check_cover_art() -> Check:
     launch -- and doing it the same way is the point, since a check that asked a
     different question could not answer this one.
     """
-    from ..tui.coverart import graphics_protocol_active, prime_graphics
+    from ..tui.coverart import (
+        _terminal_questions_all_answered,
+        graphics_protocol_active,
+        prime_graphics,
+    )
 
     try:
         from PIL import Image  # noqa: F401
@@ -121,6 +125,20 @@ def _check_cover_art() -> Check:
                      "cannot tell through a pipe — run `anime doctor` on its own")
 
     prime_graphics()
+    # Both gates, because the TUI applies both. Reporting only the protocol said
+    # "true bitmap" on a textual-image whose probe marker had moved, while the
+    # poster came out as blocks -- doctor confidently describing something the app
+    # would not do, which is the exact failure #157 was about and which sent the
+    # first investigation of this after the wrong cause entirely.
+    if not _terminal_questions_all_answered():
+        return Check(
+            "cover art", False,
+            "unicode blocks — textual-image did not record a finished capability "
+            "probe, so a bitmap is refused rather than risk asking the terminal "
+            "once Textual owns the keyboard. Usually an unexpected textual-image "
+            'version: reinstall with uv tool install --force "anime-sh[tui]" and '
+            "report this line if it persists",
+        )
     if graphics_protocol_active():
         return Check("cover art", True, f"true bitmap — sharp ({_cell_size()})")
     return Check(
@@ -146,11 +164,14 @@ def _cell_size() -> str:
         measured = f"{size.width}x{size.height}px cells"
     except Exception:
         return "cell size unknown"
-    # 10x20 is the library's documented default, so a terminal that genuinely
-    # measures 10x20 is reported as assumed. Harmless: the advice is the same
-    # either way, and claiming a measurement we did not take is not.
+    # 10x20 is both the library's fallback and a real answer: Windows Terminal
+    # replies `CSI 6;20;10t`, which is exactly 10x20. So this cannot be reported
+    # as "did not answer" -- that sentence was simply false there, and a
+    # diagnostic that states a fact it did not establish is the failure this
+    # whole check exists to stop. Name the ambiguity instead; the advice is the
+    # same either way.
     if (size.width, size.height) == (10, 20):
-        return f"{measured}, assumed — this terminal did not answer CSI 16 t"
+        return f"{measured} — either this terminal's answer or the VT340 default"
     return f"{measured}, measured"
 
 

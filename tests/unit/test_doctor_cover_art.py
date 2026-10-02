@@ -51,16 +51,47 @@ def _cells(monkeypatch, width, height):
     )
 
 
+def _primed(monkeypatch, *, answered: bool = True):
+    """Stub the probe: it did or did not leave a finished-probe marker behind."""
+    monkeypatch.setattr("anime_sh.tui.coverart.prime_graphics", lambda: None)
+    monkeypatch.setattr(
+        "anime_sh.tui.coverart._terminal_questions_all_answered", lambda: answered
+    )
+
+
 def test_a_real_terminal_gets_an_actual_answer(monkeypatch):
     monkeypatch.setattr(sys, "__stdout__", _Tty())
     monkeypatch.setattr(doctor, "prime_graphics", lambda: None, raising=False)
     monkeypatch.setattr(
         "anime_sh.tui.coverart.graphics_protocol_active", lambda: True
     )
-    monkeypatch.setattr("anime_sh.tui.coverart.prime_graphics", lambda: None)
+    _primed(monkeypatch)
     _cells(monkeypatch, 9, 19)
 
     assert "true bitmap" in doctor._check_cover_art().detail
+
+
+def test_an_unfinished_probe_is_reported_instead_of_claiming_sharp(monkeypatch):
+    """The failure doctor could not see.
+
+    The TUI needs *two* things: a graphics protocol, and a capability probe that
+    finished before Textual took the keyboard. Doctor checked only the first, so
+    on a textual-image that had moved where it records the second, doctor said
+    "true bitmap — sharp" while every poster came out as blocks. A check that
+    confidently describes something the app will not do is worse than no check:
+    it is what sent the first investigation of this after the wrong cause.
+    """
+    monkeypatch.setattr(sys, "__stdout__", _Tty())
+    monkeypatch.setattr(
+        "anime_sh.tui.coverart.graphics_protocol_active", lambda: True
+    )
+    _primed(monkeypatch, answered=False)
+
+    check = doctor._check_cover_art()
+    assert not check.ok, "a refused bitmap is a fault, not a preference"
+    assert "unicode blocks" in check.detail
+    assert "true bitmap" not in check.detail
+    assert "textual-image" in check.detail, "must name what to reinstall"
 
 
 # -- the cell size a bitmap poster is scaled against ------------------------- #
@@ -75,13 +106,21 @@ def test_a_measured_cell_size_is_reported_as_measured(monkeypatch):
     assert "assumed" not in detail
 
 
-def test_the_vt340_default_is_reported_as_an_assumption(monkeypatch):
-    """10x20 is the library's fallback, so it cannot be told apart from a real
-    measurement of 10x20 — and claiming a measurement we did not take is the
-    worse of the two mistakes, since it sends someone looking elsewhere."""
+def test_10x20_is_reported_as_ambiguous_rather_than_as_either_one(monkeypatch):
+    """10x20 is the library's fallback *and* a real answer.
+
+    Windows Terminal replies `CSI 6;20;10t` — genuinely 10x20 — so the earlier
+    wording ("this terminal did not answer CSI 16 t") was a flat untruth on the
+    most common terminal this runs on. The two cases are indistinguishable from
+    the cached value, and a diagnostic that states a fact it did not establish is
+    the failure this check exists to stop.
+    """
     _cells(monkeypatch, 10, 20)
     detail = doctor._cell_size()
-    assert "assumed" in detail and "CSI 16 t" in detail
+    assert "10x20px cells" in detail
+    assert "VT340" in detail, "must say the default is one of the possibilities"
+    assert "did not answer" not in detail, "we have no idea whether it answered"
+    assert "measured" not in detail, "nor that it did"
 
 
 def test_an_unreadable_cell_size_says_so_rather_than_guessing(monkeypatch):
@@ -97,11 +136,15 @@ def test_a_terminal_without_graphics_is_named_as_such(monkeypatch):
     monkeypatch.setattr(
         "anime_sh.tui.coverart.graphics_protocol_active", lambda: False
     )
-    monkeypatch.setattr("anime_sh.tui.coverart.prime_graphics", lambda: None)
+    _primed(monkeypatch)
 
-    detail = doctor._check_cover_art().detail
-    assert "unicode blocks" in detail
-    assert "Sixel" in detail
+    check = doctor._check_cover_art()
+    assert check.ok, "a terminal with no graphics is not a fault"
+    assert "unicode blocks" in check.detail
+    assert "Sixel" in check.detail
+    assert "textual-image" not in check.detail, (
+        "nothing to reinstall here — the probe finished and said no"
+    )
 
 
 def test_the_escape_hatch_is_reported_rather_than_looking_like_a_fault(monkeypatch):

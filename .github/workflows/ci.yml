@@ -80,6 +80,34 @@ jobs:
         run: |
           /tmp/clean/bin/anime --version
           /tmp/clean/bin/anime --help > /dev/null
+      # The matrix above tests whatever uv.lock pins. A real install resolves the
+      # *newest* dependency, and this job is the only one that does -- which is how
+      # textual-image 0.14 got past a green suite: it moved where it records a
+      # finished capability probe, anime-sh kept reading the old name, and every
+      # terminal silently got block covers instead of a bitmap. Nothing failed
+      # anywhere; the picture just got worse.
+      - name: The cover-art probe contract must hold on the newest textual-image
+        run: |
+          /tmp/clean/bin/python - <<'PY'
+          from importlib.metadata import version
+          from anime_sh.tui.coverart import (
+              _PROBE_MARKERS,
+              _terminal_questions_all_answered,
+              prime_graphics,
+          )
+          prime_graphics()
+          from textual_image import _terminal
+          seen = {n: hasattr(getattr(_terminal, n, None), "_result")
+                  for n in _PROBE_MARKERS}
+          assert _terminal_questions_all_answered(), (
+              f"textual-image {version('textual-image')} records a finished probe "
+              f"under none of the names anime-sh knows ({seen}). Bitmap covers are "
+              f"refused on every terminal when that happens -- find the new marker "
+              f"and add it to _PROBE_MARKERS in src/anime_sh/tui/coverart.py."
+          )
+          print(f"ok  textual-image {version('textual-image')}  {seen}")
+          PY
+
       - name: Every declared plugin entry point must load
         run: |
           /tmp/clean/bin/python - <<'PY'
