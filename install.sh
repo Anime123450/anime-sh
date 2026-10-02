@@ -7,10 +7,10 @@
 # one.
 #
 # uv rather than Homebrew, deliberately. A Homebrew tap has no prebuilt bottles,
-# so `brew install` compiles pydantic-core (Rust) and Pillow (C) from source --
-# measured at about 30 minutes on macOS and an hour on Linux. uv ships its own
-# Python and installs in seconds. Homebrew is still documented in the README for
-# anyone who prefers it.
+# so `brew install` builds pydantic-core (Rust) from source -- 10-20 minutes for
+# 0.2.89 depending on the machine, down from ~50 once Pillow stopped being
+# compiled alongside it. uv ships its own Python and installs in seconds.
+# Homebrew is still documented in the README for anyone who prefers it.
 #
 #   curl -LsSf https://raw.githubusercontent.com/Anime123450/anime-sh/master/install.sh | sh
 #
