@@ -4,6 +4,24 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **A Homebrew install takes 10-20 minutes instead of the better part of an
+  hour.** Pillow was being compiled from its sdist and that was 32 of the 43
+  minutes, every other dependency finishing in seconds beside it. Homebrew has a
+  bottled `pillow`, so the formula pours it and moves the venv to `python@3.13`,
+  which is what that bottle is built for. The same step had just overrun the
+  tap's 75-minute CI ceiling on a slower runner, with the formula otherwise
+  byte-identical to one that had passed the day before.
+
+- **The provider canary counts hosts you could fall back to, not labels.**
+  anikoto offers `HD-1`, `Vidstream-1` and `Vidstream-2`, and all three are
+  megaplay.buzz, so `3 hosts, 0 of 3 resolved` read like three independent
+  chances missed — something to wait out. It now says `3 labels for 1 host
+  (megaplay.buzz)`, against hianime's `4 labels for 3 hosts`. Both providers lost
+  megaplay the same day; hianime had somewhere else to go and anikoto did not,
+  which is the fact the line was leaving out.
+
 ## [0.2.89] - 2026-10-02
 
 ### Fixed
