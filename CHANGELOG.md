@@ -4,6 +4,25 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`anime stats` counted your AniList list as time spent in anime-sh.** It led
+  with every episode marked finished by any route and put local hours on the
+  next line, so the two divided to six minutes an episode: of 142 "finished"
+  episodes on a real library, 115 had come from an AniList pull and 27 from
+  `anime mark`, and none had been watched here. It now opens with what anime-sh
+  did -- `39 episodes watched here · 14.5 hours · 47 sessions` -- and names the
+  wider total separately, only when there is a gap to explain. `stats --json`
+  gained `episodes_here`.
+
+- **"Episodes played here" counted sittings, not episodes.** Watching something
+  a second time added another episode to the total, so 47 sittings over 39
+  episodes read as 47 episodes in both `anime wrapped` and the new stats line.
+  Distinct episodes and sessions are now separate numbers and both are shown.
+  `anime wrapped` already carried the careful wording about imported totals;
+  `stats` had been left behind, which is how one library came to be described in
+  two sets of numbers that could not both be true.
+
 ### Changed
 
 - **A Homebrew install takes 10-20 minutes instead of the better part of an

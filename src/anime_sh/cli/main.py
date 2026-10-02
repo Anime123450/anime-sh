@@ -1171,6 +1171,7 @@ async def _stats(as_json: bool) -> None:
         json.dump(
             {"episodes_completed": s.episodes_completed, "shows": s.shows,
              "shows_completed": s.shows_completed,
+             "episodes_here": s.episodes_here,
              "sessions": s.sessions, "hours": s.hours,
              "total_seconds": s.total_seconds,
              "top_providers": [list(p) for p in s.top_providers],
@@ -1182,13 +1183,28 @@ async def _stats(as_json: bool) -> None:
     if s.sessions == 0:
         console.print("[dim]No watch history yet. Go watch something![/]")
         return
-    console.print(
-        f"[b]Your anime-sh stats[/b]\n"
-        f"  [cyan]{s.episodes_completed}[/cyan] episodes finished across "
-        f"[cyan]{s.shows_completed}[/cyan] shows "
-        f"[dim](of {s.shows} started)[/dim]\n"
-        f"  [cyan]{s.hours}[/cyan] hours watched over [cyan]{s.sessions}[/cyan] sessions"
-    )
+    # What anime-sh itself did goes first, because the hours belong to it and to
+    # nothing else. Leading with `episodes_completed` put the tracker's total
+    # directly above local hours under a heading that says "Your anime-sh
+    # stats", and the two divided to six minutes an episode.
+    lines = [
+        "[b]Your anime-sh stats[/b]",
+        f"  [cyan]{s.episodes_here}[/cyan] episodes watched here · "
+        f"[cyan]{s.hours}[/cyan] hours · [cyan]{s.sessions}[/cyan] sessions",
+    ]
+    if s.episodes_completed > s.episodes_here:
+        # Only worth a line when it says more than playback already did, and
+        # worded the way `anime wrapped` words it so the two agree on sight.
+        lines.append(
+            f"  [dim]{s.episodes_completed} episodes finished across "
+            f"{s.shows_completed} shows (of {s.shows} started), counting what "
+            f"you marked or synced from AniList.[/dim]"
+        )
+    else:
+        lines.append(
+            f"  [dim]across {s.shows_completed} shows (of {s.shows} started)[/dim]"
+        )
+    console.print("\n".join(lines))
     if s.top_genres:
         console.print("  [dim]top genres:[/] " +
                       ", ".join(f"{g} ({n})" for g, n in s.top_genres[:5]))
@@ -1907,7 +1923,8 @@ async def _wrapped(year: int | None, out: str | None, as_json: bool) -> None:
     console.print(
         f"  [cyan]{data.episodes:,}[/] episodes played here · "
         f"[cyan]{data.hours:,g}[/] hours · "
-        f"[cyan]{data.shows:,}[/] shows"
+        f"[cyan]{data.shows:,}[/] shows · "
+        f"[cyan]{data.sessions:,}[/] sessions"
     )
     if data.has_wider_total:
         # Without this line the number above looks wrong next to `anime stats`.

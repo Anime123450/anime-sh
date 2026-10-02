@@ -428,7 +428,7 @@ anime related "Frieren"
 
 # 📚  Library and tracking
 anime history
-anime stats                    # episodes, hours, top providers and genres
+anime stats                    # what you watched here, plus your tracker's total
 anime wrapped                  # your year, with a shareable SVG card
 anime favorite add "Frieren"
 anime favorite list
