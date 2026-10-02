@@ -122,11 +122,36 @@ def _check_cover_art() -> Check:
 
     prime_graphics()
     if graphics_protocol_active():
-        return Check("cover art", True, "true bitmap — sharp")
+        return Check("cover art", True, f"true bitmap — sharp ({_cell_size()})")
     return Check(
         "cover art", True,
         "unicode blocks — this terminal reported no Sixel/kitty graphics",
     )
+
+
+def _cell_size() -> str:
+    """The character-cell size a bitmap poster is scaled against.
+
+    textual-image measures it by asking the terminal (`CSI 16 t`) and, when that
+    goes unanswered, assumes a VT340's 10x20. An assumed size that is wrong is
+    the one remaining way a poster comes out soft while everything above says
+    "sharp": the image is scaled to cells that are not the size they are, and the
+    terminal resamples it. Worth saying which it was, because the two cases need
+    opposite fixes and look identical on screen.
+    """
+    try:
+        from textual_image._terminal import get_cell_size
+
+        size = get_cell_size()
+        measured = f"{size.width}x{size.height}px cells"
+    except Exception:
+        return "cell size unknown"
+    # 10x20 is the library's documented default, so a terminal that genuinely
+    # measures 10x20 is reported as assumed. Harmless: the advice is the same
+    # either way, and claiming a measurement we did not take is not.
+    if (size.width, size.height) == (10, 20):
+        return f"{measured}, assumed — this terminal did not answer CSI 16 t"
+    return f"{measured}, measured"
 
 
 def _check_ffmpeg() -> Check:

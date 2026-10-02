@@ -41,6 +41,16 @@ def test_a_pipe_is_reported_as_a_pipe_not_as_a_verdict(monkeypatch):
     assert "no Sixel" not in check.detail
 
 
+def _cells(monkeypatch, width, height):
+    """Pin what textual-image thinks a character cell measures."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "textual_image._terminal.get_cell_size",
+        lambda: SimpleNamespace(width=width, height=height),
+    )
+
+
 def test_a_real_terminal_gets_an_actual_answer(monkeypatch):
     monkeypatch.setattr(sys, "__stdout__", _Tty())
     monkeypatch.setattr(doctor, "prime_graphics", lambda: None, raising=False)
@@ -48,8 +58,38 @@ def test_a_real_terminal_gets_an_actual_answer(monkeypatch):
         "anime_sh.tui.coverart.graphics_protocol_active", lambda: True
     )
     monkeypatch.setattr("anime_sh.tui.coverart.prime_graphics", lambda: None)
+    _cells(monkeypatch, 9, 19)
 
     assert "true bitmap" in doctor._check_cover_art().detail
+
+
+# -- the cell size a bitmap poster is scaled against ------------------------- #
+# The last remaining way a poster comes out soft while every check above says
+# "sharp": textual-image asks the terminal for its cell size and assumes a
+# VT340's 10x20 when nothing answers, so a wrong assumption has the terminal
+# resampling the image. The two cases look identical and need opposite fixes.
+def test_a_measured_cell_size_is_reported_as_measured(monkeypatch):
+    _cells(monkeypatch, 9, 19)
+    detail = doctor._cell_size()
+    assert "9x19px cells" in detail and "measured" in detail
+    assert "assumed" not in detail
+
+
+def test_the_vt340_default_is_reported_as_an_assumption(monkeypatch):
+    """10x20 is the library's fallback, so it cannot be told apart from a real
+    measurement of 10x20 — and claiming a measurement we did not take is the
+    worse of the two mistakes, since it sends someone looking elsewhere."""
+    _cells(monkeypatch, 10, 20)
+    detail = doctor._cell_size()
+    assert "assumed" in detail and "CSI 16 t" in detail
+
+
+def test_an_unreadable_cell_size_says_so_rather_than_guessing(monkeypatch):
+    def _boom():
+        raise RuntimeError("no terminal")
+
+    monkeypatch.setattr("textual_image._terminal.get_cell_size", _boom)
+    assert doctor._cell_size() == "cell size unknown"
 
 
 def test_a_terminal_without_graphics_is_named_as_such(monkeypatch):
