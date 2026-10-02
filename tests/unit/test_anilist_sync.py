@@ -337,7 +337,11 @@ async def test_push_keeps_going_when_one_row_is_rejected():
     tracker = Tracker()
     result = await SyncService(Library(), tracker).push()
     assert tracker.seen == [1, 2, 3]  # row 3 was still attempted
-    assert (result.pushed, result.skipped) == (2, 1)
+    assert (result.pushed, result.failed) == (2, 1)
+    assert result.skipped == 0, (
+        "a rejection is not a skip -- it was counted as one, so a real failure "
+        "looked exactly like the planning entries every synced library carries"
+    )
 
 
 async def test_sync_push_sends_one_call_per_show_not_per_episode():
@@ -533,3 +537,53 @@ async def test_a_finished_episode_behind_the_frontier_is_still_pushed():
     tracker = _FakeTracker()
     await SyncService(lib, tracker).push()
     assert [ep for _, ep, _ in tracker.pushed] == [11]
+
+
+async def test_a_rejection_and_a_routine_skip_are_different_numbers():
+    """The push is deliberately non-fatal, so the count is the only signal a
+    rejection ever produces -- and it shared a field, and a word, with the
+    entries there was simply nothing to send for. On a synced library that meant
+    `(18 skipped)` whether AniList had refused two shows or none.
+    """
+    lib = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    # One finished show that pushes fine.
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=1), 5.0, 0, 0, now, completed=True)
+    )
+    # A planning entry: episode 0, nothing watched. Nothing to send.
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=2), 0.0, 0, 0, now, completed=False)
+    )
+    # And one AniList refuses.
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=3), 7.0, 0, 0, now, completed=True)
+    )
+
+    class Rejecting(_FakeTracker):
+        async def push(self, progress, *, total=None):
+            if progress.anime_id.anilist == 3:
+                raise RuntimeError("media does not exist")
+            await super().push(progress, total=total)
+
+    result = await SyncService(lib, Rejecting()).push()
+    assert result.pushed == 1
+    assert result.failed == 1, "the rejection has to be countable on its own"
+    assert result.skipped == 1, "the planning entry is a skip, not a failure"
+
+
+async def test_nothing_rejected_means_nothing_to_alarm_about():
+    """The other direction: a clean push over a library full of planning entries
+    must not report a failure count at all."""
+    lib = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    await lib.save_progress(
+        WatchProgress(AnimeId(anilist=1), 5.0, 0, 0, now, completed=True)
+    )
+    for aid in (2, 3, 4):
+        await lib.save_progress(
+            WatchProgress(AnimeId(anilist=aid), 0.0, 0, 0, now, completed=False)
+        )
+    result = await SyncService(lib, _FakeTracker()).push()
+    assert (result.pushed, result.failed) == (1, 0)
+    assert result.skipped == 3

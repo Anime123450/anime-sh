@@ -25,7 +25,16 @@ from ..domain.ports import Library, Tracker
 class SyncResult:
     pushed: int = 0
     pulled: int = 0
+    #: Rows there was nothing to send for: no AniList id, or an entry you have
+    #: not watched any of. Routine, and not a problem.
     skipped: int = 0
+    #: Shows the tracker *rejected* -- a deleted media id, a rate limit that
+    #: outlasted its retries. Kept apart from ``skipped`` because a rejection is
+    #: the one thing here the user has to know about, and a push is deliberately
+    #: non-fatal, so this count is the only signal one ever produces. Both used
+    #: to land in ``skipped``, where a real failure was indistinguishable from
+    #: the 18 planning entries a synced library carries.
+    failed: int = 0
 
 
 class SyncService:
@@ -88,7 +97,7 @@ class SyncService:
             if best is None or progress.episode > best.episode:
                 furthest[progress.anime_id.anilist] = progress
 
-        pushed = 0
+        pushed = failed = 0
         for progress in furthest.values():
             anime = await self._library.get_anime(progress.anime_id)
             total = anime.episode_count if anime else None
@@ -98,10 +107,10 @@ class SyncService:
                 # One rejected show (a deleted media id, a rate-limit that
                 # outlasted its retries) used to abort the whole push and lose
                 # everything still queued behind it. Count it and keep going.
-                skipped += 1
+                failed += 1
                 continue
             pushed += 1
-        return SyncResult(pushed=pushed, skipped=skipped)
+        return SyncResult(pushed=pushed, skipped=skipped, failed=failed)
 
     async def pull(self) -> SyncResult:
         """Import the tracker's list into the local library (metadata + progress)."""

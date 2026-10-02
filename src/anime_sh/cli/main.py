@@ -1642,11 +1642,23 @@ async def _sync(direction: str) -> None:
         if direction == "push":
             err.print("[dim]Pushing local progress to AniList…[/]")
             result = await c.sync.push()
+            # A rejection is the only thing here worth interrupting someone
+            # for, and it used to be added to the same "skipped" count as the
+            # planning entries -- so on a synced library it read "(18 skipped)"
+            # whether two shows had been refused or none had. The routine count
+            # is also in rows while `pushed` is in shows, which is why it no
+            # longer sits in the same clause wearing the same word.
             console.print(
-                f"[green]Pushed[/] {result.pushed} show(s) to AniList"
-                + (f" ([dim]{result.skipped} skipped[/])" if result.skipped else "")
-                + "."
+                f"[green]Pushed[/] {result.pushed} show(s) to AniList."
+                + (f" [dim]{result.skipped} had nothing watched yet.[/]"
+                   if result.skipped else "")
             )
+            if result.failed:
+                err.print(
+                    f"[yellow]{result.failed} show(s) were rejected by AniList[/] "
+                    "and did not sync. Re-running `anime sync push` retries them; "
+                    "a show that keeps failing has usually been deleted upstream."
+                )
         else:
             err.print("[dim]Importing your AniList list…[/]")
             result = await c.sync.pull()
