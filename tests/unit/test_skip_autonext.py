@@ -153,17 +153,25 @@ def test_auto_next_stops_at_the_last_aired_episode():
     ahead of what exists. Finishing the newest episode used to advance anyway and
     then fail to find a stream for an episode that isn't out.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from anime_sh.app.playback import PlaybackService
     from anime_sh.domain.models import Anime, AnimeId, Title
+
+    # Relative, because "episode 5 is not out" is a claim about the clock. This
+    # fixture pinned 2026-08-05, which sat ahead of the wall clock when it was
+    # written and two months behind it by the time the boundary learned to read
+    # the date -- so it came to assert that an episode whose air time had long
+    # since passed still had not aired. A hardcoded date in a time-dependent
+    # test means something different every month.
+    soon = datetime.now(timezone.utc) + timedelta(days=2)
 
     def _airing(next_ep: int | None, planned: int | None = 12) -> Anime:
         return Anime(
             id=AnimeId(anilist=1), title=Title(romaji="Show"),
             episode_count=planned,
             next_airing_episode=next_ep,
-            next_airing_at=datetime(2026, 8, 5, tzinfo=timezone.utc) if next_ep else None,
+            next_airing_at=soon if next_ep else None,
         )
 
     has_next = PlaybackService._has_next

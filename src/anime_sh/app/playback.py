@@ -560,8 +560,9 @@ class PlaybackService:
         # long-runner with no announced total AniList leaves `episodes` null, so
         # testing that first answered "no next episode" from episode 1 of One
         # Piece onwards: auto-next was silently off for the shows people binge.
-        if anime.next_airing_episode is not None:
-            return number < anime.next_airing_episode - 1
+        aired = anime.aired_through()
+        if aired is not None:
+            return number < aired
         # Nothing airing and no total: there is nothing to advance *into*, and
         # guessing would send the next play at an episode that isn't out.
         if anime.episode_count is None:

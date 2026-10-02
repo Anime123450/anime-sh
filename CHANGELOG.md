@@ -6,6 +6,24 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **The newest episode of an airing show was treated as not out yet.**
+  `next_airing_episode` is the first episode *not* released, so five readers each
+  worked out what had aired by subtracting one from it, inline. That is only true
+  while its air time is still ahead, and nothing refetches the cached `anime` row
+  on the Continue Watching path -- so for as long as a show went unopened after
+  its episode dropped, every one of them kept believing a schedule that had come
+  true. Continue Watching called it "caught up", which it draws dimmed and sorts
+  below the rows you can act on, so the one episode the screen exists to surface
+  was the one it hid; auto-next halted an episode short of what was sitting
+  there; `anime play 12` refused episode 12 as unaired; and the browse lists
+  undercounted the season by one.
+
+  The boundary now lives in one place, `Anime.aired_through`, which reads the
+  date instead of assuming it. A countdown also stops calling a past timestamp
+  "airing now" once it is more than a broadcast slot old -- three weeks stale
+  read exactly like three minutes early -- and a projected air date is no longer
+  offered at all when the anchor it would be derived from has already passed.
+
 - **A show AniList rejected was reported as a routine skip.** `anime sync push`
   counts a rejected show and keeps going, deliberately -- so that count is the
   only signal a failure ever produces, and it shared both a field and the word
