@@ -449,7 +449,7 @@ anime prefetch                 # next episode of everything you are watching
 anime themes
 
 # 🧹  Housekeeping
-anime doctor                   # player, ffmpeg, config, database, plugins
+anime doctor                   # player, ffmpeg, cover art, config, database, plugins
 anime doctor --streams         # actually play through each provider
 anime providers health         # circuit-breaker state per provider
 anime config get ui.theme
@@ -508,7 +508,8 @@ the built-in default.
 | 🧊 | **A show will not play** | `anime doctor --streams` plays through each provider from your connection and says which work. A dead provider is normal; `anime providers health` shows what got shut out. |
 | 🔇 | **Dub not playing** | `anime config set playback.audio dub`, or pass `--dub` per run. Not every provider carries one. |
 | 🐍 | **`pipx` or `pip` "not recognised"** | The wrong starting point on a clean machine — both *are* Python packages. Use the one-liner at the top, or scoop/choco. |
-| 🖼️ | **Cover art looks blocky** | That is the unicode fallback doing its job. Sixel and kitty terminals get the sharp version automatically. |
+| 🖼️ | **Cover art looks blocky** | `anime doctor` — run on its own, not piped — says which renderer the TUI will use. `unicode blocks` means your terminal reported no Sixel or kitty graphics, and that fallback is doing its job. `true bitmap` alongside a blocky poster is a bug worth reporting. `ANIME_SH_NO_GRAPHICS=1` forces the blocks. |
+| 🧵 | **Cover art is sharp but slightly soft** | `doctor` also prints the character-cell size posters are scaled against. If it says `assumed`, your terminal did not answer the query for it and a VT340's 10×20 was used instead — set `TEXTUAL_CELL_WIDTH` and `TEXTUAL_CELL_HEIGHT` to your real cell size. |
 | 📺 | **Two `anime` commands** | Installed with two managers. `where.exe anime` or `which -a anime` finds both; remove the one you do not want. |
 
 ---
