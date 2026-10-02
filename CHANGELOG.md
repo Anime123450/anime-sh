@@ -6,6 +6,15 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **A show AniList rejected was reported as a routine skip.** `anime sync push`
+  counts a rejected show and keeps going, deliberately -- so that count is the
+  only signal a failure ever produces, and it shared both a field and the word
+  "skipped" with the entries there was simply nothing to send for. On a synced
+  library that read `Pushed 61 show(s) to AniList (18 skipped)` whether two shows
+  had been refused or none had. Rejections are counted separately now and say
+  what to do about them; the routine count is no longer in the same clause, and
+  no longer wears a word that implies something went wrong.
+
 - **Guessing a command name started playing a random show.** `anime <query>` is
   sugar for `anime play <query>`, guarded by a list of words that name a concept
   but not a command. `anime upcoming` was not on it -- the command is `anime
