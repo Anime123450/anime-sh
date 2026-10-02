@@ -36,6 +36,13 @@ def _graphics_disabled() -> bool:
 #: The character the probe's reply ends with — ``CSI 16 t``. Seeing it consumed
 #: means the whole answer is out of the buffer and there is nothing left to wait
 #: for, which is what lets the drain finish early on a terminal that answers.
+#:
+#: Only ever fires on textual-image 0.13 and earlier, where the cell-size query
+#: is the last one asked and can time out mid-reply. On 0.14 the probe reads
+#: through the primary DA (`ESC [ ? … c`), which comes after this, so the buffer
+#: is already empty and the early exit is unreachable — measured 0 characters
+#: dropped. Left matching ``t`` rather than widened to ``c``: there is nothing
+#: there to match either way, and ``t`` is the key that actually caused the bug.
 _PROBE_TERMINATOR = "t"
 
 
@@ -59,6 +66,21 @@ def drain_terminal_replies(budget_s: float = 0.2, poll_s: float = 0.02) -> int:
     terminator — so a terminal that answers costs a few milliseconds, and only
     one that never answers pays the whole budget. A fixed sleep had to be long
     enough for the slowest terminal and charged every launch for it.
+
+    **On textual-image 0.14 this is pure insurance and costs the full budget.**
+    Measured on Windows Terminal, 02/10/2026: probe 0.09s, then 0.205s of draining
+    that discarded nothing, twice over. 0.14 reads until the primary DA, which
+    comes *after* the cell-size reply, so it consumes its own answer to the end
+    and leaves an empty buffer.
+
+    Making it conditional on "the probe finished" was tried and is wrong, which is
+    worth writing down because it looks obviously right: on 0.12/0.13 the probe
+    records itself as finished *even when it timed out mid-reply* — that is the
+    whole original bug — so the leftovers and the completion flag coexist there,
+    and skipping the wait would put the theme picker back on every py3.11 launch.
+    Telling the two apart needs a version branch, which this module deliberately
+    refuses (see `_PROBE_MARKERS`). 0.2s against the app typing at itself is a
+    trade worth making.
 
     Returns how many characters were discarded, so a caller can tell whether it
     did anything.
@@ -111,6 +133,15 @@ def _read_pending() -> str:
 
 
 #: How long to let the terminal take over each byte of a capability reply.
+#:
+#: **Applies to textual-image 0.13 and earlier only** — that is py3.11 installs,
+#: which the lock still resolves to 0.12.0. 0.14 batches the queries into one
+#: `probe_terminal` with its own 2.0s budget and never calls the function these
+#: widen, so `_patient_probes` is a no-op there. The numbers below were measured
+#: against 0.12/0.13 and do not describe a 0.14 launch, which measures 0.09s of
+#: probing on Windows Terminal. Worth saying because this looks like the knob to
+#: reach for when launch latency is the question, and on a modern install it does
+#: nothing at all.
 #:
 #: textual-image hardcodes 0.1s, and `drain_terminal_replies` above already
 #: records this terminal answering slower than that. A probe that times out is
