@@ -233,6 +233,63 @@ def _check_plugins(cfg: Config | None) -> list[Check]:
     ]
 
 
+async def _check_provider_health() -> Check:
+    """What the breaker has learned about each provider, from previous runs.
+
+    The `providers` check above says which plugins *load*, which is true and not
+    the same question. On 02/10/2026 it reported `[OK] providers: anikoto,
+    hianime` while anikoto's breaker sat half-open on three straight failures and
+    the provider could not play a single episode — every host it offers had moved
+    to an encrypted payload. Doctor saying OK about something that does not work
+    is the failure two other checks in this file were already fixed for today.
+
+    Free, because this reads state the app has already written down: no site is
+    contacted (`--streams` is the check that does that). A provider with a closed
+    breaker is the healthy case and is not named, so the line stays quiet when
+    there is nothing to say.
+    """
+    from .container import build_container
+
+    try:
+        container = build_container()
+        try:
+            snapshot = await container.provider_manager.health_snapshot()
+        finally:
+            await container.aclose()
+    except Exception as e:
+        # Never a verdict on the providers: this failed before it could ask.
+        return Check("provider health", True, f"not recorded yet ({e})")
+
+    if not snapshot:
+        return Check("provider health", True, "no providers installed")
+
+    unwell = [r for r in snapshot if r["status"] != "closed"]
+    if not unwell:
+        names = ", ".join(r["provider"] for r in snapshot)
+        return Check("provider health", True, f"all healthy — {names}")
+
+    said = ", ".join(
+        f"{r['provider']} {r['status']} after {r['consecutive_failures']} "
+        f"failure{'s' if r['consecutive_failures'] != 1 else ''}"
+        for r in unwell
+    )
+    # A fault only when nothing is left that is known to work — one dead provider
+    # is the normal operating state here and the fan-out routes around it.
+    healthy = [r for r in snapshot if r["status"] == "closed"]
+    if healthy:
+        return Check(
+            "provider health", True,
+            f"{said} — the fan-out skips past it to "
+            f"{', '.join(r['provider'] for r in healthy)}",
+        )
+    return Check(
+        "provider health", False,
+        f"{said} — no provider is currently known to work. `anime doctor "
+        "--streams` tries them for real; `anime providers health` shows the "
+        "counts",
+    )
+
+
 async def _check_databases() -> Check:
     from ..infra.db.database import Database
 
@@ -337,6 +394,7 @@ def run_doctor(check_streams: bool = False) -> int:
         _check_ffmpeg(),
         asyncio.run(_check_databases()),
         *_check_plugins(cfg),
+        asyncio.run(_check_provider_health()),
     ]
 
     stream_checks: list[Check] = []
@@ -348,7 +406,8 @@ def run_doctor(check_streams: bool = False) -> int:
     critical_ok = True
     for c in checks:
         mark = "OK  " if c.ok else "FAIL"
-        if not c.ok and c.name in {"config", "database", "providers", "resolvers"}:
+        if not c.ok and c.name in {"config", "database", "providers", "resolvers",
+                                  "provider health"}:
             critical_ok = False
         print(f"  [{mark}] {c.name}: {c.detail}", file=sys.stderr)
     for c in stream_checks:
