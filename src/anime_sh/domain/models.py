@@ -250,6 +250,31 @@ class WatchProgress:
             return 0.0
         return min(1.0, self.position_s / self.duration_s)
 
+    @property
+    def part_way(self) -> bool:
+        """Stopped in the middle of *this* episode, so this is the one to resume.
+
+        A completed episode and one never started both have no meaningful
+        position, and a completed episode is exactly what keeps a show in
+        Continue Watching once you have finished its latest one — so "has a row"
+        does not mean "is half-watched". This predicate was spelled out by hand in
+        three places, and the place that left it out played the wrong episode.
+        """
+        return not self.completed and self.position_s > 0 and self.duration_s > 0
+
+    @property
+    def next_episode(self) -> float:
+        """The episode to play next: this one if you stopped part-way through it,
+        otherwise the one after.
+
+        `anime resume` played `episode` unconditionally, so in the ordinary case —
+        the show whose latest episode you have just finished — it replayed the
+        episode you finished and announced it "at 0s". The TUI worked this out
+        correctly for its own rows; the CLI did not, and the two disagreed about
+        the same database.
+        """
+        return self.episode if self.part_way else self.episode + 1
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderHealth:

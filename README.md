@@ -409,8 +409,8 @@ anime                          # the TUI
 anime "Frieren"                # search, best match, play episode 1
 anime play "Frieren" -e 18     # a specific episode
 anime play "Frieren" --dub -q 1080p
-anime resume                   # whatever you last left unfinished
-anime continue                 # everything started but not finished
+anime resume                   # pick up the show you watched most recently
+anime continue                 # what to watch next in every show you have going
 anime sources "Frieren"        # every provider entry that matches
 anime next "Frieren"           # find and play the sequel
 
