@@ -6,6 +6,15 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ### Fixed
 
+- **`anime history` answered in UTC.** The timestamps are stored UTC and the
+  table printed them raw, so an episode finished at 22:08 was listed as 16:38 --
+  and anything watched during the evening east of UTC was filed under the
+  previous day. Every other view of that column already converts; `anime
+  wrapped` buckets its days in local time on purpose, on the grounds that a
+  streak broken by a timezone is a wrong answer about someone's habits. The
+  plainest view of the same column was the one still answering in UTC. The
+  `--json` output keeps its offset, so a program can still convert for itself.
+
 - **`anime calendar` was a day offset from your own.** The window comes from
   `date.today()` and is printed back in local time, so both ends mean your
   calendar day -- but it was cut at UTC midnight, sliding the whole window by
