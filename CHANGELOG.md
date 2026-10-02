@@ -4,6 +4,36 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.89] - 2026-10-02
+
+### Fixed
+
+- **`anime resume` replayed the episode you had just finished.** Continue Watching
+  is keyed to the *furthest* episode you have reached and deliberately keeps
+  finished ones — that is what holds a show in the list while a season is still
+  airing and you are waiting on the next episode. So the top row usually names an
+  episode you have already watched, and `resume` played that number
+  unconditionally: it reopened the episode you finished and announced it "at 0s",
+  instead of playing the one waiting. It now plays the episode you stopped
+  part-way through if there is one, and otherwise the next.
+
+- **`anime continue` showed a finished episode as `0%`.** It printed a percentage
+  of an episode with no recorded position, so an episode watched to the end and
+  one never opened both read as untouched — for the state that means the exact
+  opposite. It now names the episode to watch and says `ready`, and the real
+  percentage only where you genuinely stopped mid-episode. `continue --json` gained
+  `next_episode` and `completed`, without which a script could not tell those
+  cases apart either.
+
+  The TUI was always right about this: it works out per row whether to offer
+  "resume", "up next" or "caught up". The CLI reimplemented half of it, so the
+  screen and the command disagreed about the same database. The rule now lives on
+  the progress record itself, with a test that the two agree — if they drift again,
+  Continue Watching would draw a progress bar for an episode `resume` skips.
+
+  The help text for both commands, and the README's one-liners, said "started but
+  not finished". That was never what this listed.
+
 ## [0.2.88] - 2026-10-02
 
 ### Fixed
