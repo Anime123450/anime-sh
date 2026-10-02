@@ -277,6 +277,12 @@ class AniListTracker:
         means pushes fall back to the old finale-or-CURRENT rule rather than
         failing outright. A push that sends the right episode with a status
         that is merely no better than before beats a push that sends nothing.
+
+        A *failed* read is not cached, though, and that is the whole point of
+        ``None`` meaning "not fetched yet". Caching the empty mapping took one
+        rate-limited query and turned off the never-move-backwards guard for the
+        rest of the process — which during a binge is every remaining episode,
+        so a rewatch quietly rolled the real list back.
         """
         if self._entries is None:
             found: dict[int, tuple[str, int]] = {}
@@ -292,7 +298,7 @@ class AniListTracker:
                         if mid and status:
                             found[int(mid)] = (status, int(entry.get("progress") or 0))
             except Exception:
-                found = {}
+                return {}  # unread, so the next push asks again
             self._entries = found
         return self._entries
 
