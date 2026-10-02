@@ -82,6 +82,53 @@ def _check_player(player_name: str) -> Check:
     )
 
 
+def _check_cover_art() -> Check:
+    """Which cover renderer the TUI will actually reach for.
+
+    Worth reporting because the difference is visible and the cause is not: the
+    sharp path needs the terminal to answer a capability probe in time, so the
+    same terminal on the same machine can render a crisp poster one launch and a
+    blocky one the next. Without a line here that is a bug report reading "the
+    images went pixelated" with nothing to go on.
+
+    Probing costs a terminal round-trip, which is exactly what the TUI does at
+    launch -- and doing it the same way is the point, since a check that asked a
+    different question could not answer this one.
+    """
+    from ..tui.coverart import graphics_protocol_active, prime_graphics
+
+    try:
+        from PIL import Image  # noqa: F401
+    except Exception:
+        return Check(
+            "cover art", False,
+            "Pillow is missing, so posters are skipped entirely — "
+            'reinstall with the tui extra: uv tool install "anime-sh[tui]"',
+        )
+
+    import os
+
+    if os.environ.get("ANIME_SH_NO_GRAPHICS"):
+        return Check("cover art", True,
+                     "unicode blocks (ANIME_SH_NO_GRAPHICS is set)")
+
+    # Piping doctor's output means stdout is not a terminal, and the probe is
+    # skipped rather than answered -- so "no graphics" here would be a fact about
+    # the pipe, not about the terminal. Say which it is; the whole point of this
+    # line is to be trustworthy when someone pastes it into a bug report.
+    if not (sys.__stdout__ and sys.__stdout__.isatty()):
+        return Check("cover art", True,
+                     "cannot tell through a pipe — run `anime doctor` on its own")
+
+    prime_graphics()
+    if graphics_protocol_active():
+        return Check("cover art", True, "true bitmap — sharp")
+    return Check(
+        "cover art", True,
+        "unicode blocks — this terminal reported no Sixel/kitty graphics",
+    )
+
+
 def _check_ffmpeg() -> Check:
     path = shutil.which("ffmpeg")
     if path:
@@ -240,6 +287,7 @@ def run_doctor(check_streams: bool = False) -> int:
     checks: list[Check] = [
         _check_config(),
         _check_player(player_name),
+        _check_cover_art(),
         _check_ffmpeg(),
         asyncio.run(_check_databases()),
         *_check_plugins(cfg),
