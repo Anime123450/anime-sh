@@ -34,6 +34,16 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
   The help text for both commands, and the README's one-liners, said "started but
   not finished". That was never what this listed.
 
+- **An episode with no recorded duration keeps its place.** mpv can be closed
+  before it ever reports how long the file is, which leaves a real position with
+  nothing to measure it against. "How far in are you" and "which episode do you
+  open" are separate questions, and answering the second with the first sent such
+  a row to the *next* episode, discarding the minutes it had. Those rows now
+  resume where you stopped; `continue` shows `resume` in place of a percentage it
+  cannot honestly give, and Continue Watching draws no bar. The four places that
+  each decided this for themselves — `resume`, `continue`, the home rail and
+  `next_unwatched` — now all ask the one rule.
+
 ## [0.2.88] - 2026-10-02
 
 ### Fixed

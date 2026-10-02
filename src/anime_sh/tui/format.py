@@ -97,17 +97,27 @@ def continue_cells(
     in the accent colour at full brightness.
     """
     ep = progress.episode
-    if not progress.completed and progress.position_s > 0 and progress.duration_s > 0:
-        pct = round(progress.fraction * 100)
-        bar = progress_bar(progress.fraction, _RESUME_BAR, color="cyan")
-        tail = f"{pct}%"
+    if progress.resumable:
+        # A known position with an unknown duration still resumes *this* episode —
+        # mpv can quit before it reports a duration. Only the bar needs the
+        # duration, so it is the bar that is dropped, not the row's episode. The
+        # earlier test here required a duration and so sent such a row to the next
+        # episode, losing the place it had.
+        if progress.fraction > 0:
+            tail = f"{round(progress.fraction * 100)}%"
+            status = f"{progress_bar(progress.fraction, _RESUME_BAR, color='cyan')}  {tail}"
+            cells = _RESUME_BAR + 2 + len(tail)
+        else:
+            tail = "resume"
+            status = tail
+            cells = len(tail)
         return (
             Row(
                 title=anime.title.preferred,
                 glyph="[cyan]▸[/cyan]",
                 position=f"Ep {ep:g}",
-                status=f"{bar}  {tail}",
-                status_cells=_RESUME_BAR + 2 + len(tail),
+                status=status,
+                status_cells=cells,
                 rank=RANK_RESUME,
             ),
             ep,

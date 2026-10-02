@@ -1642,8 +1642,12 @@ async def _continue(limit: int, as_json: bool) -> None:
         # which reads as untouched for the one state that means the opposite. Name
         # the episode to watch and say it is ready, rather than measuring how far
         # into it you are: nought.
-        if it.progress.part_way:
+        if it.progress.fraction > 0:
             status = f"{round(it.progress.fraction * 100)}%"
+        elif it.progress.resumable:
+            # Stopped inside this episode, but nothing reported how long it is,
+            # so there is no percentage to give -- only the fact that it resumes.
+            status = "resume"
         else:
             status = "ready"
         table.add_row(
@@ -1673,7 +1677,7 @@ async def _resume(dub: bool, quality: str | None) -> None:
         # announced it "at 0s". The TUI never did this: it asks the same question
         # per row and acts on the answer.
         episode = top.progress.next_episode
-        if top.progress.part_way:
+        if top.progress.resumable:
             err.print(
                 f"[cyan]▶[/] Resuming {top.anime.title.preferred} — "
                 f"Episode {episode:g} at {top.progress.position_s}s"
@@ -1949,7 +1953,10 @@ def next_unwatched(progress, episode_count: int | None) -> float | None:
     past the end of a finished show, so a completed series is not endlessly
     re-offered an episode that does not exist.
     """
-    nxt = progress.episode + 1 if progress.completed else progress.episode
+    # The same decision `anime resume` makes, and it must not be a second
+    # spelling of it: this one tested only `completed`, so the two rules differed
+    # for a row with a position and no duration.
+    nxt = progress.next_episode
     if episode_count is not None and nxt > episode_count:
         return None
     return nxt

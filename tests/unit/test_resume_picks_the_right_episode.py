@@ -33,13 +33,13 @@ def _progress(episode, position_s, duration_s, completed):
 def test_a_finished_episode_sends_you_to_the_next_one():
     """The case this was found on: ep 6 watched to the end, ep 7 waiting."""
     p = _progress(6.0, 0, 0, True)
-    assert not p.part_way
+    assert not p.resumable
     assert p.next_episode == 7.0, "resume must not replay what you finished"
 
 
 def test_a_part_watched_episode_is_the_one_to_resume():
     p = _progress(8.0, 262, 1429, False)
-    assert p.part_way
+    assert p.resumable
     assert p.next_episode == 8.0
     assert round(p.fraction * 100) == 18
 
@@ -49,25 +49,28 @@ def test_an_episode_marked_elsewhere_sends_you_to_the_next_one():
     duration, because no player was involved. Those are finished episodes, not
     episodes someone is nought percent into."""
     p = _progress(21.0, 0, 0, True)
-    assert not p.part_way
+    assert not p.resumable
     assert p.next_episode == 22.0
 
 
-def test_a_position_without_a_duration_is_not_part_way():
-    """A player that never reported a duration gives a fraction of zero, so
-    treating it as part-way would show a 0% bar and resume at a position nothing
-    can be measured against. The episode is better treated as done."""
+def test_a_position_without_a_duration_still_resumes_that_episode():
+    """mpv can be closed before it ever reports a duration, leaving a real
+    position with nothing to measure it against. The percentage is unknowable;
+    *which episode you were in* is not. Requiring a duration here sent this row
+    to the next episode and threw away the five minutes it had -- a worse bug
+    than the one that rule was added to fix."""
     p = _progress(4.0, 300, 0, False)
-    assert not p.part_way
-    assert p.next_episode == 5.0
+    assert p.resumable
+    assert p.next_episode == 4.0, "a known position must not be discarded"
+    assert p.fraction == 0.0, "and there is still no percentage to draw"
 
 
-def test_the_very_start_of_an_episode_is_not_part_way():
+def test_the_very_start_of_an_episode_is_not_resumable():
     """position 0 with a known duration: opened and closed without watching
     anything. There is nothing to resume *to*, so the next episode is the useful
     answer and matches what the TUI already offers."""
     p = _progress(4.0, 0, 1420, False)
-    assert not p.part_way
+    assert not p.resumable
     assert p.next_episode == 5.0
 
 
@@ -78,7 +81,7 @@ def test_half_episode_numbers_survive():
     assert _progress(6.5, 0, 0, True).next_episode == 7.5
 
 
-def test_the_tui_and_the_domain_agree_on_which_rows_are_part_way():
+def test_the_tui_and_the_domain_agree_on_which_rows_are_resumable():
     """The TUI had this right first. If the two ever disagree, Continue Watching
     draws a progress bar for an episode `resume` will skip, or the other way
     round -- and the screen and the command would be describing different shows.
@@ -97,6 +100,7 @@ def test_the_tui_and_the_domain_agree_on_which_rows_are_part_way():
         _progress(6.0, 0, 0, True),
         _progress(8.0, 262, 1429, False),
         _progress(4.0, 0, 1420, False),
+        _progress(4.0, 300, 0, False),  # position, no duration: the hard case
     ):
         built = continue_cells(anime, progress)
         assert built is not None

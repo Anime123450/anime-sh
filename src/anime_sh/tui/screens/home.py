@@ -619,11 +619,12 @@ class HomeScreen(Screen):
             row, resume = built
             # Only a part-watched episode has a meaningful fraction; a row that
             # is merely "ready" is at zero and must not draw a progress bar in
-            # the rail as though it were started.
-            part_way = (not it.progress.completed and it.progress.position_s > 0
-                        and it.progress.duration_s > 0)
+            # the rail as though it were started. `fraction` is already 0.0 when
+            # the duration is unknown, so the duration does not need testing here
+            # too -- doing that is what made a positioned-but-duration-less row
+            # look unstarted everywhere at once.
             rows.append((anime, row, resume,
-                         it.progress.fraction if part_way else 0.0))
+                         it.progress.fraction if it.progress.resumable else 0.0))
 
         lv = self.query_one("#continue", ListView)
         sec = self.query_one("#sec-continue")
