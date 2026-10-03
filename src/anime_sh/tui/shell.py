@@ -146,8 +146,15 @@ class NavRail(Static):
     digit beside each row jumps straight there.
     """
 
-    def render_nav(self, current: str | None, width: int, counts: dict) -> None:
+    def render_nav(self, current: str | None, width: int, counts: dict,
+                   *, blank: bool = False) -> None:
         if width <= 0:
+            return
+        if blank:
+            # The column without its contents. Searching hides the shelves this
+            # maps, but taking the column away with them moved everything beside
+            # it — see the note at the call site.
+            self.update("")
             return
         labelled = width >= 16
         lines: list[str] = [""]

@@ -461,14 +461,24 @@ class HomeScreen(Screen):
         searching = self._searching()
         try:
             nav = self.query_one("#nav", NavRail)
-            # Gone while searching. Searching hides all four shelves, so the
-            # rail was a map to four destinations that did not exist and four
-            # digits that jumped to hidden lists — a column of glyphs beside
-            # blank space, which is decoration with a broken keybinding behind
-            # it. Results are one list; there is nothing to navigate between.
-            nav.display = not searching and nav_width(width) > 0
+            # Emptied while searching, but its column is kept.
+            #
+            # Emptied because searching hides all four shelves, so the rail was
+            # a map to four destinations that did not exist, with four digits
+            # that jumped to hidden lists behind it.
+            #
+            # Kept because panels that move cost more than panels that go quiet.
+            # Hiding it outright was the first version and it shifted the whole
+            # content column five cells left — twenty at 160 — on the first
+            # character typed, so the result list landed somewhere the shelves
+            # had never been. Spatial memory is the navigation in an interface
+            # this dense; an empty gutter reads as margin, while a list that
+            # jumps sideways as you type reads as a different screen.
+            nav.display = nav_width(width) > 0
             if nav.display:
-                nav.render_nav(current, nav_width(width), counts)
+                nav.render_nav(None if searching else current,
+                               nav_width(width), counts,
+                               blank=searching)
         except Exception:
             pass
         try:

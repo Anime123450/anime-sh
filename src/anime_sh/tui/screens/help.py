@@ -43,6 +43,7 @@ _HELP = """[b]anime-sh[/b]
   [cyan]t[/cyan]              theme, previewed live — Esc keeps the old one
   [cyan]p[/cyan]              providers, the sources that get searched
   [cyan]?[/cyan]  [cyan]q[/cyan]           this help, and quit
+  [cyan]Ctrl+P[/cyan]         command palette
 
 [dim]A shelf shows a sample; its label counts the rest — "5 of 19".
 Dimmed episodes have not aired yet.[/dim]

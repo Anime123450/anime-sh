@@ -227,8 +227,14 @@ field spent four rows showing a placeholder that named the key which opens it,
 on a screen whose scarcest resource is rows, and the top bar says `/ search`
 for free. Entering it puts the whole shell into search mode:
 
-- the nav rail goes, because all four shelves are hidden and a rail mapping four
-  destinations that do not exist is decoration with a broken keybinding behind it;
+- the nav rail **empties but keeps its column**, because all four shelves are
+  hidden and a rail mapping four destinations that do not exist is decoration
+  with a broken keybinding behind it — but hiding it outright shifted the whole
+  content column five cells left, twenty at 160, on the first character typed,
+  so the result list landed somewhere the shelves had never been. Spatial
+  consistency is the navigation in an interface this dense: panels may go quiet,
+  but they do not move. An empty gutter reads as margin; a list that jumps
+  sideways as you type reads as a different screen;
 - the schedule goes, because "what is on tonight" is a home-screen answer and
   sixteen rows is a lot to spend on a question nobody asked;
 - the action bar swaps `tab next shelf` — a key that does nothing when there is

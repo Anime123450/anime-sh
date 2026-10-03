@@ -364,6 +364,7 @@ Shell tab-completion is one command: `anime --install-completion`.
 | 🧱 | <kbd>v</kbd> | view — home density, or episode layout on a show |
 | ⏭️ | <kbd>n</kbd> | next season, on a show |
 | ❓ | <kbd>?</kbd> | every key, any time |
+| 🎛️ | <kbd>Ctrl</kbd>+<kbd>P</kbd> | command palette |
 | 🚪 | <kbd>q</kbd> | quit |
 
 ---

@@ -131,16 +131,28 @@ async def test_searching_puts_the_shell_into_search_mode():
     digits bound to hidden lists behind them, and that the hero was still
     carrying next week's broadcast schedule while you searched for something
     else.
+
+    The rail is *emptied*, not hidden, and that distinction is the point: taking
+    its column away with its contents shifted everything beside it five cells
+    left — twenty at 160 — on the first character typed, so the result list
+    landed somewhere the shelves had never been.
     """
     app = _app(FakeSearch())
     async with app.run_test(size=(120, 40)) as pilot:
         await _settle(app, pilot)
         nav = app.screen.query_one("#nav")
         assert nav.display, "test premise: the rail is showing at 120 columns"
+        before = app.screen.query_one("#body").region.x
 
         await _type(pilot, app, "a")
 
-        assert not nav.display, "the nav rail still maps the hidden shelves"
+        assert nav.display, "the rail's column went away and took the layout with it"
+        assert not str(nav.render()).strip(), (
+            "the nav rail still maps the hidden shelves"
+        )
+        assert app.screen.query_one("#body").region.x == before, (
+            "the content column moved sideways when the search opened"
+        )
         assert not app.screen.query_one("#sec-rail").display, (
             "the hero is still showing next week's schedule mid-search"
         )
