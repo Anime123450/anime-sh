@@ -12,123 +12,148 @@ whose breakpoints, spacing scale and four-treatment typography this follows.
 
 ## 1. What was wrong
 
-Measured on a 120×40 render of a real-sized library, the previous home screen:
+This screen has been got wrong twice, in opposite directions, and both diagnoses
+are worth keeping because the second one is the reason the current design exists.
 
-- showed **four lists at once** (18 + 2 + 19 + 10 rows) with equal visual weight,
-  so nothing led and Trending never appeared above the fold;
-- repeated the words **"new episode" on 13 consecutive rows** — a third of the
-  screen spent saying the same thing in the same dim grey;
-- **truncated 10 of 18 titles** at ~34 cells while the context rail beside them
-  broke a synopsis mid-word (`Studi…`, then `his` alone on a line);
-- drew **three rule-filled headers** (`Continue Watching ─────── 18`), which is
-  decoration carrying one integer;
-- had **no focal point**: the only image on screen was 22 cells wide in a corner.
+**The original.** Measured on a 120x40 render of a real-sized library:
 
-The diagnosis is not "the colours are wrong". It is that everything was
-permanently visible at the same volume.
+- **four lists at once** (18 + 2 + 19 + 10 rows) with equal visual weight, so
+  nothing led and Trending never appeared above the fold;
+- the words **"new episode" on 13 consecutive rows** — a third of the screen
+  spent saying the same thing in the same dim grey;
+- **10 of 18 titles truncated** at ~34 cells while the panel beside them broke
+  a synopsis mid-word (`Studi...`, then `his` alone on a line);
+- **three rule-filled headers** (`Continue Watching ------- 18`), decoration
+  carrying one integer;
+- **no focal point**: the only image on screen was 22 cells wide in a corner.
+
+**The first redesign**, which fixed all five of those and was still wrong. It
+kept stacked vertical lists and added an information panel down the right-hand
+side. Tidier, better proportioned, legible — and structurally the same screen,
+which is the one thing the brief had asked it not to be. Rows are an efficient
+way to present a database. Anime is not a database: the poster *is* the
+metadata, and a person recognises a show from a thumbnail faster than from its
+name set in a column. A client for a visual medium whose main screen is a wall
+of text has misidentified what it is showing.
+
+The argument that produced it is recorded in [S11](#11-what-was-rejected-and-why)
+below, because it was made carefully, in numbers, and was wrong anyway.
 
 ## 2. Principles
 
 1. **One thing leads.** The screen answers "what am I in the middle of?" before
    it answers anything else.
-2. **Hierarchy before decoration.** Depth comes from three background tiers and
+2. **The poster is the data.** Cover art is not decoration on top of a list; it
+   is the fastest identifier the medium has. Spend cells on it.
+3. **Hierarchy before decoration.** Depth comes from three background tiers and
    from weight, never from borders. A border costs two rows to say what a shade
    already says.
-3. **Progressive disclosure.** A shelf shows a sample and says how much more
-   there is. The full list is one keypress away, not permanently on screen.
-4. **Every glyph earns its cells.** If a dot already means "ready to watch", the
-   words "new episode" are thirteen lines of noise.
-5. **Colour never carries meaning alone.** Every state has a shape as well as a
+4. **Progressive disclosure.** Detail is on screen for exactly one show — the
+   one the cursor is on — and never for all of them at once.
+5. **Nothing moves that was not asked to move.** A card reserves its full size
+   before its cover arrives, panels go quiet rather than disappearing, and a
+   shelf keeps its height whether it is full or nearly empty.
+6. **Colour never carries meaning alone.** Every state has a shape as well as a
    hue, so the screen survives a monochrome terminal.
 
 ## 3. Composition
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  ▞ anime-sh    Home                          /  search       │  TopBar
-├─────┬──────────────────────────────────┬─────────────────────┤
-│ nav │  CONTINUE WATCHING          6 ▸  │   ┌────────────┐    │
-│     │   ▸ Skeleton Knight …  Ep 8  18% │   │            │    │
-│  ⌂  │   ● Solo Leveling …    Ep 8/13   │   │   poster   │    │  Hero
-│  ✦  │                                  │   │            │    │
-│  ◷  │  THIS SEASON               19 ▸  │   └────────────┘    │
-│  ♥  │   ○ Black Clover S2    in 1h 59m │   SKELETON KNIGHT   │
-│     │                                  │   TV · 12 eps · ★72 │
-│     │  TRENDING                  10 ▸  │   Action · Comedy   │
-│     │   ○ Apothecary Diaries  in 6d    │   ━━━╸────── 18%    │
-│     │                                  │   ▶ Resume ep 8     │
-├─────┴──────────────────────────────────┴─────────────────────┤
-│  ↵ open   ␣ play   f favourite   / search   ? help           │  ActionBar
-└──────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------------------+
+|  anime-sh  .  Continue                           / search   ? help       |  TopBar
+|                                                                          |
+|  +----------+   SKELETON KNIGHT IN ANOTHER WORLD SEASON 2                |
+|  |          |   TV . 12 eps . 2026   * 72%                               |
+|  |          |   Action . Adventure . Comedy . Studio KAI                 |
+|  |  poster  |                                                            |  Hero
+|  |    24    |   o airing   Ep 9 in 1d 4h                                 |
+|  |  cells   |   ====------------------  18%                              |
+|  |          |                                                            |
+|  |          |   Arc returns! After waking to find he's become a ...      |
+|  +----------+    > resume episode 8                                      |
+|                                                                          |
+|   C O N T I N U E   W A T C H I N G   19                                 |
+|   +------+  +------+  +------+  +------+  +------+  +------+  +------+   |
+|   | 14c  |  |      |  |      |  |      |  |      |  |      |  |      |   |  Shelf
+|   +======+  +------+  +------+  +------+  +------+  +------+  +------+   |
+|   Skeleton.  Lord of.  BOCCHI .  The Kin.  Ghost i.  ONE PIE.  The Ex.   |
+|   ep 8 . 18%  ep 1 . 5%  ep 3 . 50% ...                                  |
+|                                                                          |
+|   F A V O U R I T E S   2                                                |
+|   +------+  +------+                                                     |  Shelf
+|                                                                          |
+|  ^ resume   l my list   / search   ? help   q quit                       |  ActionBar
++--------------------------------------------------------------------------+
 ```
 
-Three regions, fixed in place, so spatial memory does the navigating:
+- **TopBar** — one row: identity, which shelf you are on, how to search.
+- **Hero** — one show, large: a 24-cell poster beside everything known about it,
+  ending in a filled accent bar naming what Enter does. It follows the cursor,
+  so it is never stale and never describes more than one thing.
+- **Shelves** — horizontal rows of 14-cell posters, each with its title and the
+  one piece of state that matters under it. Arrow keys walk a shelf; up and down
+  change shelves. About eleven cards fit across at 190 columns.
+- **ActionBar** — one row: what the card under the cursor can do, then the
+  global keys.
 
-- **Nav rail** — the sections, always in the same order. Selecting one expands
-  it to the full height and hides the others. This is what turns four competing
-  lists into one.
-- **Content** — the active shelf or shelves.
-- **Hero** — whatever the cursor is on, as a poster-led panel rather than a
-  cramped info strip. It is the only part of the screen that is meant to be
-  *looked at* rather than read.
+The hero sits **outside** the scrolling region. It describes whatever the cursor
+is on, so scrolling it away would leave the shelves annotating something that is
+no longer on screen.
 
-The hero is a column, not a top band, deliberately. At 120×40 the scarce
-resource is rows, not columns: a cinematic band across the top would cost twelve
-rows of content to show one show. A column spends width, which is what the
-terminal has going spare.
+The cost, stated plainly because it is real: a shelf is 15 rows where a list of
+rows was one. At 190x50 this is the hero and about two shelves; the old screen
+fitted four lists in the same space. Fewer things, bigger, is the trade — and
+`v` (compact density) buys two rows a shelf back for people who would rather
+have the fourth shelf.
 
 ## 4. Breakpoints
 
 Width, following the monospace standard:
 
-| Cells | Name | Nav | Hero | Content |
+| Cells | Name | Hero poster | Hero | Shelves |
 |---|---|---|---|---|
-| < 80 | compact | hidden (keys only) | hidden | one column, status dropped |
-| 80–119 | standard | digit + icon, 5 cells | hidden | one column |
-| 120–159 | expanded | digit + icon, 5 cells | ~40 cells | remainder |
-| ≥ 160 | wide | icon + label + count, 20 | 46–72 cells | remainder |
+| < 80 | compact | none | hidden | ~4 cards across |
+| 80-119 | standard | 16 cells (11 rows) | shown | ~5 cards |
+| 120-159 | expanded | 20 cells (14 rows) | shown | ~7 cards |
+| >= 160 | wide | 24 cells (17 rows) | shown | 9-12 cards |
 
-Labels only in the `wide` band, and that was measured rather than guessed. A
-labelled rail was tried at 120: the rail took 16 cells, the hero 40, and the
-title column fell from 34 cells to 18 — every row ellipsized to make room for
-four words that never change. Orientation is worth five cells there, not
-sixteen. Twenty at `wide` rather than eighteen because eighteen leaves ten cells
-for the label and wrote "This Season" as `This Seas…`; a rail that cannot spell
-its own destinations is worse than one with no labels.
+A card is a fixed 14 cells wide at every size. Extra width becomes *more
+posters*, not wider ones: a poster you can recognise a show from is the point,
+and 14 cells is where that happens — below it the art is mud, above it the
+shelf holds fewer shows for no gain.
 
-Height is **not** a table of fixed row counts. Those were tried twice and both
-versions left the column short:
+The hero's **height is derived, not tabled**: it is however many rows its poster
+comes back as, from `coverart.cover_rows`, floored at 12 so the text beside it
+always has room for a line or two of synopsis. Pinning it to the widest band's
+17 rows (which shipped, briefly) made a 120-column terminal reserve 17 rows for
+a 14-row poster and leave three blank between the hero and the first shelf —
+three rows is a quarter of a card, taken off the shelves to pad a gap.
 
-- a fixed table under-filled by ten rows at 120×40 — four shelves of six on a
-  screen with room for seven;
-- a strictly proportional split that kept its remainder under-filled by
-  twenty-three rows at 200×60, because a shelf clamped to its own length hands
-  nothing back.
+Height below 30 rows drops the hero entirely. At 24 rows it would leave six for
+the shelves, which is less than one card, so the screen would be a hero and
+nothing else — a detail screen with extra steps. What ships at 80x24 is two
+shelves and the two bars.
 
-What ships instead: every shelf is seeded with `_SHELF_MIN` rows, and the rest
-of the column is handed out in **rounds weighted by `Section.weight`** until
-nothing can take any more. Continue Watching carries `weight=3`, so it takes
-three fifths of every round and stays visibly the largest thing — hierarchy has
-to be legible in *size*, not only in order, or four shelves read as four equal
-blocks and the screen is a dashboard again. Weighted is load-bearing: an even
-redistribution was tried and flattened it, with This Season drawing level at
-13 rows each. Both failures are pinned by `tests/tui/test_shelf_caps.py`.
-
-Measured result, same library: 5/2/4/3 rows at 80×24, 14/2/7/7 at 120×40,
-18/2/19/10 at 200×60 — every size filling to within a row of the window.
-
-Extra width past 160 becomes margin, never more columns of data. An interface
-that fills a 240-cell terminal with data is not using the space, it is
-spilling into it. The row grid obeys this already by cutting its title column
-to the 85th percentile of the titles it actually holds, so a wide terminal gets
-a longer measure, not a stretched one.
+There are no shelf **caps** any more, and the machinery that computed them is
+gone with them: a horizontal shelf holds everything it is given and scrolls, so
+there is nothing hidden for a "6 of 18" to be honest about and nothing for `z`
+to expand. The two failed attempts at height distribution (a fixed table that
+under-filled by ten rows; a proportional split that kept its remainder and
+under-filled by twenty-three) are recorded here only so neither is tried again.
 
 ## 5. Spacing
 
 The scale is `0 1 2 3 4 6 8` cells. No other value appears. Vertical gaps come
-in ones: a shelf is `label, rows, blank`. Horizontal padding inside a plate is
-`2`, which is what makes a background change read as a surface rather than as a
-highlight.
+in ones: a shelf is `blank, label, cards, blank`. Horizontal padding inside a
+plate is `1`-`2`, which is what makes a background change read as a surface
+rather than as a tint stopping flush against the art.
+
+A shelf is 15 rows, not 14, and the extra row is not spacing: the horizontal
+scrollbar is drawn *inside* the content area, so a shelf with more posters than
+fit lost the bottom row of every card to it — the state caption, silently, on
+exactly the shelves long enough to need scrolling. The row is kept on the short
+shelves too, because a shelf that changes height depending on how full it is
+makes every shelf below it move.
 
 ## 6. Typography
 
@@ -137,7 +162,7 @@ Four treatments, never more than two attributes on one span:
 | Role | Treatment | Used for |
 |---|---|---|
 | Display | bold, uppercase, letterspaced | shelf labels, hero title |
-| Title | bold | row titles, the focused row |
+| Title | bold | card titles, the selected card |
 | Body | normal | metadata, counts |
 | Label | dim | secondary facts, hints, timestamps |
 
@@ -155,12 +180,12 @@ built-in theme keeps working:
 |---|---|---|
 | `$background` | the base | screen |
 | `$surface` | a plate content sits on | shelves, hero |
-| `$panel` | lifted off the plate | highlighted row in an unfocused list |
-| `$accent` | **the keyboard is here** — nothing else | focused row marker only |
-| `$primary` | identity and progress | logo, progress fill, resume glyph |
+| `$panel` | lifted off the plate | the selected card, cover placeholders |
+| `$accent` | **the keyboard is here** — nothing else | the selected card's rule and caption |
+| `$primary` | identity and progress | logo, progress fill |
 | `$success` | watched, complete | ✓ |
 | `$warning` | airing soon, degraded | countdowns under an hour |
-| `$error` | failed | unavailable sections |
+| `$error` | failed | unavailable shelves |
 | `$text` / `$text-muted` | body / label | — |
 
 `$accent` meaning exactly one thing is the rule that makes focus unambiguous.
@@ -169,81 +194,137 @@ structure, not interaction.
 
 ## 8. State and focus
 
-Exactly one element holds focus. Four row states, each with a shape as well as a
-colour, so none depends on hue:
+Exactly one element holds focus, and exactly one card on it is selected.
 
-| State | Shape | Colour | Meaning |
-|---|---|---|---|
-| resume | `▸` | primary | part-way through this episode |
-| ready | `●` | success | an aired episode waiting |
-| waiting | `○` | dim | caught up, counting down |
-| watched | `✓` | dim | nothing to do |
+The selected card says so **twice**: an accent rule drawn under its art, and its
+title at full strength while its neighbours sit dim. The rule is a shape, so the
+distinction survives a terminal with no colour. Only the *focused* shelf's
+selected card also lifts to `$panel` — every shelf keeps its place so you do not
+lose it moving between them, but `$accent` and the lift both mean "the keyboard
+is here", and four shelves claiming that at once means none of them do.
 
-The focused row additionally takes a thick left border in `$accent` and trades
-one cell of its padding for it, so its width never changes as focus moves.
+A card's caption is the one line of state the poster cannot carry:
+
+| Caption | Means |
+|---|---|
+| `ep 8 . 18%` | part-way through episode 8 |
+| `resume ep 8` | stopped in episode 8, duration unknown |
+| `3 eps ready` | aired and unwatched — the state the screen exists to surface |
+| `ep 9 in 1d 4h` | caught up, counting down |
+| `12 eps` / `2024` | not tracked; how much of it exists |
+
+Deliberately *not* the row status re-used at a smaller width. That string is
+built around a seven-cell progress bar and a column grid, neither of which
+exists under a card, and cutting it to fourteen cells produced `____ 4` — not a
+shorter version of the information, just damage.
+
+A card that has nothing to say shows a blank line rather than `?` or `TBA`. The
+row is reserved either way; inventing a fact nobody has is worse than a gap.
 
 ## 9. Motion
 
 Borrowed wholesale from the standard: nothing over 500ms, panel transitions
-150–300ms, feedback within 100ms. In practice this app animates three things —
-the hero cross-fading as the cursor moves, the shelf expanding when a nav item
-is chosen, and loading spinners. Everything else is instant, because a terminal
-redrawing a grid is instant and pretending otherwise feels broken.
+150-300ms, feedback within 100ms. In practice almost nothing here animates.
+Shelf scrolling is explicitly **not** eased — a shelf that glides to the next
+card makes a held-down arrow key feel like wading — and a terminal redrawing a
+grid is instant anyway, so pretending otherwise reads as lag.
 
-Poster fetches are debounced by 350ms, so walking a list never touches the
-network; only the row you stop on is fetched.
+Covers are the one thing that arrives late, and the rule there is that nothing
+moves when one lands:
+
+- every card draws a flat plate in the panel tone at the exact size its poster
+  will be, so the shelf is laid out before a single image exists. Not a spinner:
+  twelve spinners animating is a slot machine, and a blank card reads as broken;
+- a cover already on disk is read **synchronously**, while the shelf is being
+  built, so on every launch after the first the whole wall paints complete in
+  the first frame;
+- only genuine misses go to the network, six at a time, and each is fetched once
+  per show however many shelves show it. A fetch that *fails* is recorded too,
+  or a show whose poster 404s sends a fresh request forever, quietly, since
+  nothing appears either way.
+
+There is no cursor debounce any more and no need for one: every cover a shelf
+wants is asked for when the shelf is built, so by the time the cursor can move
+there is nothing left to ask for.
 
 ## 10. Components
 
 | Component | File | Does |
 |---|---|---|
-| `TopBar` | `tui/shell.py` | identity, current section, search hint |
-| `NavRail` | `tui/shell.py` | the sections; the one place navigation lives |
-| `ActionBar` | `tui/shell.py` | keys for what is focused *now* |
-| `Hero` | `tui/hero.py` | poster, title, metadata, progress, primary action |
-| `Shelf` | `screens/home.py` | label + capped list + "more" affordance |
-| `MediaRow` | `tui/rows.py` | one row's grid geometry |
-| `EmptyState` | `tui/shell.py` | what to do when a section has nothing |
+| `TopBar` | `tui/shell.py` | identity, current shelf, search hint |
+| `ActionBar` | `tui/shell.py` | keys for what is selected *now* |
+| `PosterCard` | `tui/cards.py` | one show: art, title, one line of state |
+| `Shelf` | `tui/cards.py` | a horizontal row of cards with its own cursor |
+| Hero | `tui/preview.py` | the block beside the big poster |
+| `render_cover` | `tui/coverart.py` | image bytes to sextant blocks |
+| `cover_rows` | `tui/coverart.py` | how tall a poster *will* be, for reserving |
+| `AnimeItem` | `tui/widgets.py` | one text row — My List only, now |
+| `EmptyState` | `tui/shell.py` | what to do when a shelf has nothing |
 
-## 11. What is deliberately not here
+`Shelf` carries its own cursor because Textual has no horizontal list widget.
+That is the only real machinery in `cards.py`; everything else is a render. It
+binds up and down itself as well as left and right — `HorizontalScroll` inherits
+bindings for them from `ScrollableContainer` and would swallow both to scroll
+vertically, in a container exactly one card tall, so the key did nothing at all
+and never reached the screen.
 
-- **Borders around cards.** Tried; a terminal card grid spends two rows and two
-  columns per item on line art, and at poster sizes only four fit on screen.
-- **A top hero band.** Costs twelve rows at the size most people run.
-- **Horizontal poster carousels.** A poster is ~15 rows tall at a readable
-  width; one strip would be a third of the screen for five items, and
-  left/right scrolling in a terminal fights the list navigation people already
-  know.
-- **Per-section colour.** Four accent hues was the previous design's mistake in
-  a different form: it makes the loudest thing on screen the part carrying the
-  least information.
+## 11. What was rejected, and why
+
+Two of the entries in this section were **wrong**, and the record of them is
+more useful than quietly deleting them would be. What they have in common is
+that each counted the rows a thing costs without weighing what it buys — and a
+row-count argument always favours text, because text is what fits in one row.
+
+> ~~**A top hero band.** Costs twelve rows at the size most people run.~~
+>
+> It costs 15-18, which is worse than the estimate, and it is the right call
+> anyway. The hero is the only part of the screen meant to be *looked* at rather
+> than read, and a 24-cell poster is the difference between recognising a show
+> and reading its name. The rows come out of how many shelves fit, which is a
+> trade, not a loss.
+
+> ~~**Horizontal poster carousels.** A poster is ~15 rows tall at a readable
+> width; one strip would be a third of the screen for five items, and
+> left/right scrolling in a terminal fights the list navigation people already
+> know.~~
+>
+> The "five items" was the error: at 14 cells a strip holds eleven across at 190
+> columns and seven at 120, which is more shows visible than a capped vertical
+> list of eight ever showed — and each one recognisable at a glance instead of
+> read. The navigation objection was simply wrong: left/right along a shelf and
+> up/down between shelves is the convention every streaming client on every
+> screen already uses.
+
+Still rejected, and these have held up:
+
+- **Borders around cards.** A terminal card grid spends two rows and two columns
+  per item on line art. At poster width that is a seventh of the card's cells
+  spent outlining it, and the plate underneath already groups them.
+- **Per-section colour.** Four accent hues makes the loudest thing on screen the
+  part carrying the least information, and breaks the one rule that keeps focus
+  unambiguous.
+- **A nav rail.** It shipped, and it went with the stacked lists it mapped.
+  Twenty columns of permanent labels is orientation worth having beside three
+  tall lists of text; beside horizontal shelves it is twenty columns taken off
+  every shelf to repeat what the shelf headings already say, and a shelf is
+  measured in posters. The digits `1`-`4` still jump.
+- **Shelf caps and `z`.** Same reason: a shelf that holds everything it was
+  given has nothing to expand.
 
 ## 12. The other screens
 
 The home screen is the argument; these are the same rules applied.
 
 **Search** is a *mode*, not a screen. The box is hidden until `/` — an always-on
-field spent four rows showing a placeholder that named the key which opens it,
-on a screen whose scarcest resource is rows, and the top bar says `/ search`
-for free. Entering it puts the whole shell into search mode:
+field spent rows showing a placeholder that named the key which opens it, on a
+screen whose scarcest resource is rows, and the top bar says `/ search` for
+free. Entering it puts the whole shell into search mode:
 
-- the nav rail **empties but keeps its column**, because all four shelves are
-  hidden and a rail mapping four destinations that do not exist is decoration
-  with a broken keybinding behind it — but hiding it outright shifted the whole
-  content column five cells left, twenty at 160, on the first character typed,
-  so the result list landed somewhere the shelves had never been. Spatial
-  consistency is the navigation in an interface this dense: panels may go quiet,
-  but they do not move. An empty gutter reads as margin; a list that jumps
-  sideways as you type reads as a different screen;
-- the schedule goes, because "what is on tonight" is a home-screen answer and
-  sixteen rows is a lot to spend on a question nobody asked;
-- the action bar swaps `tab next shelf` — a key that does nothing when there is
-  one shelf — for `esc back`;
-- the hero takes the room the short list frees, up to 24 synopsis lines. Four
-  lines regardless was fine beside a full home screen and absurd beside a
-  two-result search, where it left thirty blank rows under a paragraph cut off
-  mid-sentence. The space a short result list frees belongs to the one result
-  you are looking at; that is the whole argument for having a hero.
+- every browse shelf and its heading is swapped for the results shelf, which is
+  a shelf of posters like any other;
+- the top bar says `Search` rather than naming a shelf you are no longer on;
+- the action bar swaps `l my list` for `esc back`, because the one row
+  guaranteed to be visible should offer the way out of the mode it is in.
 
 No matches hides the heading *and* its plate — "Results" over an empty plate
 over a notice saying there are none is the same fact three times — and the hero
@@ -283,9 +364,16 @@ uv run python scripts/tui_shots.py OUT --screen home
 uv run python scripts/tui_shots.py OUT --screen search --query zzz   # empty state
 ```
 
-Every defect listed in §1 and §4 was found this way, and two were found in the
-harness itself: its search fixture fell back to eight rows on a miss, so the one
+Every defect listed in §1 and §4 was found this way, and three were found in the
+harness itself. Its search fixture fell back to eight rows on a miss, so the one
 screen with an explicit empty state was the one screen that could never be
-photographed; and its only synopsis was four lines long, so it could not show
-whether the hero used the room a short result list frees. A QA harness whose
-fixtures do not exercise the layout is how the dead space got in.
+photographed. Its only synopsis was four lines long, so it could not show
+whether the hero used the room a short result list frees. And none of its shows
+had a cover URL, so every shot was a wall of placeholder plates — a picture of
+the loading state rather than of the screen, on a design whose whole argument is
+what a shelf of *posters* looks like. It generates synthetic covers with Pillow
+now, patched in at the disk-cache read so the app takes the same path it does on
+a warm launch; the shapes are fake and the layout is real.
+
+A QA harness whose fixtures do not exercise the layout is how the dead space got
+in, twice.

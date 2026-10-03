@@ -369,14 +369,86 @@ def graphics_cover_widget(data: bytes, width_cells: int):
         return None
 
 
+#: An AniList cover is 460x650, and every other source's is close enough.
+#: `render_cover` keeps the aspect itself, so this is only needed to work out
+#: how many rows an image *will* come back as before it has arrived — which is
+#: the whole of reserving space for one.
+COVER_ASPECT = 650 / 460
+
+
+def cover_rows(cols: int) -> int:
+    """Rows a ``cols``-wide cover will render as.
+
+    The same arithmetic `render_cover` does, named once. It was written out by
+    hand in two places — the card and the hero — and the hero's copy was pinned
+    to the widest band, so on a 120-column terminal the hero reserved seventeen
+    rows for a fourteen-row poster and left three of them blank between the
+    poster and the first shelf.
+    """
+    # A terminal cell is about twice as tall as it is wide, and each cell is a
+    # 2x3 pixel block, so the halving is the cell shape rather than the image's.
+    return max(1, round(COVER_ASPECT * cols / 2))
+
+
+def _cover_path(url: str):
+    """One file per image URL, named by its digest.
+
+    A digest rather than the URL itself because AniList cover URLs carry query
+    strings and a path depth no filesystem wants — and rather than the AniList
+    id because the id is not what was fetched. A show whose cover is replaced
+    upstream gets a new URL and therefore a new file, instead of serving the old
+    picture forever out of a correctly-named entry.
+    """
+    import hashlib
+
+    from ..config.paths import covers_dir
+
+    return covers_dir() / hashlib.sha256(url.encode()).hexdigest()[:32]
+
+
+def cached_cover(url: str) -> bytes | None:
+    """The cover already on disk, or None. Cheap enough to call while composing.
+
+    This is the half that makes a wall of posters bearable: a dozen covers is a
+    dozen HTTPS round trips on every launch otherwise, and they are the same
+    dozen every time.
+    """
+    try:
+        return _cover_path(url).read_bytes() or None
+    except OSError:
+        # Missing is the common case, and reads the same as unreadable here.
+        return None
+
+
+def _store_cover(url: str, data: bytes) -> None:
+    try:
+        path = _cover_path(url)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Written beside and moved into place. A half-written cover is a broken
+        # image, and `render_cover` would answer None for it on every launch
+        # from then on without ever retrying the fetch.
+        tmp = path.with_name(path.name + ".part")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    except OSError:
+        pass  # a cover that fails to cache still renders this run
+
+
 async def fetch_cover(url: str) -> bytes | None:
-    """Fetch cover bytes. Returns None on any failure (offline, 404, …)."""
+    """Cover bytes, from disk if they are there and the network if not.
+
+    Returns None on any failure (offline, 404, …). Never raises: a cover is
+    decoration, and the screen it belongs to has to come up without it.
+    """
+    if (hit := cached_cover(url)) is not None:
+        return hit
     try:
         import httpx
 
         async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
             resp = await client.get(url)
             if resp.status_code == 200 and resp.content:
+                _store_cover(url, resp.content)
                 return resp.content
     except Exception:
         pass

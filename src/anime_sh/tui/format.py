@@ -344,3 +344,38 @@ def meta_line(anime: Anime) -> str:
     line = " · ".join(b for b in bits if b)
     badge = score_badge(anime.average_score)
     return f"{line}   {badge}" if badge else line
+
+
+def card_caption(anime: Anime, progress: WatchProgress | None = None,
+                 now: datetime | None = None) -> str:
+    """The one line of state under a poster. Plain text, ~14 cells.
+
+    A row has forty cells and spends them on a glyph, a position and a status;
+    a card has fourteen and the poster above it has already said which show
+    this is. So the caption answers only the question the poster cannot: what,
+    if anything, is waiting for you here.
+
+    Deliberately not `continue_cells`' status reused at a smaller width. That
+    string is built around a seven-cell progress bar and a column grid, neither
+    of which exists under a card, and cutting it to fit produced `▁▁▁▁ 4` —
+    which is not a shorter version of the information, it is damage.
+    """
+    if progress is not None and progress.resumable:
+        if progress.fraction > 0:
+            return f"ep {progress.episode:g} · {round(progress.fraction * 100)}%"
+        return f"resume ep {progress.episode:g}"
+    nxt = anime.next_airing_episode
+    if anime.is_airing and nxt and anime.next_airing_at:
+        if progress is not None:
+            aired = anime.aired_through(now) or 0
+            if aired > progress.episode:
+                # The state the home screen exists to surface: something has
+                # aired that you have not seen. Said as a number of episodes
+                # rather than a date, because the date is not the point.
+                waiting = round(aired - progress.episode)
+                return f"ep {aired:g} ready" if waiting == 1 else f"{waiting} eps ready"
+        return f"ep {nxt} {countdown(anime.next_airing_at, now)}"
+    eps = anime.episode_count
+    if eps:
+        return "1 ep" if eps == 1 else f"{eps} eps"
+    return str(anime.year) if anime.year else ""

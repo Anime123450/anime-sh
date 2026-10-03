@@ -13,6 +13,7 @@ import asyncio
 from textual.widgets import Input, Label, ListView
 
 from anime_sh.tui import AnimeShApp, TuiServices
+from anime_sh.tui.cards import Shelf
 
 from .test_app import FakeLibrary, FakeMetadata, FakePlayback, FakeSearch, _noop
 
@@ -81,7 +82,7 @@ async def test_a_search_that_matches_shows_no_notice():
         await _type(pilot, app, "frieren")
 
         assert not app.screen.query_one("#results-empty", Label).display
-        assert len(app.screen.query_one("#results", ListView).children) == 2
+        assert len(app.screen.query_one("#results", Shelf).cards) == 2
 
 
 async def test_escape_clears_the_search():
@@ -122,59 +123,53 @@ async def test_escape_on_an_empty_box_is_harmless():
 
 
 async def test_searching_puts_the_shell_into_search_mode():
-    """Searching hides all four shelves, so the furniture that describes them
-    has to go with them.
+    """Searching swaps every browse shelf for the results shelf, so the
+    furniture that describes them has to follow.
 
     Each of these was wrong in the first version of the redesign, and none of
-    them is visible from the code — the screenshot is what showed that the nav
-    rail was still offering four destinations that did not exist, with four
-    digits bound to hidden lists behind them, and that the hero was still
-    carrying next week's broadcast schedule while you searched for something
-    else.
-
-    The rail is *emptied*, not hidden, and that distinction is the point: taking
-    its column away with its contents shifted everything beside it five cells
-    left — twenty at 160 — on the first character typed, so the result list
-    landed somewhere the shelves had never been.
+    them is visible from the code — a screenshot is what showed that the shell
+    was still naming four destinations that were no longer on screen, with four
+    digits bound to hidden shelves behind them.
     """
     app = _app(FakeSearch())
     async with app.run_test(size=(120, 40)) as pilot:
         await _settle(app, pilot)
-        nav = app.screen.query_one("#nav")
-        assert nav.display, "test premise: the rail is showing at 120 columns"
-        before = app.screen.query_one("#body").region.x
+        assert app.screen.query_one("#sec-trending").display, (
+            "test premise: the browse shelves are showing before the search"
+        )
 
         await _type(pilot, app, "a")
 
-        assert nav.display, "the rail's column went away and took the layout with it"
-        assert not str(nav.render()).strip(), (
-            "the nav rail still maps the hidden shelves"
+        for sec in ("#sec-continue", "#sec-trending", "#sec-seasonal",
+                    "#sec-favorites", "#continue", "#trending", "#seasonal"):
+            assert not app.screen.query_one(sec).display, (
+                f"{sec} is still on screen behind the results"
+            )
+        assert app.screen.query_one("#results", Shelf).display, (
+            "the results shelf never appeared"
         )
-        assert app.screen.query_one("#body").region.x == before, (
-            "the content column moved sideways when the search opened"
-        )
-        assert not app.screen.query_one("#sec-rail").display, (
-            "the hero is still showing next week's schedule mid-search"
+        assert "Search" in str(app.screen.query_one("#topbar").render()), (
+            "the top bar still says you are somewhere you are not"
         )
         bar = str(app.screen.query_one("#actionbar").render())
         assert "back" in bar, f"no way out offered in the action bar: {bar!r}"
-        assert "next shelf" not in bar, (
-            "the action bar names a key that does nothing — there is one shelf"
-        )
 
 
 async def test_leaving_the_search_puts_the_shell_back():
-    """And it has to come back, or the rail and schedule are gone for the rest
-    of the session after one search."""
+    """And it has to come back, or the browse shelves are gone for the rest of
+    the session after one search."""
     app = _app(FakeSearch())
     async with app.run_test(size=(120, 40)) as pilot:
         await _settle(app, pilot)
         await _type(pilot, app, "a")
         await _type(pilot, app, "")
 
-        assert app.screen.query_one("#nav").display, "the nav rail never came back"
-        assert app.screen.query_one("#sec-rail").display, (
-            "the schedule never came back"
+        assert app.screen.query_one("#sec-trending").display, (
+            "the browse shelves never came back"
+        )
+        assert app.screen.query_one("#trending", Shelf).display
+        assert not app.screen.query_one("#results", Shelf).display, (
+            "the results shelf is still on screen with the search closed"
         )
 
 
@@ -190,12 +185,12 @@ async def test_a_search_with_no_matches_leaves_no_empty_furniture():
         assert not app.screen.query_one("#sec-results").display, (
             "a Results heading is standing over nothing"
         )
-        assert not app.screen.query_one("#results", ListView).display, (
+        assert not app.screen.query_one("#results", Shelf).display, (
             "an empty plate is still drawing its padding"
         )
-        # The hero described whichever row the cursor sat on before the search —
+        # The hero described whichever card the cursor sat on before the search —
         # a show that by definition is not among the results.
-        hero = str(app.screen.query_one("#rail-preview").render())
+        hero = str(app.screen.query_one("#hero-text").render())
         assert "Nothing to show" in hero, (
             f"the hero is still detailing a show the search did not find: {hero!r}"
         )

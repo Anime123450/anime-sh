@@ -61,7 +61,7 @@ def _anime(
         average_score=score,
         studio=studio,
         synopsis=synopsis,
-        cover_url=None,
+        cover_url=f"https://example.invalid/cover/{anilist}.png",
         next_airing_episode=next_ep,
         next_airing_at=(NOW + timedelta(minutes=mins)) if mins is not None else None,
     )
@@ -239,11 +239,64 @@ class FakePlayback:
         return None
 
 
+def _fake_posters() -> None:
+    """Hand the fake library synthetic cover art.
+
+    Without this every shot is a wall of placeholder plates, which is a picture
+    of the loading state rather than of the screen — and the whole point of the
+    composition under review is what a shelf of *posters* looks like. Generated
+    rather than downloaded so the harness stays offline and deterministic.
+
+    Patches the disk-cache read rather than the fetch, so the app takes the same
+    path it does on a warm launch: covers present before the first paint.
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return  # no Pillow: the shots fall back to placeholder plates
+
+    import io
+
+    from anime_sh.tui import coverart
+
+    # Six plates in the palette's rough range, picked per show by its id, so a
+    # shelf reads as a row of distinct posters rather than one repeated.
+    hues = [(38, 44, 74), (74, 38, 58), (38, 66, 62), (70, 58, 36),
+            (52, 40, 78), (36, 54, 80)]
+
+    def poster(seed: int) -> bytes:
+        base = hues[seed % len(hues)]
+        img = Image.new("RGB", (120, 170), base)
+        d = ImageDraw.Draw(img)
+        # A lighter band and a darker foot: enough structure that the sextant
+        # renderer has edges to resolve, which is what the real thing looks
+        # like from across the desk.
+        d.rectangle([0, 0, 120, 58], fill=tuple(min(255, c + 46) for c in base))
+        d.rectangle([0, 140, 120, 170], fill=tuple(max(0, c - 18) for c in base))
+        d.ellipse([34, 68, 86, 120], fill=tuple(min(255, c + 90) for c in base))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    cache: dict[str, bytes] = {}
+
+    def cached(url: str):
+        if url not in cache:
+            # The id is in the URL the fixtures build, so the same show gets the
+            # same poster on every shelf it appears on.
+            digits = "".join(c for c in url if c.isdigit()) or "0"
+            cache[url] = poster(int(digits[-3:]))
+        return cache[url]
+
+    coverart.cached_cover = cached
+
+
 async def _noop():
     return None
 
 
 def make_app(theme: str = "midnight") -> AnimeShApp:
+    _fake_posters()
     services = TuiServices(
         search=FakeSearch(), metadata=FakeMetadata(), library=FakeLibrary(),
         playback=FakePlayback(), aclose=_noop, tracker=None, sync=None,

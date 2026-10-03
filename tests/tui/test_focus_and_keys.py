@@ -3,24 +3,25 @@
 Two problems, both invisible to every existing test.
 
 The app launched with focus on the search `Input`. `on_mount` did try to focus a
-browse list, but at mount every list is still empty — focusing an empty ListView
-does not stick, and the rows arrive later from workers that clear and rebuild the
-list. The attempt sat inside a bare `try/except`, so the failure was silent and
-the comment above it described behaviour the app did not have. In practice you
-opened anime-sh, pressed the arrow keys, and nothing moved.
+browse shelf, but at mount every shelf is still empty — focusing an empty
+container does not stick, and the cards arrive later from workers that clear and
+rebuild it. The attempt sat inside a bare `try/except`, so the failure was silent
+and the comment above it described behaviour the app did not have. In practice
+you opened anime-sh, pressed the arrow keys, and nothing moved.
 
-And the selection style never applied at all: Textual marks the current row with
-`-highlight`, one dash, while the stylesheet said `--highlight`. A dead CSS
-selector raises nothing and renders no complaint.
+And the selection style never applied at all: the stylesheet named the wrong
+class. A dead CSS selector raises nothing and renders no complaint — which is
+why the checks below read the computed style rather than the file.
 """
 
 from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Input, ListView
+from textual.widgets import Input
 
 from anime_sh.tui import AnimeShApp, TuiServices
+from anime_sh.tui.cards import Shelf
 
 from .test_app import FakeLibrary, FakeMetadata, FakePlayback, FakeSearch, _noop
 
@@ -38,20 +39,20 @@ async def _settle(app, pilot) -> None:
     await pilot.pause()
 
 
-async def test_the_keyboard_starts_on_a_list_not_the_search_box():
+async def test_the_keyboard_starts_on_a_shelf_not_the_search_box():
     """The regression test. Focus began on the Input, so arrows did nothing."""
     app = _app()
     async with app.run_test() as pilot:
         await _settle(app, pilot)
 
-        assert isinstance(app.focused, ListView), (
-            f"focus landed on {type(app.focused).__name__}, not a list"
+        assert isinstance(app.focused, Shelf), (
+            f"focus landed on {type(app.focused).__name__}, not a shelf"
         )
-        assert len(app.focused.children), "focused an empty list"
+        assert app.focused.cards, "focused an empty shelf"
 
 
 async def test_focus_settles_on_continue_watching_every_launch():
-    """Sections finish loading in whatever order their workers return, so
+    """Shelves finish loading in whatever order their workers return, so
     claiming the first to arrive put focus somewhere different each time. A
     layout you cannot build a habit around is worse than one you dislike."""
     for _ in range(3):
@@ -61,93 +62,96 @@ async def test_focus_settles_on_continue_watching_every_launch():
             assert app.focused.id == "continue", app.focused.id
 
 
-async def test_a_row_is_actually_selected_on_launch():
-    """A focused list with `index is None` shows no cursor, and the first arrow
-    press moves *to* the first row rather than off it. Continue Watching paints
-    twice — cached rows, then enriched — and the rebuild resets the index, so
-    this needs re-asserting after the second paint, not just the first."""
+async def test_a_card_is_actually_selected_on_launch():
+    """A focused shelf showing no cursor leaves the first arrow press moving
+    *to* the first card rather than off it. Continue Watching paints twice —
+    cached rows, then enriched — and the rebuild resets the index, so this needs
+    re-asserting after the second paint, not just the first."""
     app = _app()
     async with app.run_test() as pilot:
         await _settle(app, pilot)
 
         assert app.focused.index == 0
-        highlighted = [c for c in app.focused.children if c.has_class("-highlight")]
-        assert len(highlighted) == 1, "no row is showing a cursor"
+        marked = [c for c in app.focused.cards if c.selected]
+        assert len(marked) == 1, "no card is showing a cursor"
+        assert marked[0] is app.focused.cards[0]
 
 
-async def test_the_focused_list_looks_different_from_the_others():
-    """Five lists each keep their place, so without this the screen shows several
-    identical-looking cursors and no clue which one the keyboard drives.
+async def test_only_the_focused_shelf_lifts_its_selected_card():
+    """Every shelf keeps its place so you do not lose it moving between them,
+    but only one of them is live.
 
-    Asserts the computed style, because the bug being guarded against was a
-    selector that matched nothing — a rule that exists in the file proves
-    nothing about whether it applied.
+    Without this the screen shows several identical-looking cursors and no clue
+    which one the keyboard drives. Asserted on the computed style, because the
+    bug being guarded against was a selector that matched nothing — a rule that
+    exists in the file proves nothing about whether it applied.
     """
     app = _app()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(160, 50)) as pilot:
         await _settle(app, pilot)
         focused = app.focused
-        other = app.screen.query_one("#trending", ListView)
-        other.index = 0
+        other = app.screen.query_one("#trending", Shelf)
+        assert other is not focused, "test premise: two different shelves"
+        other.reselect()
         await pilot.pause()
 
-        def cursor(lv):
-            return next(c for c in lv.children if c.has_class("-highlight"))
+        def cursor(shelf):
+            return next(c for c in shelf.cards if c.selected)
 
-        near = cursor(focused).styles
-        far = cursor(other).styles
-
-        # Measured as separation from the plate the rows sit on, not as alpha.
+        # Measured as separation from the plate the cards sit on, not as alpha.
         # Alpha was standing in for "stronger" and stopped meaning that the
-        # moment the unfocused cursor became an opaque colour a tier up: it
-        # scored 1.0 against the focused cursor's 0.4 while being, on screen,
-        # much the fainter of the two.
+        # moment the unfocused cursor became an opaque colour a tier up.
         plate = focused.styles.background
 
-        def against_plate(styles):
-            bg = styles.background
+        def against_plate(card):
+            bg = card.styles.background
             solid = bg if bg.a == 1 else plate.blend(bg, bg.a)
             return (abs(solid.r - plate.r) + abs(solid.g - plate.g)
                     + abs(solid.b - plate.b))
 
-        assert against_plate(near) > against_plate(far), (
-            "the focused list's cursor is no stronger than an unfocused one"
+        assert against_plate(cursor(focused)) > against_plate(cursor(other)), (
+            "the focused shelf's cursor is no stronger than an unfocused one"
         )
         # Shape as well as colour, so the distinction survives a monochrome
-        # terminal — colour must reinforce hierarchy, never carry it alone.
-        assert near.border_left[0] and not far.border_left[0]
+        # terminal. The selected card draws an accent rule under its art, and
+        # `-on` is the class the lift hangs on, so both have to be there.
+        assert cursor(focused).has_class("-on")
 
 
-async def test_vim_motions_move_the_cursor():
-    """j/k/g/G are the first things a terminal user reaches for."""
+async def test_motion_keys_move_along_a_shelf():
+    """The first things a terminal user reaches for.
+
+    Sideways now, not down: a shelf is horizontal, so `j`/`k` are what leave it
+    for the shelf above or below (see `test_home_design`). Only `h` is bound
+    inside a shelf, because `l` opens My List app-wide and one key cannot mean
+    two things depending on where the cursor happens to be.
+    """
     app = _app()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(160, 50)) as pilot:
         await _settle(app, pilot)
-        lv = app.focused
-        rows = len(lv.children)
-        if rows < 2:
-            lv = app.screen.query_one("#trending", ListView)
-            lv.focus()
-            lv.index = 0
+        shelf = app.focused
+        if len(shelf.cards) < 2:
+            shelf = app.screen.query_one("#trending", Shelf)
+            shelf.focus()
             await pilot.pause()
-            rows = len(lv.children)
-        assert rows >= 2, "fixture needs at least two rows to move between"
+        n = len(shelf.cards)
+        assert n >= 2, "fixture needs at least two cards to move between"
 
-        await pilot.press("j")
+        await pilot.press("right")
         await pilot.pause()
-        assert lv.index == 1
+        assert shelf.index == 1
 
-        await pilot.press("k")
+        await pilot.press("h")
         await pilot.pause()
-        assert lv.index == 0
+        assert shelf.index == 0
 
-        await pilot.press("G")
+        await pilot.press("end")
         await pilot.pause()
-        assert lv.index == rows - 1
+        assert shelf.index == n - 1
 
-        await pilot.press("g")
+        await pilot.press("home")
         await pilot.pause()
-        assert lv.index == 0
+        assert shelf.index == 0
 
 
 async def test_typing_j_into_the_search_box_types_a_j():
@@ -173,12 +177,12 @@ async def test_focus_is_not_stolen_after_you_have_moved():
     async with app.run_test() as pilot:
         await _settle(app, pilot)
 
-        chosen = app.screen.query_one("#trending", ListView)
+        chosen = app.screen.query_one("#trending", Shelf)
         chosen.focus()
         await pilot.pause()
 
-        # Re-run the hook every late section calls.
-        app.screen._set_section("#sec-seasonal", "Airing This Season", 2)
+        # Re-run the hook every late shelf calls once its cards are mounted.
+        app.screen._adopt_focus()
         await pilot.pause()
 
-        assert app.focused is chosen, "a late section stole the keyboard"
+        assert app.focused is chosen, "a late shelf stole the keyboard"

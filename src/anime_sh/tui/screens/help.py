@@ -5,13 +5,12 @@ because nobody looking at this sheet knows which widget owns anything. The
 action bar carries the handful of keys that matter where you are standing; this
 is where the rest live, which is the progressive-disclosure half of the bargain —
 `test_key_discoverability` fails the build if a key is bound and not written
-down here.
+down here, and if the sheet names one that is not bound.
 
 Keys only. An earlier version closed with three paragraphs explaining how
 shelves sample, how the detail screen resolves an episode, and what Coming Up
 is for — forty-four rows of content in a forty-row terminal, so the modal
-overflowed and lost its own "press any key to close" off the bottom. The notes
-that survived are the two that change what a key *does*.
+overflowed and lost its own "press any key to close" off the bottom.
 """
 
 from __future__ import annotations
@@ -24,20 +23,18 @@ from textual.widgets import Static
 _HELP = """[b]anime-sh[/b]
 
 [b]Move[/b]
-  [cyan]↑ ↓[/cyan] [cyan]j k[/cyan]        within a shelf
-  [cyan]← →[/cyan]            across the episode grid
-  [cyan]g[/cyan] [cyan]G[/cyan]            first / last row
+  [cyan]← →[/cyan] [cyan]h[/cyan]          along a shelf
+  [cyan]↑ ↓[/cyan] [cyan]j k[/cyan]        between shelves
+  [cyan]Home[/cyan] [cyan]End[/cyan]       first / last poster on this shelf
+  [cyan]g[/cyan] [cyan]G[/cyan]            first / last shelf
   [cyan]Tab[/cyan] [cyan]Shift+Tab[/cyan]  next / previous shelf
-  [cyan]1[/cyan] [cyan]2[/cyan] [cyan]3[/cyan] [cyan]4[/cyan]        the shelves, as numbered on the rail
-
-[b]See more[/b]
-  [cyan]z[/cyan]              expand this shelf to the screen, or collapse it
-  [cyan]v[/cyan]              denser view — home rows, or the episode grid
+  [cyan]1[/cyan] [cyan]2[/cyan] [cyan]3[/cyan] [cyan]4[/cyan]        Continue · Favourites · This Season · Trending
 
 [b]Act[/b]
   [cyan]Enter[/cyan]          play or open whatever is highlighted
   [cyan]/[/cyan]              search
   [cyan]Esc[/cyan]            clear the search, or go back
+  [cyan]v[/cyan]              denser view — home shelves, or the episode grid
   [cyan]n[/cyan]              next season, on a show
   [cyan]l[/cyan]              my AniList list
   [cyan]t[/cyan]              theme, previewed live — Esc keeps the old one
@@ -45,7 +42,7 @@ _HELP = """[b]anime-sh[/b]
   [cyan]?[/cyan]  [cyan]q[/cyan]           this help, and quit
   [cyan]Ctrl+P[/cyan]         command palette
 
-[dim]A shelf shows a sample; its label counts the rest — "5 of 19".
+[dim]The large panel at the top always describes the poster under the cursor.
 Dimmed episodes have not aired yet.[/dim]
 
 [dim]Press any key to close.[/dim]"""

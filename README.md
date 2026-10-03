@@ -14,7 +14,7 @@ Providers, mirrors and resolvers are plumbing you never have to think about.
 [![Providers](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml/badge.svg)](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<img src="docs/img/home.svg" alt="anime-sh at 120 by 40: a one-row top bar, a numbered navigation rail, Continue Watching with progress bars above Favourites, This Season and Trending, and a hero column showing the highlighted show's details, progress, synopsis and what Enter will do" width="900" height="623">
+<img src="docs/img/home.svg" alt="anime-sh at 190 by 50: a one-row top bar, then a large cover-art panel for the highlighted show with its title, format, genres, airing status, progress bar, synopsis and a filled bar reading resume episode 8, and below it horizontal shelves of cover-art posters for Continue Watching and Favourites, each poster captioned with its title and how far through it you are" width="900" height="489">
 
 </div>
 
@@ -324,20 +324,27 @@ Not a mockup of it.
 anime            # the TUI
 ```
 
-Four shelves down the left — Continue Watching, Favourites, This Season,
-Trending — each showing a sample, with its label counting the rest: *10 of 18*.
-Press <kbd>z</kbd> to give one the whole screen, or a digit to jump straight to
-it. Continue Watching gets the most room, because it is usually why you opened
-the app.
+One show leads, large, at the top: its cover art beside what it is, how far into
+the episode you got, when the next one airs, and what <kbd>Enter</kbd> will do.
 
-The hero column on the right follows your cursor: poster, what the show is, how
-far into the episode you got, when the next one airs, and what <kbd>Enter</kbd>
-will do. Under it sits everything you are waiting on, grouped by day. The bottom
-row always says what the thing under the cursor can do — it changes as you move.
+Under it are shelves of cover art you walk sideways — Continue Watching,
+Favourites, This Season, Trending. <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move along
+a shelf, <kbd>&uarr;</kbd> <kbd>&darr;</kbd> change shelves, and a digit jumps
+straight to one. Whatever the cursor lands on becomes the show at the top, so
+the detail is always for exactly one thing and never for all of them at once.
+Each poster carries its own one line of state underneath — *ep 8 · 18%*,
+*3 eps ready*, *ep 9 in 1d 4h*. The bottom row always says what the poster under
+the cursor can do.
 
-It fits what it is given. At 80 columns the shelves fill the window on their own;
-the rail appears at 120, labels itself at 160, and past that the extra width
-becomes margin rather than more columns of data.
+It fits what it is given. Posters stay 14 cells wide at every size, so a wider
+terminal means *more* shows on a shelf rather than bigger ones; the panel at the
+top grows its poster from 16 cells to 24 across the breakpoints, and drops out
+below 30 rows, where the shelves need every row there is. <kbd>v</kbd> tightens
+the spacing if you would rather have one more shelf than the air between them.
+
+Covers are cached on disk after the first fetch, so every launch after the first
+paints the whole wall in one frame. `anime cache info` says how much that is,
+and `anime cache clear` takes it back.
 
 Prefer one-shot commands? `anime "Frieren"` searches, takes the best match and
 plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` spells it all out.
@@ -350,18 +357,19 @@ Shell tab-completion is one command: `anime --install-completion`.
 
 | | Key | Does |
 |---|---|---|
-| 🕹️ | <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move within a list |
-| ⤒ | <kbd>g</kbd> / <kbd>G</kbd> | first / last row |
+| 🕹️ | <kbd>←</kbd> <kbd>→</kbd> / <kbd>h</kbd> | move along a shelf |
+| 🎚️ | <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move between shelves |
+| ⤒ | <kbd>Home</kbd> / <kbd>End</kbd> | first / last poster on this shelf |
+| ⤓ | <kbd>g</kbd> / <kbd>G</kbd> | first / last shelf |
 | ↹ | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous shelf |
-| 🔢 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> | jump to a shelf, as numbered on the rail |
-| ⤢ | <kbd>z</kbd> | expand this shelf to the whole screen, or collapse it |
+| 🔢 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> | Continue · Favourites · This Season · Trending |
 | ▶️ | <kbd>Enter</kbd> | open a show, or play the highlighted episode |
 | 🔎 | <kbd>/</kbd> | search |
 | ↩️ | <kbd>Esc</kbd> | clear the search, or go back |
 | 📺 | <kbd>l</kbd> | your AniList list |
 | 🎨 | <kbd>t</kbd> | theme picker |
 | 🧩 | <kbd>p</kbd> | providers — which sources get searched |
-| 🧱 | <kbd>v</kbd> | view — home density, or episode layout on a show |
+| 🧱 | <kbd>v</kbd> | view — tighter shelves, or episode layout on a show |
 | ⏭️ | <kbd>n</kbd> | next season, on a show |
 | ❓ | <kbd>?</kbd> | every key, any time |
 | 🎛️ | <kbd>Ctrl</kbd>+<kbd>P</kbd> | command palette |
@@ -379,12 +387,9 @@ Three are anime-sh's own — **midnight** (the default), **ember** and **paper**
 next to tokyo-night, nord, gruvbox, dracula, catppuccin-mocha and
 solarized-light.
 
-<div align="center">
-<img src="docs/img/rail.png" alt="The context panel: a show's cover art above its title, format, genres, progress bar, next episode countdown, synopsis, and the action Enter will take" width="560">
-</div>
-
 Cover art is drawn with unicode block sextants, so no special terminal is
-required. On Sixel or kitty terminals it sharpens automatically.
+required — a poster on a shelf is 14 cells wide and the one at the top is 24. On
+Sixel or kitty terminals the large one sharpens to a true bitmap automatically.
 
 ---
 

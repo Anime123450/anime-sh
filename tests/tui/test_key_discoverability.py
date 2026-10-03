@@ -11,6 +11,7 @@ thing a test should refuse to let happen twice.
 from __future__ import annotations
 
 from anime_sh.tui.app import AnimeShApp
+from anime_sh.tui.cards import Shelf
 from anime_sh.tui.screens.help import _HELP
 from anime_sh.tui.screens.home import HomeScreen
 
@@ -24,6 +25,17 @@ _AS_WRITTEN = {
     # reads them off a keyboard.
     "tab": "Tab",
     "shift+tab": "Shift+Tab",
+    # The arrows and the named keys, as they are printed on a keyboard. These
+    # live on `Shelf` rather than on the screen, which is exactly why the guard
+    # below reads both: the keys that actually move the cursor are the shelf's,
+    # and for a while none of them were checked at all.
+    "left": "←",
+    "right": "→",
+    "up": "↑",
+    "down": "↓",
+    "home": "Home",
+    "end": "End",
+    "enter": "Enter",
 }
 
 
@@ -50,9 +62,15 @@ def _documented(key: str) -> bool:
 
 
 def test_every_key_the_home_screen_binds_is_in_the_cheat_sheet():
-    """The regression test: j, k, g and G were bound and documented nowhere."""
+    """The regression test: j, k, g and G were bound and documented nowhere.
+
+    `Shelf.BINDINGS` counts as the home screen's. The keys a person presses most
+    — the arrows along a shelf and Enter to open — are bound on the widget, not
+    on the screen, so a guard reading only `HomeScreen.BINDINGS` covers the
+    jump digits and misses everything that does the work.
+    """
     missing = [
-        b.key for b in HomeScreen.BINDINGS
+        b.key for b in (*HomeScreen.BINDINGS, *Shelf.BINDINGS)
         if not _documented(b.key)
     ]
     assert not missing, f"bound on the home screen but absent from `?`: {missing}"
@@ -85,6 +103,7 @@ def test_the_cheat_sheet_does_not_promise_keys_that_do_not_exist():
 
     bound = (
         _keys(HomeScreen.BINDINGS)
+        | _keys(Shelf.BINDINGS)
         | _keys(AnimeShApp.BINDINGS)
         | _keys(DetailScreen.BINDINGS)
     )
