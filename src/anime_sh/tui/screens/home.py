@@ -12,12 +12,9 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
-    Footer,
-    Header,
     Input,
     Label,
     ListView,
-    Rule,
     Static,
 )
 
@@ -37,9 +34,26 @@ from ..coverart import (
     render_cover,
 )
 from ..preview import render as preview_render
+from ..shell import (
+    SECTIONS,
+    ActionBar,
+    NavRail,
+    Section,
+    TopBar,
+    band,
+    empty_state,
+    nav_width,
+    spaced,
+)
 from ..upcoming import render, schedule, scheduled_ids
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
+
+
+#: Search results are a shelf like any other for layout purposes, but they are
+#: not a *destination* — there is no nav row for them, because you get there by
+#: typing rather than by choosing.
+_RESULTS_SECTION = Section("", "", "Results", "#results", "#sec-results")
 
 
 def _current_season() -> tuple[Season, int]:
@@ -95,6 +109,16 @@ class HomeScreen(Screen):
         # "change how this screen is laid out" — so it is one key to learn
         # rather than two, and it means something on whichever screen you are.
         Binding("v", "cycle_density", "Density"),
+        # Progressive disclosure, in one key. A shelf shows a sample and says
+        # how much more there is; `z` is how you ask for the rest. Deliberately
+        # not a separate navigation concept — it expands whatever Tab has
+        # already landed on, so there is nothing new to learn about where you
+        # are, only about how much of it you can see.
+        Binding("z", "zoom", "Expand", show=False),
+        Binding("1", "jump('#continue')", "Continue", show=False),
+        Binding("2", "jump('#favorites')", "Favourites", show=False),
+        Binding("3", "jump('#seasonal')", "This season", show=False),
+        Binding("4", "jump('#trending')", "Trending", show=False),
     ]
 
     @staticmethod
@@ -137,6 +161,19 @@ class HomeScreen(Screen):
         box = self.query_one("#search", Input)
         if box.value:
             box.value = ""  # Input.Changed puts the browse sections back
+            return
+        # Already empty: Esc closes the box and gives the rows their rows back.
+        if box.display:
+            box.display = False
+            self._paint_shell()
+            for wid in self._FOCUS_ORDER:
+                try:
+                    lv = self.query_one(wid, ListView)
+                except Exception:
+                    continue
+                if lv.display and len(lv.children):
+                    lv.focus()
+                    break
 
     # Where the keyboard should land, best first. Continue Watching is what you
     # opened the app for; Trending is the fallback when the library is empty.
@@ -210,6 +247,254 @@ class HomeScreen(Screen):
         index = sections.index(current) if current in sections else -step
         sections[(index + step) % len(sections)].focus()
 
+    # -- shelves, zoom and the shell ---------------------------------------- #
+    #: What one shelf costs besides its rows: a label and the blank line that
+    #: separates it from the next shelf.
+    _SHELF_CHROME = 2
+    #: Fewest rows worth showing. Below this a shelf is a label with a sample so
+    #: small it says nothing, and the screen is better off scrolling.
+    _SHELF_MIN = 3
+    #: Most rows one shelf takes on a short terminal — the real ceiling grows
+    #: with the window (see `_compute_caps`), because a shelf that stops at ten
+    #: rows on a 60-row screen leaves half the column empty. What this floor is
+    #: for is the other direction: no one shelf swallowing a small window and
+    #: pushing the rest below the fold, which is the original complaint.
+    _SHELF_MAX = 10
+
+    def _shelf_cap(self) -> int:
+        """Rows per shelf, divided out of the height actually available.
+
+        A fixed table was tried first and under-filled by ten rows at 120×40 —
+        four shelves of six on a screen with room for seven, which left a block
+        of dead space under Trending while the label above it still said there
+        were four more. The height is known; dividing it is strictly better than
+        guessing at it.
+
+        Four shelves at twenty rows each is what this exists to stop: the old
+        screen put eighteen Continue rows on a forty-row terminal and pushed
+        Trending below the fold, where nobody ever saw it.
+        """
+        caps = self._compute_caps()
+        return max(caps.values()) if caps else self._SHELF_MIN
+
+    def _compute_caps(self) -> dict:
+        """Rows for each shelf, by list id.
+
+        Not one number shared by all of them. Favourites holds two rows and was
+        being handed the same seventh of the screen as Trending's ten, so a
+        fifth of the window sat empty under a shelf that had nothing more to
+        put there while the shelf below it still said "7 of 19".
+
+        Shortest first, each taking only what it needs, and whatever it does not
+        use going back into the pot for the rest.
+        """
+        shelves = self._visible_shelves()
+        if getattr(self, "_zoomed", False) or not shelves:
+            return {s.list_id: 1000 for s in shelves}
+
+        # The two bars, and the search box when it is open.
+        taken = 2
+        try:
+            if self.query_one("#search", Input).display:
+                taken += 2
+        except Exception:
+            pass
+        room = (self.size.height or 40) - taken - len(shelves) * self._SHELF_CHROME
+
+        sizes = {}
+        for s in shelves:
+            try:
+                sizes[s.list_id] = len(self.query_one(s.list_id, ListView).children)
+            except Exception:
+                sizes[s.list_id] = 0
+
+        # Seed every shelf with the fewest rows worth showing, then hand the
+        # rest out in weighted rounds until nothing can take any more.
+        #
+        # One proportional pass was tried and under-filled badly: a shelf
+        # clamped to its own length hands nothing back, so at 200×60 the four
+        # shelves took 36 of 59 rows and twenty-three sat empty beneath a label
+        # that still said "8 of 19". The note here used to call that leftover a
+        # margin; the screenshot calls it an empty half-screen.
+        #
+        # Handing it back *by weight* is what keeps the hierarchy that single
+        # pass was protecting. An earlier attempt redistributed it evenly and
+        # flattened exactly that: This Season drew level with Continue Watching
+        # and the screen read as four equal blocks again. Here Continue takes
+        # three fifths of every round, so it stays visibly the largest thing.
+        ceiling = max(self._SHELF_MAX, room // 2)
+        want = {s.list_id: min(sizes[s.list_id] or self._SHELF_MIN, ceiling)
+                for s in shelves}
+        caps = {s.list_id: min(want[s.list_id], self._SHELF_MIN) for s in shelves}
+        pool = room - sum(caps.values())
+        while pool > 0:
+            hungry = [s for s in shelves if caps[s.list_id] < want[s.list_id]]
+            if not hungry:
+                break
+            weight = sum(s.weight for s in hungry)
+            moved = 0
+            for s in hungry:
+                if moved >= pool:
+                    break
+                give = min(want[s.list_id] - caps[s.list_id], pool - moved,
+                           max(1, round(pool * s.weight / weight)))
+                caps[s.list_id] += give
+                moved += give
+            if not moved:
+                break
+            pool -= moved
+        return caps
+
+    def _visible_shelves(self) -> list:
+        """The shelves currently on screen — what the height has to divide by.
+
+        Favourites hides itself when empty and the browse shelves hide during a
+        search, so the number is not a constant; dividing by four when two are
+        showing halves the rows for no reason.
+        """
+        out = []
+        for section in (*SECTIONS, _RESULTS_SECTION):
+            try:
+                lv = self.query_one(section.list_id, ListView)
+            except Exception:
+                continue
+            if lv.display and len(lv.children):
+                out.append(section)
+        return out
+
+    def _apply_caps(self) -> None:
+        """Cut every shelf to its share of the screen.
+
+        Done with `max-height` rather than by building fewer rows, so expanding
+        a shelf costs a style change instead of a rebuild — and so the rows that
+        are not currently visible are still *there* to scroll through, which is
+        what makes a capped shelf a sample rather than a truncation.
+        """
+        caps = self._compute_caps()
+        for section in (*SECTIONS, _RESULTS_SECTION):
+            try:
+                lv = self.query_one(section.list_id, ListView)
+            except Exception:
+                continue
+            zoomed = getattr(self, "_zoomed", False)
+            target = getattr(self, "_zoom_target", None)
+            if zoomed and target is not None:
+                lv.display = section.list_id == target
+                try:
+                    self.query_one(section.head_id).display = lv.display
+                except Exception:
+                    pass
+                if lv.display:
+                    lv.styles.max_height = None
+                continue
+            lv.styles.max_height = caps.get(section.list_id, self._SHELF_MIN)
+
+    def action_zoom(self) -> None:
+        """Expand the focused shelf to the whole screen, or collapse back.
+
+        The nav rail names the shelves and `z` is how you open one; together
+        they are the navigation model. Nothing else changes about where you are,
+        which is why this is one key rather than a mode.
+        """
+        focused = self._focused_list()
+        if not getattr(self, "_zoomed", False):
+            if focused is None:
+                self.notify("Nothing to expand — pick a shelf first.")
+                return
+            self._zoomed = True
+            self._zoom_target = f"#{focused.id}"
+        else:
+            self._zoomed = False
+            self._zoom_target = None
+            self._show_home_sections(not self._searching())
+        self._apply_caps()
+        self._paint_shell()
+        self.call_after_refresh(self._apply_grid)
+        if focused is not None:
+            focused.focus()
+
+    def action_jump(self, list_id: str) -> None:
+        """Put the keyboard on a named shelf, expanding it if it is hidden."""
+        try:
+            lv = self.query_one(list_id, ListView)
+        except Exception:
+            return
+        if getattr(self, "_zoomed", False):
+            self._zoom_target = list_id
+            self._apply_caps()
+        if not (lv.display and len(lv.children)):
+            self.notify("Nothing there yet.")
+            return
+        lv.focus()
+        if lv.index is None:
+            lv.index = 0
+        self._paint_shell()
+
+    def _searching(self) -> bool:
+        try:
+            return bool(self.query_one("#search", Input).value.strip())
+        except Exception:
+            return False
+
+    def _paint_shell(self) -> None:
+        """Repaint the furniture: where you are, what else there is, what the
+        thing under the cursor can do."""
+        width = self.size.width or 100
+        focused = self._focused_list()
+        current = f"#{focused.id}" if focused is not None else None
+        counts = {}
+        for section in SECTIONS:
+            try:
+                counts[section.list_id] = len(
+                    self.query_one(section.list_id, ListView).children
+                )
+            except Exception:
+                counts[section.list_id] = 0
+
+        here = next((s.label for s in SECTIONS if s.list_id == current), None)
+        if self._searching():
+            here = "Search"
+        try:
+            self.query_one("#topbar", TopBar).render_bar(here or "Home", width)
+        except Exception:
+            pass
+        searching = self._searching()
+        try:
+            nav = self.query_one("#nav", NavRail)
+            # Gone while searching. Searching hides all four shelves, so the
+            # rail was a map to four destinations that did not exist and four
+            # digits that jumped to hidden lists — a column of glyphs beside
+            # blank space, which is decoration with a broken keybinding behind
+            # it. Results are one list; there is nothing to navigate between.
+            nav.display = not searching and nav_width(width) > 0
+            if nav.display:
+                nav.render_nav(current, nav_width(width), counts)
+        except Exception:
+            pass
+        try:
+            bar = self.query_one("#actionbar", ActionBar)
+            contextual = []
+            if focused is not None and focused.index is not None:
+                item = (focused.children[focused.index]
+                        if focused.index < len(focused.children) else None)
+                if isinstance(item, AnimeItem):
+                    contextual = [("↵", "open")]
+                    if item.resume_episode is not None:
+                        verb = "resume" if item.fraction > 0 else "play"
+                        contextual = [("↵", verb)]
+            # "tab next shelf" with one shelf on screen names a key that does
+            # nothing. What you actually want from a result list is out of it.
+            contextual.append(("esc", "back") if searching else ("tab", "next shelf"))
+            bar.render_actions(width, contextual=contextual,
+                               zoomed=getattr(self, "_zoomed", False))
+        except Exception:
+            pass
+
+    def on_descendant_focus(self, event) -> None:
+        # The rail marks whichever shelf the keyboard is on, so it has to follow
+        # Tab rather than be driven separately.
+        self._paint_shell()
+
     def action_next_section(self) -> None:
         self._cycle_section(1)
 
@@ -237,40 +522,54 @@ class HomeScreen(Screen):
             lv.index = len(lv.children) - 1
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        yield Input(placeholder="Search anime…  (press / to focus)", id="search")
+        # The shell, not a Header and a Footer. Textual's Header spends a row on
+        # a centred app title and a clock — the clock is the terminal's job, and
+        # the one thing the old bar never said was which section you were in.
+        yield TopBar(id="topbar")
+        # Hidden until `/` asks for it. An always-on box spent four rows — a
+        # margin, a tall border and the field — to show a placeholder telling
+        # you which key opens it, on a screen whose scarcest resource is rows.
+        # The top bar says `/ search`, which is the same information for free.
+        yield Input(placeholder="Search anime…  (esc to close)", id="search")
         # Region B (the rows) and Region C (the context rail) side by side. The
         # rows cap themselves at a readable measure, so on a wide terminal they
         # stop around column 96 and leave most of the window empty; the rail is
         # what that space is for. It is hidden below 120 columns — see
         # `_size_rail` — so a small terminal is exactly as it was.
         with Horizontal(id="columns"):
+            # The nav rail is a map, not a control: Tab already moves between
+            # shelves, so a rail that also took focus would be a second way to
+            # do one thing and a second place for the cursor to get lost in.
+            yield NavRail(id="nav")
             with VerticalScroll(id="body"):
-                yield Label("Continue Watching", classes="section", id="sec-continue")
+                yield Label(spaced("Continue watching"), classes="shelf-label",
+                            id="sec-continue")
                 yield ListView(id="continue")
-                yield Label("Favorites", classes="section", id="sec-favorites")
+                yield Label(spaced("Favourites"), classes="shelf-label",
+                            id="sec-favorites")
                 yield ListView(id="favorites")
-                yield Label("Airing This Season", classes="section", id="sec-seasonal")
+                yield Label(spaced("This season"), classes="shelf-label",
+                            id="sec-seasonal")
                 yield ListView(id="seasonal")
-                yield Label("Trending", classes="section", id="sec-trending")
+                yield Label(spaced("Trending"), classes="shelf-label", id="sec-trending")
                 yield ListView(id="trending")
-                yield Label("Results", classes="section", id="sec-results")
+                yield Label(spaced("Results"), classes="shelf-label", id="sec-results")
                 yield ListView(id="results")
                 # Searching hides the browse sections, so a query that matches
                 # nothing left the whole screen blank under a "Results" heading with
                 # no indication of what had happened. This is what fills that space.
                 yield Label("", id="results-empty")
             with VerticalScroll(id="rail"):
-                # Region C leads with the row the cursor is on — poster first.
-                # It used to be a second list of episodes and nothing else,
-                # which left a client for a visual medium with no image on its
-                # main screen and no focal point anywhere.
+                # The hero. Poster first, then the show, then the one thing to
+                # press. It used to be a second list of episodes and nothing
+                # else, which left a client for a visual medium with no image on
+                # its main screen and no focal point anywhere.
                 yield Container(id="rail-cover")
                 yield Static("", id="rail-preview")
-                yield Rule(id="rail-rule")
-                yield Label("Coming Up", classes="section", id="sec-rail")
+                yield Label(spaced("Coming up"), classes="shelf-label",
+                            id="sec-rail")
                 yield Static("", id="rail-body")
-        yield Footer()
+        yield ActionBar(id="actionbar")
 
     @property
     def _cols(self) -> Columns:
@@ -361,7 +660,10 @@ class HomeScreen(Screen):
         96-cell rows inside a 78-cell body.
         """
         width = self.size.width or 100
-        return width - (self._rail_base(width) if width >= self._RAIL_MIN_WIDTH else 0)
+        taken = nav_width(width)
+        if width >= self._RAIL_MIN_WIDTH:
+            taken += self._rail_base(width)
+        return width - taken
 
     # Region C appears only when there is genuinely room for it. Below this the
     # rows alone fill the window and a rail would be stealing from them; the
@@ -408,6 +710,22 @@ class HomeScreen(Screen):
         leftover is a handful of cells rather than the 54 that started this.
         """
         return self._rail_base(width)
+
+    def _size_nav(self) -> None:
+        """Show, hide and size the nav rail for the current terminal.
+
+        Gone entirely below 80 cells, icons only to 120, labels past that. At
+        80–119 every column spent on a word is one the titles do not get, and
+        the icons carry the order on their own once the labels have been seen.
+        """
+        try:
+            nav = self.query_one("#nav", NavRail)
+        except Exception:
+            return
+        width = nav_width(self.size.width or 100)
+        nav.display = width > 0
+        if width:
+            nav.styles.width = width
 
     def _size_rail(self) -> None:
         """Show, hide and size the context rail for the current terminal."""
@@ -473,11 +791,19 @@ class HomeScreen(Screen):
                  else self._rail_width(self.size.width or 100))
         days = schedule(self._upcoming_source, datetime.now(timezone.utc))
         body.update(render(days, width - 4))  # -4 for the rail's own padding
-        self.query_one("#sec-rail").display = True
+        # Not while searching. This runs whenever a list reloads, so without the
+        # guard any background refresh landing mid-search put the schedule back
+        # under the result the hero was describing.
+        showing = not self._searching()
+        self.query_one("#sec-rail").display = showing
+        body.display = showing
 
     def on_resize(self) -> None:
         was_showing = getattr(self, "_rail_was_showing", None)
         self._size_rail()
+        self._size_nav()
+        self._apply_caps()
+        self._paint_shell()
         now_showing = self._rail_showing()
         self._rail_was_showing = now_showing
 
@@ -515,7 +841,12 @@ class HomeScreen(Screen):
         self.query_one("#sec-results").display = False
         self.query_one("#results").display = False
         self.query_one("#results-empty").display = False
+        self._zoomed = False
+        self._zoom_target: str | None = None
+        self.query_one("#search", Input).display = False
         self._size_rail()
+        self._apply_caps()
+        self._paint_shell()
         self._load_continue()
         self._load_favorites()
         self._load_seasonal()
@@ -649,7 +980,7 @@ class HomeScreen(Screen):
         for anime, row, resume, fraction in shown:
             lv.append(AnimeItem(anime, row, cols, resume_episode=resume,
                                 fraction=fraction))
-        self._set_section("#sec-continue", "Continue Watching", len(shown))
+        self._set_section("#sec-continue", "Continue watching", len(shown))
 
         # A show you are already watching does not need to be advertised again
         # further down the page: Seasonal listed four of these twice, with
@@ -680,7 +1011,7 @@ class HomeScreen(Screen):
             if isinstance(item, AnimeItem):
                 item.display = item.anime.id.anilist not in self._continue_ids
                 shown += item.display
-        self._set_section("#sec-seasonal", "Airing This Season", shown)
+        self._set_section("#sec-seasonal", "This season", shown)
 
     async def _fresh_airing(self, items) -> dict:
         """Map anilist id → freshly-fetched Anime for the rows whose airing
@@ -744,7 +1075,7 @@ class HomeScreen(Screen):
         cols = self._cols_for([r for _, r in built], "favorites")
         for anime, row in built:
             lv.append(AnimeItem(anime, row, cols))
-        self._set_section("#sec-favorites", "Favorites", len(items))
+        self._set_section("#sec-favorites", "Favourites", len(items))
         self._size_rail()
 
     @work(exclusive=True, group="seasonal")
@@ -756,7 +1087,7 @@ class HomeScreen(Screen):
             animes = await self.app.services.metadata.seasonal(season, year)
         except Exception as e:
             self.notify(f"Couldn't load this season: {e}", severity="warning")
-            self._mark_section_unavailable("#sec-seasonal", "Airing This Season",
+            self._mark_section_unavailable("#sec-seasonal", "This season",
                                            "#seasonal")
             return
         finally:
@@ -801,6 +1132,10 @@ class HomeScreen(Screen):
         if self._debounce is not None:
             self._debounce.stop()
         query = event.value.strip()
+        # Before the debounce, not after it: the bar said "Home" for the third
+        # of a second you were typing into the search box, which is the whole
+        # time the screen had nothing else to say.
+        self._paint_shell()
         if not query:
             # Cancel any search already in flight too — otherwise a request for
             # a half-typed query lands *after* the box is cleared and slams stale
@@ -846,16 +1181,41 @@ class HomeScreen(Screen):
             label.display = False
             return
         shown = query if len(query) <= 40 else query[:39] + "…"
+        # Broken into short lines by hand rather than left to wrap. The hint was
+        # one long sentence and came out clipped mid-word — "partial titles like
+        # fri w" — which is worse than no hint at all, because the reader cannot
+        # tell whether the advice ended there or the screen gave up.
         label.update(
             # Dim rather than italic: italic is not one of the four text
             # treatments this UI uses, and a fair number of terminals render it
             # as reverse video or drop it entirely.
             f"  [b]No matches for[/][dim] {shown}[/dim]\n"
-            f"  [dim]Try fewer words, or a different spelling — partial titles "
-            f"like [/][cyan]fri[/][dim] work.\n"
-            f"  Press [/][cyan]esc[/][dim] to clear the search.[/]"
+            f"\n"
+            f"  [dim]Try fewer words, or a different spelling.[/dim]\n"
+            f"  [dim]Partial titles work — [/][cyan]fri[/][dim] finds Frieren.[/dim]\n"
+            f"  [dim]Press [/][cyan]esc[/][dim] to clear the search.[/dim]"
         )
         label.display = True
+        # A heading over nothing. "Results" above an empty plate above a notice
+        # saying there are none is the same fact three times, and the notice is
+        # the only one of the three that says anything useful.
+        with contextlib.suppress(Exception):
+            self.query_one("#sec-results").display = False
+            # And the plate under it. An empty ListView still draws its own
+            # vertical padding, so hiding only the heading left two blank rows
+            # between the search box and the notice explaining them.
+            self.query_one("#results").display = False
+        # The hero was still describing whichever row the cursor sat on before
+        # the search — a show that is, by definition, not among the results. A
+        # panel confidently detailing something the list does not contain is
+        # worse than an empty panel.
+        with contextlib.suppress(Exception):
+            self.query_one("#rail-preview", Static).update(
+                empty_state("Nothing to show",
+                            "Pick a result to see it here.",
+                            self._rail_width(self.size.width or 100) - 4)
+            )
+            self._preview_id = None
 
     # -- navigation --------------------------------------------------------- #
     # -- Region C: the row the cursor is on --------------------------------- #
@@ -885,8 +1245,32 @@ class HomeScreen(Screen):
             item.anime, width,
             resume_episode=item.resume_episode,
             fraction=item.fraction,
+            synopsis_lines=self._synopsis_lines(),
         ))
         self._request_cover(item.anime)
+
+    #: Rows the hero needs for everything that is not the synopsis: the title
+    #: over two lines, the facts, the tags, the status, the progress bar, the
+    #: action, and the blank line before each of them.
+    _HERO_CHROME = 14
+
+    def _synopsis_lines(self) -> int:
+        """How much of the description to show, by how much room there is.
+
+        Four lines regardless was fine beside a full home screen and absurd
+        beside a two-result search: the schedule hides while searching, so the
+        hero had thirty blank rows under a paragraph cut off mid-sentence. The
+        space a short result list frees belongs to the one result you are
+        looking at — that is the whole argument for a hero.
+
+        Floored at four so this can only ever add, never take away what the
+        panel showed before.
+        """
+        free = (self.size.height or 40) - self._HERO_CHROME
+        if not self._searching():
+            # The schedule is below the hero and wants the rest of the column.
+            return 4
+        return max(4, min(free, 24))
 
     def _request_cover(self, anime) -> None:
         """Show this show's poster, fetching it at most once.
@@ -977,6 +1361,15 @@ class HomeScreen(Screen):
             # notice must not outlive the search that produced it.
             self._show_no_matches(None)
         self._show_home_sections(not on)
+        # Next week's broadcast schedule is a home-screen answer to "what is on
+        # tonight". While you are searching for something else it is sixteen
+        # rows of the hero spent on a question nobody asked — so the hero keeps
+        # the highlighted result and nothing else.
+        for wid in ("#sec-rail", "#rail-body"):
+            with contextlib.suppress(Exception):
+                self.query_one(wid).display = not on
+        self._apply_caps()
+        self._paint_shell()
 
     def _show_home_sections(self, on: bool) -> None:
         for wid in ("#sec-continue", "#continue", "#sec-favorites", "#favorites",
@@ -1037,13 +1430,17 @@ class HomeScreen(Screen):
             self.query_one(list_id).display = False
 
     def _set_section(self, sec_id: str, base: str, count: int) -> None:
-        """Draw a section header: a name, a rule to the plate's edge, a count.
+        """Draw a shelf label: letterspaced caps, the count, and how much more
+        there is.
 
-        The rule is what makes a heading read as the lid of the section beneath
-        rather than as a line of text that happens to be bold — it ties the name
-        to the width of the rows it introduces, and it puts the count at the far
-        end where it can be found in the same place every time instead of
-        floating wherever the name happens to stop.
+        This used to draw `Continue Watching ───────────────── 18` — forty cells
+        of line art carrying one integer, three times down the screen. The rule
+        was doing a job the eye does by itself once the label is set differently
+        from everything else on screen, and letterspaced caps are the one
+        treatment nothing else here uses.
+
+        The count is not decoration: when a shelf is capped it is the only thing
+        saying that the eight rows you can see are not all of them.
         """
         if sec_id in getattr(self, "_unavailable", ()):
             return  # the section could not load; do not relabel it as empty
@@ -1051,14 +1448,16 @@ class HomeScreen(Screen):
             label = self.query_one(sec_id, Label)
         except Exception:
             return
-        tail = str(count) if count else ""
-        # The label sits above the plate and is padded one cell in from it.
-        room = max(12, self._row_space() - 2)
-        rule = max(1, room - len(base) - len(tail) - 4)
-        label.update(
-            f"[b]{base}[/b]  [dim]{'─' * rule}[/dim]"
-            + (f"  [dim]{tail}[/dim]" if tail else "")
-        )
+        list_id = next((x.list_id for x in (*SECTIONS, _RESULTS_SECTION)
+                        if x.head_id == sec_id), None)
+        shown = self._compute_caps().get(list_id, self._SHELF_MIN)
+        more = count - shown if count > shown and not self._zoomed else 0
+        tail = f"[dim]{count}[/dim]" if count else ""
+        if more:
+            # The affordance, not just a number: a shelf that silently stops at
+            # eight rows looks like a library with eight shows in it.
+            tail = f"[dim]{shown} of {count}[/dim]  [$accent]z[/]"
+        label.update(f"[b]{spaced(base)}[/b]   {tail}".rstrip())
         # Every section calls this once it has rendered its rows, which makes it
         # the one place that reliably knows a list is populated — and therefore
         # focusable. `_adopt_focus` is a no-op after the first success.

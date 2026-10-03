@@ -163,22 +163,40 @@ def continue_cells(
     # read as "the next episode is 5". Spelling out the total is what makes this
     # one legible as a finished season you are partway through.
     position = f"Ep {nxt:g}/{total}" if total else f"Ep {nxt:g}"
+    # How many episodes are actually sitting there, rather than the words "new
+    # episode" — which, on a real library, was the same two words repeated down
+    # thirteen consecutive rows in the same dim grey. A third of the screen
+    # spent saying one thing the green ● had already said, in a column that
+    # could have been carrying a number that differs on every row.
+    waiting = _waiting_count(anime, nxt, now)
+    status = f"[dim]+{waiting}[/dim]" if waiting > 0 else ""
     return (
         Row(
             title=anime.title.preferred,
             glyph="[green]●[/green]",
             position=position,
-            # Dim, because on a real library this is the same three words
-            # repeated down eight consecutive rows. At full weight that column
-            # becomes a block of noise the eye has to read past to reach the
-            # titles, while saying nothing the green ● has not already said. It
-            # stays as words so the row still reads without colour.
-            status="[dim]new episode[/dim]",
-            status_cells=len("new episode"),
+            status=status,
+            status_cells=len(f"+{waiting}") if waiting > 0 else 0,
             rank=RANK_READY,
         ),
         nxt,
     )
+
+
+def _waiting_count(anime: Anime, nxt: float, now: datetime | None = None) -> int:
+    """Episodes released and unwatched, counting from ``nxt``.
+
+    Uses the airing schedule where there is one and the episode count otherwise,
+    so an airing show says how many have actually dropped rather than how many
+    are planned. Returns 0 when neither is known, which renders as nothing at
+    all — better than a confident `+0`.
+    """
+    released = anime.aired_through(now)
+    if released is None:
+        released = anime.episode_count
+    if not released:
+        return 0
+    return max(0, int(released) - int(nxt) + 1)
 
 
 def _aired_of(aired: int, total: int | None) -> str:

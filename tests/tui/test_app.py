@@ -342,7 +342,7 @@ async def test_episode_marks_and_next_up_cursor():
         assert episodes.index == 1  # next up = the in-progress episode
         # The call-to-action points at resuming the in-progress episode.
         action = str(detail.query_one("#detail-action").render())
-        assert "Resume Episode 2" in action
+        assert "resume episode 2" in action.lower()
 
 
 async def test_synced_progress_marks_all_earlier_episodes():
@@ -469,7 +469,8 @@ async def test_resume_pin_advances_after_you_finish_it():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert episodes.index == 2  # advanced to ep 3
-        assert "Play Episode 3" in str(detail.query_one("#detail-action").render())
+        assert "play episode 3" in str(
+            detail.query_one("#detail-action").render()).lower()
 
 
 async def test_episode_list_not_doubled_by_concurrent_renders():

@@ -6,13 +6,16 @@ screen; no match falls back to the fan-out.
 
 from __future__ import annotations
 
+import contextlib
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, ListView, LoadingIndicator
+from textual.widgets import Label, ListView, LoadingIndicator
 
 from ...domain.models import Anime, Audio
+from ..shell import ActionBar, TopBar, spaced
 from ..widgets import SourceItem
 from .detail import DetailScreen
 
@@ -25,16 +28,29 @@ class SourcesScreen(Screen):
         self.anime = anime
         self.resume_episode = resume_episode
 
+    DEFAULT_CSS = """
+    SourcesScreen #sources-body { padding: 0 2; }
+    """
+
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield TopBar(id="topbar")
         with VerticalScroll(id="sources-body"):
-            yield Label("Choose a source", classes="section")
+            # `shelf-label`, not `section`: the redesign renamed that class and
+            # this screen kept the old name, so its one heading rendered as
+            # unstyled body text — the same size and weight as the rows under it.
+            yield Label(spaced("Choose a source"), classes="shelf-label")
             yield LoadingIndicator(id="sources-loading")
             yield ListView(id="sources")
-        yield Footer()
+        yield ActionBar(id="actionbar")
 
     def on_mount(self) -> None:
         self.title = self.anime.title.preferred
+        with contextlib.suppress(Exception):
+            width = self.size.width or 100
+            self.query_one("#topbar", TopBar).render_bar(
+                self.anime.title.preferred, width, hint="pick a source")
+            self.query_one("#actionbar", ActionBar).render_actions(
+                width, zoom=False, contextual=(("↵", "choose"), ("esc", "back")))
         self.query_one("#sources", ListView).display = False
         self._load_sources()
 

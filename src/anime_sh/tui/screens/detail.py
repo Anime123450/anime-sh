@@ -12,13 +12,14 @@ schedule, studio and score) renders just as fully as one reached from search.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, ListView, Static
+from textual.widgets import Label, ListView, Static
 
 from ...domain.errors import NoStreamsFound, PlayerUnavailable
 from ...domain.models import Anime, Audio
@@ -34,6 +35,7 @@ from ..format import (
     next_episode_line,
     watch_summary,
 )
+from ..shell import ActionBar, TopBar, spaced
 from ..widgets import EpisodeGrid, EpisodeItem
 
 # Cover width in character cells. Kept modest so the poster is a tasteful accent
@@ -99,8 +101,9 @@ class DetailScreen(Screen):
        one place that did not. The width it gives up is the price of the text
        being readable. */
     DetailScreen #detail-meta { width: 1fr; max-width: 80; height: auto; }
-    DetailScreen #detail-progress { height: auto; padding: 1 0 0 0; }
+    DetailScreen #detail-progress { height: auto; }
     DetailScreen #detail-action { height: auto; padding: 0 0 1 0; }
+    DetailScreen #detail-body { padding: 0 2; }
     """
 
     #: Episode cells mounted per yield to the event loop. Mounting is what
@@ -171,18 +174,27 @@ class DetailScreen(Screen):
         await self._render_episodes(self._numbers, available=self._available)
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with VerticalScroll():
+        # The same two bars the home screen wears, for the same two reasons: the
+        # top one says where you are, the bottom one says what the thing under
+        # the cursor can do. This screen was the last one still carrying
+        # Textual's `Header` and `Footer` — a centred title with a clock over a
+        # row of nine global keys, in the same order whatever was selected. It
+        # was also, not coincidentally, the only screen that still looked like
+        # the app before the redesign.
+        yield TopBar(id="topbar")
+        with VerticalScroll(id="detail-body"):
             with Horizontal(id="detail-top"):
                 yield Container(id="detail-cover")
                 yield Static(self._header_text(), id="detail-meta")
             yield Static("", id="detail-progress")
             yield Static("", id="detail-action")
+            yield Label(spaced("Episodes"), classes="shelf-label",
+                        id="sec-episodes")
             yield EpisodeGrid(id="episodes")
             # What the cell cannot say. The grid carries state and number; this
             # line carries the sentence for whichever episode the cursor is on.
             yield Static("", id="episode-detail")
-        yield Footer()
+        yield ActionBar(id="actionbar")
 
     # A cell is glyph + space + number, plus one column of gutter either side.
     _CELL_GAP = 3
@@ -254,11 +266,35 @@ class DetailScreen(Screen):
                 pass
 
     def on_mount(self) -> None:
+        # Still set, though no `Header` reads them any more: Textual puts them on
+        # the terminal's own window title, which is where an application's name
+        # belongs and the reason the top bar does not need to repeat it.
         self.title = self.anime.title.preferred
         if self.anime.episode_count:
             self.sub_title = f"{self.anime.episode_count} episodes planned"
+        self._paint_shell()
         self._load_cover()
         self._populate_episodes()
+
+    def on_resize(self) -> None:
+        self._paint_shell()
+
+    def _paint_shell(self) -> None:
+        """Repaint the two bars: where you are, and what you can do from here."""
+        width = self.size.width or 100
+        with contextlib.suppress(Exception):
+            # The title goes in the bar and *only* in the bar. It used to be in
+            # the header and again as the first line of the metadata panel —
+            # the longest string on the screen, twice, eight rows apart.
+            self.query_one("#topbar", TopBar).render_bar(
+                self.anime.title.preferred, width, hint=self.sub_title or "")
+        with contextlib.suppress(Exception):
+            # What this screen can do, in the order you are likely to want it.
+            # `z` is deliberately absent: the detail screen does not bind it.
+            self.query_one("#actionbar", ActionBar).render_actions(
+                width, zoom=False,
+                contextual=(("↵", "play"), ("esc", "back"),
+                            ("n", "next season"), ("v", "layout")))
 
     @work(exclusive=True, group="cover")
     async def _load_cover(self) -> None:
@@ -594,14 +630,16 @@ class DetailScreen(Screen):
         else:
             n = f"{next_number:g}"
             pct = partial.get(next_number)
+            # A filled bar, the same one the home hero uses. As cyan-on-nothing
+            # it was the loudest *text* on the screen but still read as a label,
+            # so a reader could see a resume percentage and have nothing telling
+            # them how to act on it. The "press Enter" is dropped: the action bar
+            # at the foot now says it, and saying it twice on one screen was the
+            # density this redesign is about.
+            verb = "resume" if pct else ("start" if watched_through <= 0 else "play")
+            text = f"[b $background on $accent] ▶  {verb} episode {n} [/]"
             if pct:
-                text = (f"[b cyan]▶ Resume Episode {n}[/b cyan] "
-                        f"[dim]· {pct}% watched — press Enter[/dim]")
-            elif watched_through <= 0:
-                text = f"[b cyan]▶ Start Episode {n}[/b cyan] [dim]— press Enter[/dim]"
-            else:
-                text = (f"[b cyan]▶ Play Episode {n}[/b cyan] "
-                        f"[dim]· up next — press Enter[/dim]")
+                text += f"  [dim]{pct}% watched[/dim]"
         try:
             self.query_one("#detail-action", Static).update(text)
         except Exception:
@@ -613,6 +651,10 @@ class DetailScreen(Screen):
             planned = self.anime.episode_count
             of = f"/{planned}" if planned else ""
             self.sub_title = f"{len(available)}{of} episodes available{src}"
+            # The bar is painted once on mount, before any source has answered,
+            # so without this it kept saying "12 episodes planned" long after it
+            # knew how many were actually there.
+            self._paint_shell()
 
     def _refresh_header(self) -> None:
         try:
@@ -699,9 +741,13 @@ class DetailScreen(Screen):
 
     def _header_text(self) -> str:
         a = self.anime
-        lines = [f"[b]{a.title.preferred}[/b]"]
-        # Show the alternate title when English and romaji differ — helps you
-        # confirm it's the right show.
+        # No title. The top bar carries it, and this panel used to repeat it as
+        # its first line — the longest string on the screen, printed twice,
+        # eight rows apart, which is what made the screen read as two stacked
+        # headers rather than one heading and its details.
+        lines = []
+        # The alternate title stays: when English and romaji differ it is how
+        # you confirm it is the right show, and the bar only has room for one.
         alt = a.title.romaji if a.title.english and a.title.romaji else None
         if alt and alt != a.title.preferred:
             lines.append(f"[dim]{alt}[/dim]")

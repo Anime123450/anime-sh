@@ -1,36 +1,70 @@
-/* anime-sh — the home screen's visual language.
+/* anime-sh — the visual language. See docs/DESIGN.md for the reasoning.
 
-   Three tiers of background carry the depth, not boxes. Terminal rows are
+   Depth comes from three background tiers, never from boxes. Terminal rows are
    scarce: a border costs two of them per section, and four sections of borders
    costs eight rows of content to say something a shade of background already
-   says. So:
+   says.
 
        $background   the base the screen sits on          (darkest)
        $surface      a plate that content sits on          (a step up)
        $panel        a thing lifted off that plate         (a step further)
 
-   This is the one change that matters most. The old sheet set `Screen` to
-   `$surface` — the MIDDLE tier — which left nowhere to go up: rows, rail,
-   headings and background were all the same colour, and the whole screen read
-   as one flat wall of text. The tiers were always in the theme; they just were
-   not being used.
-
    Colour has one job each. `$accent` means "the keyboard is here" and appears
-   nowhere else, so it is never ambiguous. Headings are structure, not
+   nowhere else, so it is never ambiguous. Shelf labels are structure, not
    interaction, and are set in the foreground colour instead. */
 
 Screen {
     background: $background;
 }
 
+/* -- the shell ---------------------------------------------------------- */
+
+/* One row for identity and location. Replaces Textual's Header, which spent
+   its row on a centred title and a clock — the clock is the terminal's job,
+   and the one thing the old bar never said was which section you were in. */
+#topbar {
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+/* The nav rail. Width is set from the terminal in `_size_nav`, because the
+   bands it depends on are not something CSS can ask about. Sits on the base
+   rather than the plate so the content column is the lit part of the screen. */
+#nav {
+    width: 16;
+    background: $background;
+    padding: 0 0 0 1;
+}
+
+/* What the thing under the cursor can do. The old footer listed six global
+   commands in the same order whatever was selected, so the one row guaranteed
+   to be visible said nothing about the row you were looking at. */
+#actionbar {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+}
+
+/* One row, not three. A `tall` border spent two rows drawing $panel against
+   $surface — two tones a step apart, so the frame was invisible and the query
+   read as a bare string floating over the top of the screen with two blank
+   rows under it. The field is a *field* because it sits a tier up from what
+   surrounds it, which is the same trick the plates use and costs no rows.
+
+   The accent bar is the same shape a focused row gets, for the same reason: it
+   survives a terminal with no colour, and it means one thing everywhere. */
 #search {
     margin: 1 2 0 2;
-    border: tall $panel;
-    background: $surface;
+    border: none;
+    padding: 0 1;
+    height: 1;
+    background: $panel;
 }
 
 #search:focus {
-    border: tall $accent;
+    border-left: thick $accent;
+    padding: 0 1 0 0;
 }
 
 #body {
@@ -38,62 +72,61 @@ Screen {
     width: 1fr;
 }
 
-/* Region C — the context rail. Width is set from the screen width in
-   `_size_rail` rather than here, because the boundary it depends on (120
-   columns) is not something CSS can ask about.
+/* -- the hero ----------------------------------------------------------- */
 
-   It used to be separated by a single hairline, which read as a leftover strip
-   rather than a panel: a rule between two identical backgrounds says "here is a
-   line", not "here is a different kind of thing". Sitting it on the surface
-   tier is what makes it a region. */
+/* Width is set from the screen width in `_size_rail`. It used to be separated
+   by a single hairline, which read as a leftover strip rather than a panel: a
+   rule between two identical backgrounds says "here is a line", not "here is a
+   different kind of thing". Sitting it on the surface tier is what makes it a
+   region. */
 #rail {
-    width: 34;
+    width: 38;
     padding: 1 2;
     background: $surface;
 }
 
-/* The rail is glanced at, never read, so it stays a step back from the rows —
-   but muted, not invisible: it was previously dim enough to look disabled. */
+/* The schedule is glanced at, never read, so it stays a step back from the
+   hero above it — but muted, not invisible: it was once dim enough to look
+   disabled. */
 #rail-body {
     color: $text-muted;
 }
 
-#sec-rail {
-    color: $text;
-    text-style: bold;
-    margin: 0 0 1 0;
-    padding: 0;
-}
+/* -- shelves ------------------------------------------------------------ */
 
-/* Section headings sit on the BASE, above the plate their rows sit on — the
-   ordinary "label above a card" arrangement, and the reason the plate reads as
-   a plate.
+/* Letterspaced caps are the one typographic treatment nothing else on the
+   screen uses, which is what lets a label read as a heading without a rule
+   under it. The previous design drew forty cells of `─` to carry one integer,
+   three times down the page.
 
-   They used to be `$accent` bold, which made the loudest thing on the screen
-   the part carrying the least information: four orange headings competing with
-   the rows for attention while the selected row got a thin bar. Accent now
-   means one thing only, and it is not "heading". */
-.section {
+   They sit on the BASE, above the plate their rows sit on — the ordinary
+   "label above a card" arrangement, and the reason the plate reads as a plate.
+
+   They used to be `$accent`, which made the loudest thing on the screen the
+   part carrying the least information: four orange headings competing with the
+   rows while the selected row got a thin bar. Accent now means one thing only,
+   and it is not "heading". */
+.shelf-label {
     margin: 1 0 0 0;
     padding: 0 1;
     text-style: bold;
     color: $text;
 }
 
-/* The plate. Padding is what turns a background change into a panel: without
-   it the tint stops flush against the text and reads as a highlight rather than
-   as a surface the rows are sitting on. */
+/* The plate. Padding is what turns a background change into a panel: without it
+   the tint stops flush against the text and reads as a highlight rather than as
+   a surface the rows are sitting on. */
 ListView {
     background: $surface;
     height: auto;
-    max-height: 20;
+    max-height: 10;
     padding: 1 1;
     margin: 0 0 1 0;
 }
 
 /* Every row reserves the marker gutter, whether or not it is showing one — as
    padding, not as a border. Painting the border only on the focused row made
-   that row one cell narrower than its rest, so the grid had to be cut to the
+   that row one cell narrower than the rest, so the grid had to be cut to the
    smaller of the two or the focused row clipped, and the width flipped back and
    forth as focus moved.
 
@@ -126,7 +159,7 @@ AnimeItem Label {
    complaint, it just quietly does nothing.
 
    Which list the keyboard is driving has to be visible. Every list keeps a
-   highlighted row so you do not lose your place moving between sections, but
+   highlighted row so you do not lose your place moving between shelves, but
    only the focused one gets the accent. The unfocused ones lift to the panel
    tier instead: still findable, clearly not live.
 
@@ -142,18 +175,16 @@ ListView:focus > ListItem.-highlight {
     padding: 0 1 0 1;
 }
 
-/* The `compact` density. Every section spends four rows on chrome — the
-   heading, the plate's padding above and below its rows, and the gap before the
-   next heading — plus three for the search box. On a 34-row laptop terminal that
-   is most of the screen before a single show appears.
+/* The `compact` density. Every shelf spends four rows on chrome — the label,
+   the plate's padding above and below its rows, and the gap before the next
+   label — plus three for the search box. On a 34-row laptop terminal that is
+   most of the screen before a single show appears.
 
    The vertical padding goes and the horizontal padding stays, so the plate is
    still a plate: what makes a background change read as a surface is that the
    tint does not stop flush against the text, and sideways is where that reads.
-   The search box drops its tall border for a flat one, which is two more rows.
-
-   Three rows back per section, on a screen that has four of them. */
-HomeScreen.-dense .section {
+   The search box drops its tall border for a flat one, which is two more rows. */
+HomeScreen.-dense .shelf-label {
     margin: 0;
 }
 
@@ -161,10 +192,10 @@ HomeScreen.-dense ListView {
     padding: 0 1;
 }
 
+/* The default box is already one row, so dense has only its margin left to
+   give. It keeps the focus bar — that is a state indicator, not decoration. */
 HomeScreen.-dense #search {
-    border: none;
     margin: 0 2;
-    padding: 0 1;
 }
 
 /* The `compact` episode layout. `_CELL_GAP` is not a gutter drawn between
@@ -188,11 +219,15 @@ HomeScreen.-dense #search {
     color: $text-muted;
 }
 
+/* No box. A `round` border spent two rows and eighty cells of line art to say
+   "these things belong together", which the plate underneath already says — and
+   said it in the one visual idiom this redesign set out to remove. The detail
+   screen was the last place still drawing one, so it was also the only screen
+   that still looked like the old app. */
 #detail-meta {
     padding: 1 2;
-    margin: 1 0;
+    margin: 0 0 1 0;
     background: $surface;
-    border: round $panel;
 }
 
 #episodes {
@@ -200,8 +235,7 @@ HomeScreen.-dense #search {
     max-height: 24;
 }
 
-/* Region C's header block: the poster, then what the row under the cursor is.
-   The cover is centred over the text rather than beside it — at rail width
+/* The poster. Centred over the text rather than beside it — at hero width
    there is not room for a column of each, and a poster is the one thing on this
    screen that earns being looked at rather than read. */
 #rail-cover {
@@ -212,7 +246,7 @@ HomeScreen.-dense #search {
 }
 
 /* The art is a fixed number of cells wide; the Static holding it must shrink to
-   that, or it fills the rail and `align-horizontal` has nothing to centre. */
+   that, or it fills the hero and `align-horizontal` has nothing to centre. */
 #rail-cover > Static {
     width: auto;
     height: auto;
@@ -224,21 +258,20 @@ HomeScreen.-dense #search {
     color: $text;
 }
 
-#rail-rule {
-    margin: 1 0;
-    color: $panel;
-}
-
 /* The theme picker composites over whatever is behind it. A theme is chosen by
-   seeing it applied to a screen full of rows, headings and a poster — behind an
+   seeing it applied to a screen full of rows, labels and a poster — behind an
    opaque modal the live preview changes nothing you can look at, which is the
    entire feature.
 
    It has to live here rather than in the screen's own DEFAULT_CSS: the
    `Screen` rule at the top of this file is app-level CSS and outranks a
    widget's DEFAULT_CSS, so it silently won and the modal came out solid. */
-/* Toasts land bottom-right by default, which is exactly where Region C is. A
-   toast is 60 cells wide and the rail is barely more than half that, so a
+ThemesScreen {
+    background: $background 55%;
+}
+
+/* Toasts land bottom-right by default, which is exactly where the hero is. A
+   toast is 60 cells wide and the hero is barely more than half that, so a
    "Synced 74 from AniList" covered the next three days of the schedule
    completely — the one thing on screen you cannot scroll back to, because it is
    not a list, it is the answer to "what is on tonight".
@@ -249,6 +282,22 @@ ToastRack {
     align-horizontal: left;
 }
 
-ThemesScreen {
-    background: $background 55%;
+/* The schedule's own label needs air above it: it follows the hero's action
+   bar directly, and two headings' worth of bold text with no gap between them
+   reads as one block rather than as the end of one thing and the start of
+   another. */
+#sec-rail {
+    margin: 1 0 1 0;
+}
+
+/* A capped shelf scrolls, so Textual gives it a scrollbar — at the default
+   width that is a two-cell block of light grey sitting in the gutter beside
+   every shelf, which reads as a UI element rather than as an overflow hint.
+   One cell, and the label already says "6 of 18". */
+ListView {
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $surface;
+    scrollbar-color: $panel;
+    scrollbar-color-hover: $panel;
+    scrollbar-color-active: $accent;
 }
