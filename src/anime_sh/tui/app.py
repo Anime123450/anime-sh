@@ -122,10 +122,18 @@ class AnimeShApp(App):
         self.exit()
 
     def action_focus_search(self) -> None:
+        """Open the search box and put the cursor in it.
+
+        The box is hidden until asked for, so `/` has to reveal it before
+        focusing — focusing a widget that is not displayed does nothing, which
+        is what made the first version of this look like a dead key.
+        """
         try:
-            self.query_one("#search").focus()
+            box = self.query_one("#search")
         except Exception:
-            pass
+            return
+        box.display = True
+        box.focus()
 
     def action_help(self) -> None:
         from .screens.help import HelpScreen

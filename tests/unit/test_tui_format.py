@@ -125,14 +125,20 @@ def test_continue_cells_ready_row_says_the_episode_is_waiting():
     a = _anime(status=Status.FINISHED, episode_count=12)
     row, resume = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
     assert row.position == "Ep 4/12"
-    assert "new episode" in row.status
+    # How many are sitting there, not the words "new episode" — on a real
+    # library that was the same two words down thirteen consecutive rows, in the
+    # one column that could have carried a number differing on every one.
+    assert "+9" in row.status, "nine of twelve are unwatched and out"
     assert row.dim is False and resume == 4.0
 
 
 def test_continue_cells_ready_row_without_a_known_total():
     a = _anime(status=Status.FINISHED, episode_count=None)
     row, _ = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
-    assert row.position == "Ep 4" and "new episode" in row.status
+    # Nothing known to count against, so the status stays empty. A `+0` here
+    # would be a confident statement that nothing is waiting, which is the one
+    # thing this row cannot know.
+    assert row.position == "Ep 4" and row.status == ""
 
 
 def test_continue_cells_waiting_row_is_dimmed_and_shows_only_the_countdown():
@@ -172,7 +178,7 @@ def test_continue_rows_order_resume_then_ready_then_waiting():
     ]
     rows.sort(key=lambda r: r.rank)
     assert [r.status for r in rows][0].endswith("50%")
-    assert "new episode" in rows[1].status
+    assert "+9" in rows[1].status
     assert rows[2].dim is True
 
 
@@ -337,14 +343,14 @@ def test_render_cover_returns_none_on_garbage():
 
 
 def test_a_marked_up_status_still_declares_its_visible_width():
-    """`render` cannot measure a string carrying markup — `[dim]new episode[/dim]`
-    is 25 characters and 11 cells — so any status with markup has to say how wide
-    it really is, or the column padded from the wrong number and every row after
-    it lost its alignment.
+    """`render` cannot measure a string carrying markup — `[dim]+9[/dim]` is
+    fourteen characters and two cells — so any status with markup has to say how
+    wide it really is, or the column padded from the wrong number and every row
+    after it lost its alignment.
     """
     from anime_sh.domain.models import Status
 
     a = _anime(status=Status.FINISHED, episode_count=12)
     row, _ = continue_cells(a, _prog(3.0, 0, completed=True), _NOW)
     assert "[" in row.status, "test premise: this status carries markup"
-    assert row.status_cells == len("new episode")
+    assert row.status_cells == len("+9")

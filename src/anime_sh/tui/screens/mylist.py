@@ -6,13 +6,16 @@ source picker as everywhere else, so playing from your list is one keystroke.
 
 from __future__ import annotations
 
+import contextlib
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, ListView, LoadingIndicator
+from textual.widgets import Label, ListView, LoadingIndicator
 
 from ..rows import Row, columns_for, title_target
+from ..shell import ActionBar, TopBar, spaced
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
@@ -27,15 +30,27 @@ _LABEL = {
 class MyListScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
+    DEFAULT_CSS = """
+    MyListScreen #mylist-body { padding: 0 2; }
+    """
+
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield TopBar(id="topbar")
         with VerticalScroll(id="mylist-body"):
-            yield Label("My List", classes="section")
             yield LoadingIndicator(id="mylist-loading")
-        yield Footer()
+        yield ActionBar(id="actionbar")
 
     def on_mount(self) -> None:
         self.title = "My List"
+        with contextlib.suppress(Exception):
+            width = self.size.width or 100
+            # The screen's one heading was a Label reading "My List" directly
+            # under a header that also read "My List". The bar says it now, and
+            # the status groups below are the headings worth having.
+            self.query_one("#topbar", TopBar).render_bar(
+                "My List", width, hint="from AniList")
+            self.query_one("#actionbar", ActionBar).render_actions(
+                width, zoom=False, contextual=(("↵", "play"), ("esc", "back")))
         self._load()
 
     @work(exclusive=True, group="mylist")
@@ -62,8 +77,13 @@ class MyListScreen(Screen):
         for status in order:
             rows = groups[status]
             await body.mount(
-                Label(f"{_LABEL.get(status, status.title())}  ({len(rows)})",
-                      classes="section")
+                Label(
+                    f"{spaced(_LABEL.get(status, status.title()))}  {len(rows)}",
+                    # `shelf-label`, not the renamed-away `section`: these came
+                    # out as unstyled body text, indistinguishable from the rows
+                    # they were meant to be grouping.
+                    classes="shelf-label",
+                )
             )
             lv = ListView()
             await body.mount(lv)

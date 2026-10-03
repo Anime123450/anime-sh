@@ -4,6 +4,32 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **The TUI has been redesigned.** The old home screen put four lists on the
+  screen at equal weight, so nothing led and Trending never appeared above the
+  fold; it repeated the words "new episode" on thirteen consecutive rows, cut
+  ten of eighteen titles, and spent three forty-cell rules on headers carrying
+  one integer each. What replaces it: a one-row top bar that says which section
+  you are in, a numbered nav rail, four shelves whose heights are divided out of
+  the terminal by weight so Continue Watching visibly leads, a hero column that
+  follows the cursor, and a bottom bar that lists what the *highlighted row* can
+  do rather than the same six global keys everywhere. `z` gives one shelf the
+  whole screen; `1`-`4` jump straight to one. Shelf labels count what they are
+  not showing -- "10 of 18" -- and a caught-up row says how many episodes are
+  waiting (`+6`) instead of saying "new episode" again.
+
+  Searching is now a mode: the box is hidden until `/`, and entering it drops
+  the nav rail and the broadcast schedule, swaps `tab next shelf` for `esc
+  back`, and gives the hero the room the shorter list frees. The detail screen
+  lost its `round` border box and the title it was printing twice; help is
+  keys-only and can no longer overflow the screen. Nothing about searching,
+  playback, history, progress, AniList sync or the providers changed -- this is
+  the presentation layer only.
+
+  The reasoning is written down in `docs/DESIGN.md`, and
+  `scripts/tui_shots.py` renders any screen at any terminal size for inspection.
+
 ### Fixed
 
 - **`anime history` answered in UTC.** The timestamps are stored UTC and the

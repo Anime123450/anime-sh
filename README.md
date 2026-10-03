@@ -14,7 +14,7 @@ Providers, mirrors and resolvers are plumbing you never have to think about.
 [![Providers](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml/badge.svg)](https://github.com/Anime123450/anime-sh/actions/workflows/canary.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<img src="docs/img/home.png" alt="anime-sh running in Windows Terminal: Continue Watching with progress bars, Airing This Season, and a context panel showing the highlighted show's cover art, genres, progress and next episode" width="900">
+<img src="docs/img/home.svg" alt="anime-sh at 120 by 40: a one-row top bar, a numbered navigation rail, Continue Watching with progress bars above Favourites, This Season and Trending, and a hero column showing the highlighted show's details, progress, synopsis and what Enter will do" width="900" height="623">
 
 </div>
 
@@ -321,12 +321,23 @@ Not a mockup of it.
 ## 🚀 First run
 
 ```bash
-anime            # the TUI: Continue Watching, Airing This Season, Trending
+anime            # the TUI
 ```
 
-The right-hand panel follows your cursor: poster, what the show is, how far into
-the episode you got, when the next one airs, and what <kbd>Enter</kbd> will do.
-Under it sits everything you are waiting on, grouped by day.
+Four shelves down the left — Continue Watching, Favourites, This Season,
+Trending — each showing a sample, with its label counting the rest: *10 of 18*.
+Press <kbd>z</kbd> to give one the whole screen, or a digit to jump straight to
+it. Continue Watching gets the most room, because it is usually why you opened
+the app.
+
+The hero column on the right follows your cursor: poster, what the show is, how
+far into the episode you got, when the next one airs, and what <kbd>Enter</kbd>
+will do. Under it sits everything you are waiting on, grouped by day. The bottom
+row always says what the thing under the cursor can do — it changes as you move.
+
+It fits what it is given. At 80 columns the shelves fill the window on their own;
+the rail appears at 120, labels itself at 160, and past that the extra width
+becomes margin rather than more columns of data.
 
 Prefer one-shot commands? `anime "Frieren"` searches, takes the best match and
 plays episode 1. `anime play "Frieren" -e 18 --dub -q 1080p` spells it all out.
@@ -341,7 +352,9 @@ Shell tab-completion is one command: `anime --install-completion`.
 |---|---|---|
 | 🕹️ | <kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd> | move within a list |
 | ⤒ | <kbd>g</kbd> / <kbd>G</kbd> | first / last row |
-| ↹ | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous section |
+| ↹ | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | next / previous shelf |
+| 🔢 | <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> | jump to a shelf, as numbered on the rail |
+| ⤢ | <kbd>z</kbd> | expand this shelf to the whole screen, or collapse it |
 | ▶️ | <kbd>Enter</kbd> | open a show, or play the highlighted episode |
 | 🔎 | <kbd>/</kbd> | search |
 | ↩️ | <kbd>Esc</kbd> | clear the search, or go back |
@@ -351,6 +364,7 @@ Shell tab-completion is one command: `anime --install-completion`.
 | 🧱 | <kbd>v</kbd> | view — home density, or episode layout on a show |
 | ⏭️ | <kbd>n</kbd> | next season, on a show |
 | ❓ | <kbd>?</kbd> | every key, any time |
+| 🎛️ | <kbd>Ctrl</kbd>+<kbd>P</kbd> | command palette |
 | 🚪 | <kbd>q</kbd> | quit |
 
 ---
