@@ -528,7 +528,7 @@ def cache_clear(
 
 
 async def _cache_info(as_json: bool) -> None:
-    from ..config.paths import cache_db_path
+    from ..config.paths import cache_db_path, covers_on_disk
 
     c = build_container()
     try:
@@ -539,9 +539,11 @@ async def _cache_info(as_json: bool) -> None:
     # Reuse the downloads helper: the same question ("is this file there, and how
     # big"), and the same need to answer rather than raise on an odd path.
     size = _download_on_disk(SimpleNamespace(path=str(cache_db_path()))).size
+    covers, cover_bytes = covers_on_disk()
     if as_json:
         json.dump({"entries": total, "expired": expired, "size_bytes": size,
                    "reclaimable_bytes": reclaimable,
+                   "covers": covers, "cover_bytes": cover_bytes,
                    "path": str(cache_db_path())}, sys.stdout)
         sys.stdout.write("\n")
         return
@@ -550,6 +552,11 @@ async def _cache_info(as_json: bool) -> None:
     if reclaimable:
         line += f" [dim]({_human_size(reclaimable)} reclaimable)[/]"
     console.print(line)
+    if covers:
+        # Named separately because it is the one part of the cache whose effect a
+        # reader can see: clearing it means every poster is fetched again.
+        console.print(f"[bold]{covers}[/] cover{'' if covers == 1 else 's'} "
+                      f"· {_human_size(cover_bytes)}")
     console.print(f"[dim]{cache_db_path()}[/]")
     if expired:
         console.print("[dim]Drop the stale ones with [/][cyan]anime cache prune[/]")
@@ -559,6 +566,8 @@ async def _cache_info(as_json: bool) -> None:
 
 
 async def _cache_clear(yes: bool) -> None:
+    from ..config.paths import clear_covers
+
     c = build_container()
     try:
         total, expired = await c.cache.stats()
@@ -581,7 +590,11 @@ async def _cache_clear(yes: bool) -> None:
         n = await c.cache.clear()
     finally:
         await c.aclose()
-    console.print(f"[green]Cleared[/] {n} cache entr{'y' if n == 1 else 'ies'}.")
+    # Covers go with it. They are the biggest thing in the cache directory and
+    # the promise `clear` makes is that it reclaims the space.
+    covers = clear_covers()
+    tail = (f" and {covers} cover{'' if covers == 1 else 's'}." if covers else ".")
+    console.print(f"[green]Cleared[/] {n} cache entr{'y' if n == 1 else 'ies'}" + tail)
 
 
 async def _cache_op(*, clear: bool) -> None:

@@ -24,6 +24,7 @@ from anime_sh.domain.models import (
     WatchProgress,
 )
 from anime_sh.tui import AnimeShApp, TuiServices
+from anime_sh.tui.cards import Shelf
 from anime_sh.tui.screens.detail import DetailScreen
 from anime_sh.tui.screens.help import HelpScreen
 from anime_sh.tui.screens.mylist import MyListScreen
@@ -108,14 +109,14 @@ async def test_home_populates_trending_and_continue():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert len(app.query_one("#trending", ListView)) == 2
-        cont = app.query_one("#continue", ListView)
-        assert len(cont) == 1
-        # Regression: a populated Continue Watching section must be visible (it
+        assert len(app.query_one("#trending", Shelf).cards) == 2
+        cont = app.query_one("#continue", Shelf)
+        assert len(cont.cards) == 1
+        # Regression: a populated Continue Watching shelf must be visible (it
         # used to stay hidden because the worker never re-showed it).
         assert cont.display is True
         assert app.query_one("#sec-continue").display is True
-        assert len(app.query_one("#seasonal", ListView)) == 1
+        assert len(app.query_one("#seasonal", Shelf).cards) == 1
 
 
 async def test_clearing_search_restores_home_sections():
@@ -131,11 +132,11 @@ async def test_clearing_search_restores_home_sections():
         await pilot.pause(0.5)
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert app.query_one("#results", ListView).display is True
+        assert app.query_one("#results", Shelf).display is True
         # Clear the box.
         search.value = ""
         await pilot.pause()
-        assert app.query_one("#results", ListView).display is False
+        assert app.query_one("#results", Shelf).display is False
         assert app.query_one("#trending").display is True
 
 
@@ -167,10 +168,17 @@ async def test_caught_up_show_is_dimmed_with_countdown():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        cont = app.query_one("#continue", ListView)
-        assert len(cont) == 1
-        item = cont.children[0]
-        assert item._row.dim is True  # greyed: caught up, waiting for next episode
+        cont = app.query_one("#continue", Shelf)
+        assert len(cont.cards) == 1
+        # Caught up and waiting: the card's caption is the countdown to the next
+        # episode, not a resume position. A row used to carry this as a `dim`
+        # flag; under a poster the state *is* the caption, so that is what is
+        # checked — and it is the line a reader actually sees.
+        caption = cont.cards[0].caption
+        assert caption.startswith("ep 6 "), (
+            f"a caught-up show should count down to ep 6, not say {caption!r}"
+        )
+        assert cont.cards[0].fraction == 0.0, "nothing to resume, so no bar"
 
 
 async def test_favorites_section_shows_when_present_else_hidden():
@@ -185,8 +193,8 @@ async def test_favorites_section_shows_when_present_else_hidden():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        favs = app.query_one("#favorites", ListView)
-        assert len(favs) == 1 and favs.display is True
+        favs = app.query_one("#favorites", Shelf)
+        assert len(favs.cards) == 1 and favs.display is True
 
 
 async def test_my_list_screen_groups_entries():
@@ -241,9 +249,9 @@ async def test_search_shows_results_and_hides_home():
         await pilot.pause(0.5)  # let the debounce timer + worker run
         await app.workers.wait_for_complete()
         await pilot.pause()
-        results = app.query_one("#results", ListView)
+        results = app.query_one("#results", Shelf)
         assert results.display is True
-        assert len(results) == 2
+        assert len(results.cards) == 2
         assert app.query_one("#trending").display is False
 
 
@@ -258,7 +266,7 @@ async def test_home_refreshes_continue_watching_on_resume():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert len(app.query_one("#continue", ListView)) == 1
+        assert len(app.query_one("#continue", Shelf).cards) == 1
         # Simulate the library changing while a detail screen is open.
         now = datetime.now(timezone.utc)
         library.continue_items = [
@@ -273,9 +281,9 @@ async def test_home_refreshes_continue_watching_on_resume():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        cont = app.query_one("#continue", ListView)
-        assert len(cont) == 2  # re-queried, now shows both
-        assert cont.children[0].anime.title.preferred == "Bocchi"
+        cont = app.query_one("#continue", Shelf)
+        assert len(cont.cards) == 2  # re-queried, now shows both
+        assert cont.cards[0].anime.title.preferred == "Bocchi"
 
 
 async def test_selecting_item_opens_detail():
@@ -284,8 +292,8 @@ async def test_selecting_item_opens_detail():
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        # Navigate: select the continue-watching item -> DetailScreen.
-        cont = app.query_one("#continue", ListView)
+        # Navigate: select the continue-watching card -> DetailScreen.
+        cont = app.query_one("#continue", Shelf)
         cont.focus()
         cont.index = 0
         await pilot.pause()
@@ -538,7 +546,7 @@ async def test_home_survives_a_failing_library():
         await pilot.pause()
         # Still alive, and the sections that don't depend on it still rendered.
         assert app.is_running
-        assert len(app.query_one("#trending", ListView)) == 2
+        assert len(app.query_one("#trending", Shelf).cards) == 2
 
 
 async def test_source_without_the_pinned_episode_does_not_offer_it():

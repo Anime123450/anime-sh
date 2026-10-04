@@ -28,15 +28,6 @@ Screen {
     color: $text;
 }
 
-/* The nav rail. Width is set from the terminal in `_size_nav`, because the
-   bands it depends on are not something CSS can ask about. Sits on the base
-   rather than the plate so the content column is the lit part of the screen. */
-#nav {
-    width: 16;
-    background: $background;
-    padding: 0 0 0 1;
-}
-
 /* What the thing under the cursor can do. The old footer listed six global
    commands in the same order whatever was selected, so the one row guaranteed
    to be visible said nothing about the row you were looking at. */
@@ -72,27 +63,115 @@ Screen {
     width: 1fr;
 }
 
-/* -- the hero ----------------------------------------------------------- */
-
 /* Width is set from the screen width in `_size_rail`. It used to be separated
    by a single hairline, which read as a leftover strip rather than a panel: a
    rule between two identical backgrounds says "here is a line", not "here is a
    different kind of thing". Sitting it on the surface tier is what makes it a
    region. */
-#rail {
-    width: 38;
-    padding: 1 2;
-    background: $surface;
-}
-
 /* The schedule is glanced at, never read, so it stays a step back from the
    hero above it — but muted, not invisible: it was once dim enough to look
    disabled. */
-#rail-body {
-    color: $text-muted;
+/* -- the hero ----------------------------------------------------------- */
+
+/* One show, large, at the top: the poster beside everything known about it.
+   Outside the scroll container on purpose — it describes whatever the cursor is
+   on, so scrolling it away would leave the shelves annotating something that is
+   no longer on screen.
+
+   The height is set in `_size_hero` rather than here, because 24 cells of
+   poster comes back 17 rows tall and that number belongs next to the width that
+   produced it. */
+#hero {
+    padding: 1 2 0 2;
+}
+
+/* Width is set from the band in `_size_hero`. `height: 1fr` lets the art fill
+   the hero without the Static inside it stretching — the poster is a fixed
+   number of cells either way, and a container sized to its content would
+   collapse before the image lands. */
+#hero-art {
+    width: 24;
+    height: 1fr;
+}
+
+#hero-art > Static {
+    width: auto;
+    height: auto;
+}
+
+/* Three cells of gutter, not a rule. Two columns of text need separating; a
+   vertical line between them would be the one box-drawing idiom this design
+   removed everywhere else. */
+#hero-text {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 0 0 3;
+    color: $text;
 }
 
 /* -- shelves ------------------------------------------------------------ */
+
+/* The `compact` density. A shelf spends two rows on the air around it: the gap
+   above its label and the gap under its cards. Four shelves is eight rows, and
+   on a 34-row laptop terminal that is more than half of what is left after the
+   hero — one shelf and a sliver of the next.
+
+   Only the vertical air goes. The sideways padding stays, because what makes a
+   background change read as a surface is that the tint does not stop flush
+   against the content, and sideways is where that reads. Compact buys rows, not
+   the layering the whole design rests on. */
+HomeScreen.-dense .shelf-label {
+    margin: 0;
+}
+
+HomeScreen.-dense Shelf {
+    margin: 0;
+}
+
+/* A row of posters you walk sideways. Thirteen rows for the card and one of
+   padding above it, which is what turns the background change into a plate
+   rather than a tint that stops flush against the art.
+
+   Fifteen rows, not fourteen: the horizontal scrollbar is drawn *inside* the
+   content area, so a shelf with more posters than fit lost the bottom row of
+   every card to it — which is the caption, silently, on exactly the shelves
+   long enough to need scrolling. The extra row is kept on the short shelves
+   too, because a shelf that changes height depending on how full it is makes
+   every shelf below it move.
+
+   `overflow-y: hidden` because the shelf is exactly one card tall and a
+   vertical scrollbar on a container that cannot scroll vertically is two cells
+   of furniture advertising nothing. The horizontal one is one cell: it is the
+   only thing saying there are more posters off to the right. */
+Shelf {
+    height: 15;
+    padding: 1 1 0 1;
+    margin: 0 0 1 0;
+    background: $surface;
+    overflow-y: hidden;
+    scrollbar-size-horizontal: 1;
+    scrollbar-background: $surface;
+    scrollbar-color: $panel;
+    scrollbar-color-hover: $panel;
+    scrollbar-color-active: $accent;
+}
+
+/* Fourteen cells of art plus a cell of gutter either side. The height must
+   match `cards.CARD_ROWS`: a card one row taller than its box loses its
+   caption, silently, because the overflow is simply not drawn. */
+PosterCard {
+    width: 16;
+    height: 13;
+    padding: 0 1;
+}
+
+/* The selected card lifts a tier, exactly as the highlighted row does. Only
+   while the shelf has focus: every shelf keeps its place so you do not lose it
+   moving between them, but `$accent` and the lift both mean "the keyboard is
+   here", and four shelves claiming that at once means none of them do. */
+Shelf:focus PosterCard.-on {
+    background: $panel;
+}
 
 /* Letterspaced caps are the one typographic treatment nothing else on the
    screen uses, which is what lets a label read as a heading without a rule
@@ -175,29 +254,8 @@ ListView:focus > ListItem.-highlight {
     padding: 0 1 0 1;
 }
 
-/* The `compact` density. Every shelf spends four rows on chrome — the label,
-   the plate's padding above and below its rows, and the gap before the next
-   label — plus three for the search box. On a 34-row laptop terminal that is
-   most of the screen before a single show appears.
-
-   The vertical padding goes and the horizontal padding stays, so the plate is
-   still a plate: what makes a background change read as a surface is that the
-   tint does not stop flush against the text, and sideways is where that reads.
-   The search box drops its tall border for a flat one, which is two more rows. */
-HomeScreen.-dense .shelf-label {
-    margin: 0;
-}
-
-HomeScreen.-dense ListView {
-    padding: 0 1;
-}
-
 /* The default box is already one row, so dense has only its margin left to
    give. It keeps the focus bar — that is a state indicator, not decoration. */
-HomeScreen.-dense #search {
-    margin: 0 2;
-}
-
 /* The `compact` episode layout. `_CELL_GAP` is not a gutter drawn between
    cells — it is this padding, which is why closing the gap without closing the
    padding clipped every episode number to its first digit. The two have to move
@@ -235,29 +293,6 @@ HomeScreen.-dense #search {
     max-height: 24;
 }
 
-/* The poster. Centred over the text rather than beside it — at hero width
-   there is not room for a column of each, and a poster is the one thing on this
-   screen that earns being looked at rather than read. */
-#rail-cover {
-    height: auto;
-    width: 1fr;
-    align-horizontal: center;
-    margin: 0 0 1 0;
-}
-
-/* The art is a fixed number of cells wide; the Static holding it must shrink to
-   that, or it fills the hero and `align-horizontal` has nothing to centre. */
-#rail-cover > Static {
-    width: auto;
-    height: auto;
-}
-
-#rail-preview {
-    width: 1fr;
-    height: auto;
-    color: $text;
-}
-
 /* The theme picker composites over whatever is behind it. A theme is chosen by
    seeing it applied to a screen full of rows, labels and a poster — behind an
    opaque modal the live preview changes nothing you can look at, which is the
@@ -280,14 +315,6 @@ ThemesScreen {
    instead: rows that are still there when it fades, and scrollable besides. */
 ToastRack {
     align-horizontal: left;
-}
-
-/* The schedule's own label needs air above it: it follows the hero's action
-   bar directly, and two headings' worth of bold text with no gap between them
-   reads as one block rather than as the end of one thing and the start of
-   another. */
-#sec-rail {
-    margin: 1 0 1 0;
 }
 
 /* A capped shelf scrolls, so Textual gives it a scrollbar — at the default

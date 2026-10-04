@@ -5,7 +5,7 @@ Users mash keys and resize windows. None of it should raise.
 
 from __future__ import annotations
 
-from textual.widgets import ListView
+from anime_sh.tui.cards import Shelf
 
 from .test_app import _make_app  # reuse the fake-service harness
 
@@ -51,7 +51,7 @@ async def test_extreme_terminal_sizes():
             await pilot.resize_terminal(*size)
             await pilot.pause()
         assert app.is_running
-        assert app.query_one("#continue", ListView) is not None
+        assert app.query_one("#continue", Shelf) is not None
 
 
 async def test_rapid_screen_switching_does_not_leave_the_app_wedged():

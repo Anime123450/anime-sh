@@ -1,4 +1,27 @@
-"""Home screen: search-as-you-type, continue watching, this season, trending."""
+"""Home screen: a cinematic hero over horizontal shelves of cover art.
+
+The composition, and why it is this one. The first redesign of this screen
+produced three tall stacked lists with an information panel down the right-hand
+side — tidier than what came before, and structurally the same thing, which was
+the one arrangement the brief asked it to move away from. Rows are an efficient
+way to present a database. Anime is not a database; the poster *is* the
+metadata, and a person recognises a show from a thumbnail faster than from its
+name set in a column.
+
+So: one show is large, at the top, with everything known about it (`preview`
+draws that block). Everything else is a poster on a shelf you walk sideways,
+and the hero follows the cursor — so the detail is on screen for exactly one
+show, the one you are pointing at, and never for all of them at once.
+
+What that costs, stated plainly because it is a real cost: a shelf of posters is
+thirteen rows where a list of rows was one. At 190×50 this is the hero and two
+and a half shelves; the old screen fitted four lists in the same space. Fewer
+things, bigger, is the trade.
+
+Everything below the composition is data loading, and is the same as it was:
+five independent workers (continue, favourites, seasonal, trending, search),
+each degrading to an empty shelf and a notice rather than taking the app down.
+"""
 
 from __future__ import annotations
 
@@ -11,49 +34,35 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import (
-    Input,
-    Label,
-    ListView,
-    Static,
-)
+from textual.widgets import Input, Label, Static
 
 from ...domain.models import Season, Status
-from ..format import RANK_WAITING, browse_cells, continue_cells
-from ..rows import (
-    CHROME,
-    Columns,
-    columns_for_space,
-    title_cells,
-    title_target_from,
-)
+from ..cards import PosterCard, Shelf
 from ..coverart import (
+    cached_cover,
+    cover_rows,
     fetch_cover,
     graphics_cover_widget,
     graphics_protocol_active,
     render_cover,
 )
+from ..format import card_caption
 from ..preview import render as preview_render
 from ..shell import (
     SECTIONS,
     ActionBar,
-    NavRail,
     Section,
     TopBar,
     band,
     empty_state,
-    nav_width,
     spaced,
 )
-from ..upcoming import render, schedule, scheduled_ids
-from ..widgets import AnimeItem
 from .sources import SourcesScreen
 
-
 #: Search results are a shelf like any other for layout purposes, but they are
-#: not a *destination* — there is no nav row for them, because you get there by
-#: typing rather than by choosing.
-_RESULTS_SECTION = Section("", "", "Results", "#results", "#sec-results")
+#: not a *destination* — there is no numbered key for them, because you get
+#: there by typing rather than by choosing.
+_RESULTS_SECTION = Section("Results", "#results", "#sec-results")
 
 
 def _current_season() -> tuple[Season, int]:
@@ -74,13 +83,13 @@ def _schedule_is_stale(anime, now: datetime) -> bool:
 
     Skips only what is *positively known* to be settled. ``Status`` defaults to
     ``UNKNOWN``, and a row saved bare — on playback, say — carries that default;
-    reading it as "finished, nothing can change" would pin the row to a schedule
-    it never had and offer an unreleased episode as though it were waiting for
-    you, which is the bug the cached schedule exists to prevent.
+    reading it as "finished, nothing can change" would pin the card to a
+    schedule it never had and offer an unreleased episode as though it were
+    waiting for you, which is the bug the cached schedule exists to prevent.
     """
     if anime.is_airing:
-        # A cached next episode still in the future is everything the row needs:
-        # the countdown ticks locally, so there is nothing to fetch.
+        # A cached next episode still in the future is everything the card
+        # needs: the countdown ticks locally, so there is nothing to fetch.
         return anime.next_airing_at is None or anime.next_airing_at <= now
     if anime.status in (Status.FINISHED, Status.CANCELLED):
         return False  # the schedule is final and will not change again
@@ -88,39 +97,121 @@ def _schedule_is_stale(anime, now: datetime) -> bool:
 
 
 class HomeScreen(Screen):
-    # Escape is bound app-wide to "go back", which on the base screen has nothing
-    # to pop and so did nothing at all — leaving no way out of a search except
-    # selecting the box and deleting it by hand.
     BINDINGS = [
+        # Escape is bound app-wide to "go back", which on the base screen has
+        # nothing to pop and so did nothing at all — leaving no way out of a
+        # search except selecting the box and deleting it by hand.
         Binding("escape", "clear_search", "Clear search", show=False),
         # Tab is documented — in the README and on the `?` sheet — as "next
-        # section", and Textual's default focus chain does not do that. Left to
-        # itself it walks every focusable widget, which here means `#body` and
-        # `#rail`: scroll containers that take focus, show no cursor, and turn
-        # the arrow keys into panel scrolling. Four presses of Tab left you
-        # somewhere with nothing selected and no way to tell why.
-        Binding("tab", "next_section", "Next section", show=False),
-        Binding("shift+tab", "previous_section", "Previous section", show=False),
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("g", "cursor_top", "Top", show=False),
-        Binding("G", "cursor_bottom", "Bottom", show=False),
+        # shelf", and Textual's default focus chain does not do that. Left to
+        # itself it walks every focusable widget, which here includes `#body`:
+        # a scroll container that takes focus, shows no cursor, and turns the
+        # arrow keys into panel scrolling.
+        Binding("tab", "next_section", "Next shelf", show=False),
+        Binding("shift+tab", "previous_section", "Previous shelf", show=False),
         # `v` for view, matching the detail screen's `v`. Same idea on both —
         # "change how this screen is laid out" — so it is one key to learn
         # rather than two, and it means something on whichever screen you are.
         Binding("v", "cycle_density", "Density"),
-        # Progressive disclosure, in one key. A shelf shows a sample and says
-        # how much more there is; `z` is how you ask for the rest. Deliberately
-        # not a separate navigation concept — it expands whatever Tab has
-        # already landed on, so there is nothing new to learn about where you
-        # are, only about how much of it you can see.
-        Binding("z", "zoom", "Expand", show=False),
+        Binding("g", "first_section", "First shelf", show=False),
+        Binding("G", "last_section", "Last shelf", show=False),
         Binding("1", "jump('#continue')", "Continue", show=False),
         Binding("2", "jump('#favorites')", "Favourites", show=False),
         Binding("3", "jump('#seasonal')", "This season", show=False),
         Binding("4", "jump('#trending')", "Trending", show=False),
     ]
 
+    #: A poster's width in the hero, by band. The hero's art is the one image on
+    #: the screen meant to be *looked* at rather than recognised, so it gets as
+    #: many cells as the band can spare — and `render_cover` turns that width
+    #: into a height, which is what sets `_HERO_ROWS` below.
+    _HERO_COLS = {"compact": 0, "standard": 16, "expanded": 20, "wide": 24}
+
+    #: Rows the hero's text block spends on everything that is not the synopsis:
+    #: the title over two lines, the facts, the tags, the status, the progress
+    #: bar, the action, and the blank line before each of them.
+    _HERO_CHROME = 10
+
+    #: Below this the hero is not shown at all. At 24 rows it would leave six
+    #: for the shelves, which is less than one card — so the screen would be a
+    #: hero and nothing else, which is a detail screen with extra steps.
+    _HERO_MIN_HEIGHT = 30
+
+    #: The least the hero may be, whatever the poster measures. Its text block
+    #: needs ten rows before a word of synopsis, and a hero showing none of the
+    #: synopsis has spent the top of the screen saying less than the caption
+    #: under the poster did.
+    _HERO_MIN_ROWS = 12
+
+    #: How many covers to have in flight at once. AniList's CDN is not the
+    #: rate-limited part, but a shelf is a dozen images and four shelves is
+    #: fifty: ungated, the first paint competes with itself for the connection
+    #: pool and the posters arrive in no useful order.
+    _COVER_GATE = 6
+
+    # ------------------------------------------------------------------ #
+    # composition
+    # ------------------------------------------------------------------ #
+    def compose(self) -> ComposeResult:
+        # The shell, not a Header and a Footer. Textual's Header spends a row on
+        # a centred app title and a clock — the clock is the terminal's job, and
+        # the one thing the old bar never said was which section you were in.
+        yield TopBar(id="topbar")
+        # Hidden until `/` asks for it. An always-on box spent rows to show a
+        # placeholder naming the key that opens it; the top bar says `/ search`,
+        # which is the same information for free.
+        yield Input(placeholder="Search anime…  (esc to close)", id="search")
+        # The hero sits *outside* the scroll container on purpose. It is the
+        # focal point and it describes what the cursor is on, so scrolling it
+        # away would leave the shelves annotating something off-screen.
+        with Horizontal(id="hero"):
+            yield Container(id="hero-art")
+            yield Static("", id="hero-text")
+        with VerticalScroll(id="body"):
+            for sec in (*SECTIONS, _RESULTS_SECTION):
+                yield Label(spaced(sec.label), classes="shelf-label",
+                            id=sec.head_id.lstrip("#"))
+                yield Shelf(id=sec.list_id.lstrip("#"))
+            # Searching hides the browse shelves, so a query that matches
+            # nothing left the whole screen blank under a "Results" heading with
+            # no indication of what had happened. This is what fills that space.
+            yield Label("", id="results-empty")
+        yield ActionBar(id="actionbar")
+
+    def on_mount(self) -> None:
+        self._density = self._configured_density()
+        self._apply_density()
+        self._debounce = None
+        self._continue_ids: set[int] = set()
+        #: Cover bytes by AniList id, so moving the cursor back along a shelf
+        #: never re-reads the disk and never re-fetches. The disk cache in
+        #: `coverart` is what makes the *first* paint cheap; this is what makes
+        #: the hundredth free.
+        self._covers: dict[int, bytes] = {}
+        #: Watch progress by AniList id, for re-cutting a caption when a
+        #: countdown ticks. The card carries the caption; the numbers behind it
+        #: live here.
+        self._progress: dict = {}
+        self._hero_id: int | None = None
+        self._unavailable: set[str] = set()
+        self._focus_claimed: str | None = None
+        self.query_one("#search", Input).display = False
+        self._toggle_results(False)
+        self._size_hero()
+        self._paint_shell()
+        self._load_continue()
+        self._load_favorites()
+        self._load_seasonal()
+        self._load_trending()
+        # If AniList is linked, pull remote progress so Continue Watching
+        # reflects what you watched on another device (phone, web).
+        self._auto_sync()
+        # Tick the airing countdowns in place every minute (no network).
+        self.set_interval(60, self._tick_countdowns)
+
+    # ------------------------------------------------------------------ #
+    # layout
+    # ------------------------------------------------------------------ #
     @staticmethod
     def _configured_density() -> str:
         """The home density from config, or the default if it cannot be read."""
@@ -138,10 +229,14 @@ class HomeScreen(Screen):
         self.set_class(self._density == "compact", "-dense")
 
     def action_cycle_density(self) -> None:
-        """Swap the home screen between comfortable and compact, and remember
-        which. Re-cuts the grid afterwards: the plate's padding is part of the
-        room a row has, so the columns are measured against a width that has
-        just changed."""
+        """Swap the home screen between comfortable and compact, and remember it.
+
+        Compact buys two rows a shelf — the gap above the label and the gap
+        under the cards — which is a whole extra shelf on a laptop terminal.
+        It matters more now than it did over rows, not less: a poster is
+        thirteen rows, so a 34-row window fits one shelf and a sliver, and the
+        sliver is what this key turns into a second shelf.
+        """
         from ...layout_names import DENSITIES
 
         self._density = DENSITIES[
@@ -155,355 +250,257 @@ class HomeScreen(Screen):
         except Exception as e:
             self.notify(f"Couldn't save the density: {e}", severity="warning")
         self.notify(f"Density: {self._density}")
-        self.call_after_refresh(self._apply_grid)
 
-    def action_clear_search(self) -> None:
-        box = self.query_one("#search", Input)
-        if box.value:
-            box.value = ""  # Input.Changed puts the browse sections back
-            return
-        # Already empty: Esc closes the box and gives the rows their rows back.
-        if box.display:
-            box.display = False
-            self._paint_shell()
-            for wid in self._FOCUS_ORDER:
-                try:
-                    lv = self.query_one(wid, ListView)
-                except Exception:
-                    continue
-                if lv.display and len(lv.children):
-                    lv.focus()
-                    break
+    def _hero_cols(self) -> int:
+        return self._HERO_COLS[band(self.size.width or 100)]
 
-    # Where the keyboard should land, best first. Continue Watching is what you
-    # opened the app for; Trending is the fallback when the library is empty.
-    _FOCUS_ORDER = ("#continue", "#favorites", "#seasonal", "#trending")
+    def _hero_rows(self) -> int:
+        """Rows the hero occupies: whatever its poster comes back as.
 
-    def _adopt_focus(self) -> None:
-        """Put the keyboard on the best list that has rows, once one does.
-
-        Called after each section renders rather than at mount, because at mount
-        every list is empty and focusing an empty one does nothing.
-
-        Sections finish loading in whatever order their workers happen to return,
-        so claiming the first one to arrive put focus somewhere different on
-        every launch. It settles on the best *available* list instead, and will
-        upgrade to a better one that arrives later — but only while the auto-
-        chosen list is still the focused widget. The moment you move, or type in
-        the search box, this stops touching focus at all.
+        Derived rather than fixed. Pinned to the widest band's seventeen rows,
+        a 120-column terminal reserved seventeen for a fourteen-row poster and
+        left three blank between the hero and the first shelf — three rows is a
+        quarter of a card, taken off the shelves to pad a gap.
         """
-        if self.query_one("#search", Input).value:
-            return
-        if self._focus_claimed is not None and self.focused is not self._focus_claimed:
-            return  # you have moved since; leave it alone
+        return max(self._HERO_MIN_ROWS, cover_rows(self._hero_cols()))
 
-        for wid in self._FOCUS_ORDER:
-            try:
-                lv = self.query_one(wid, ListView)
-            except Exception:
-                continue
-            if not (lv.display and len(lv.children)):
-                continue
-            if lv is self._focus_claimed:
-                # Already the best available list — but Continue Watching paints
-                # twice (cached rows, then enriched), and rebuilding its items
-                # drops the cursor back to None. Without this the launch state
-                # has a focused list and no highlighted row in it.
-                if lv.index is None:
-                    lv.index = 0
+    def _hero_showing(self) -> bool:
+        """Whether there is room for the hero at all.
+
+        Asked of the size rather than of the widget's `display`, because the
+        first shelf can finish loading before `_size_hero` has run, and a
+        `display` of False would then be read as "no hero" on a screen that is
+        about to have one.
+        """
+        return ((self.size.height or 40) >= self._HERO_MIN_HEIGHT
+                and self._hero_cols() > 0)
+
+    def _size_hero(self) -> None:
+        with contextlib.suppress(Exception):
+            hero = self.query_one("#hero")
+            hero.display = self._hero_showing()
+            if not hero.display:
                 return
-            lv.focus()
-            if lv.index is None:
-                lv.index = 0  # otherwise the first arrow press selects nothing
-            self._focus_claimed = lv
+            # +1 for the hero's own top padding, which lives in `app.tcss`.
+            # Without it the poster is exactly one row taller than the box it is
+            # in and loses its bottom row — the one that is mostly the foot of
+            # the image, so it reads as a slightly wrong crop rather than as
+            # clipping, which is why it survived a look.
+            hero.styles.height = self._hero_rows() + 1
+            self.query_one("#hero-art").styles.width = self._hero_cols()
+
+    def _hero_text_width(self) -> int:
+        """Cells the hero's prose gets: the screen, less the poster and padding.
+
+        Measured off the widget where it can be. The hero's padding lives in
+        `app.tcss` and the poster's width is set above, so computing it a second
+        time here is how the two drift apart.
+        """
+        with contextlib.suppress(Exception):
+            text = self.query_one("#hero-text", Static)
+            if text.content_region.width > 0:
+                return text.content_region.width
+        return max(24, (self.size.width or 100) - self._hero_cols() - 8)
+
+    def _synopsis_lines(self) -> int:
+        """How much of the description the hero has room for.
+
+        Floored at two: a one-line synopsis is a fragment, and a hero that shows
+        a fragment of the plot has spent the top of the screen to say less than
+        the caption under the poster did.
+        """
+        return max(2, self._hero_rows() - self._HERO_CHROME)
+
+    def on_resize(self) -> None:
+        self._size_hero()
+        self._paint_shell()
+        self._paint_hero()
+
+    # ------------------------------------------------------------------ #
+    # the hero
+    # ------------------------------------------------------------------ #
+    def _focused_shelf(self) -> Shelf | None:
+        node = self.focused
+        while node is not None:
+            if isinstance(node, Shelf):
+                return node
+            node = node.parent
+        return None
+
+    def _current_card(self) -> PosterCard | None:
+        shelf = self._focused_shelf()
+        if shelf is None:
+            return None
+        cards = shelf.cards
+        if not cards:
+            return None
+        return cards[min(shelf.index, len(cards) - 1)]
+
+    def on_shelf_moved(self, event: Shelf.Moved) -> None:
+        """The cursor landed on a card: the hero becomes that show."""
+        self._paint_hero(event.card)
+        self._paint_shell()
+
+    def on_shelf_chosen(self, event: Shelf.Chosen) -> None:
+        # Go through the source picker; it forwards straight to the detail
+        # screen when there is only one match.
+        card = event.card
+        self.app.push_screen(
+            SourcesScreen(card.anime, resume_episode=card.resume_episode)
+        )
+
+    def _paint_hero(self, card: PosterCard | None = None) -> None:
+        """Draw the hero for ``card``, or repaint whatever it already has.
+
+        The text goes up immediately — every field it needs is on the `Anime`
+        the card was built from. Only the image has to be fetched, and it
+        arrives separately, so the hero never waits on the network to say what
+        it already knows.
+        """
+        if not self._hero_showing():
             return
+        card = card or self._current_card()
+        if card is None:
+            return
+        anime = card.anime
+        self._hero_id = anime.id.anilist
+        with contextlib.suppress(Exception):
+            self.query_one("#hero-text", Static).update(preview_render(
+                anime, self._hero_text_width(),
+                resume_episode=card.resume_episode,
+                fraction=card.fraction,
+                synopsis_lines=self._synopsis_lines(),
+            ))
+        self._paint_hero_art(anime)
 
-    # -- vim motions -------------------------------------------------------- #
-    # `j`/`k` and `g`/`G` are the vocabulary a terminal user reaches for first,
-    # and cost nothing next to the arrow keys they sit beside. Bound on the
-    # screen rather than globally so typing "j" into the search box stays typing.
-    def _sections(self) -> list[ListView]:
-        """The lists Tab moves between: on screen, and with something in them.
+    def _paint_hero_art(self, anime) -> None:
+        """Mount the hero's poster at hero size, or leave the space reserved.
 
-        An empty or hidden list is not a place to land — during a search the
-        browse sections are hidden, and Favorites stays empty until you star
-        something.
+        Decoration only: every failure here leaves a textual hero rather than
+        costing the screen. Rendered from the same bytes the card is drawn from,
+        at the larger width — a 14-cell poster scaled up to 24 is a 14-cell
+        poster with bigger squares.
+        """
+        try:
+            container = self.query_one("#hero-art", Container)
+        except Exception:
+            return
+        container.remove_children()
+        cols = self._hero_cols()
+        data = self._cover_bytes(anime)
+        if not data or cols <= 0:
+            return
+        if graphics_protocol_active():
+            widget = graphics_cover_widget(data, cols)
+            if widget is not None:
+                with contextlib.suppress(Exception):
+                    container.mount(widget)
+                    return
+        art = render_cover(data, cols=cols)
+        if art is not None:
+            with contextlib.suppress(Exception):
+                container.mount(Static(art))
+
+    # ------------------------------------------------------------------ #
+    # covers
+    # ------------------------------------------------------------------ #
+    def _cover_bytes(self, anime) -> bytes | None:
+        """This show's cover if it is already to hand, remembered in memory.
+
+        A plain file read, so it is cheap enough to call while building a shelf
+        — which is the point: on every launch after the first, a wall of twelve
+        posters paints complete in the first frame instead of filling in one
+        HTTPS round trip at a time.
+        """
+        anilist = anime.id.anilist
+        if anilist in self._covers:
+            return self._covers[anilist] or None
+        if not anime.cover_url:
+            return None
+        if (data := cached_cover(anime.cover_url)) is not None:
+            self._covers[anilist] = data
+            return data
+        return None
+
+    def _fill_covers(self, cards: list[PosterCard]) -> None:
+        """Give every card the cover it can have now, and fetch the rest.
+
+        The split matters. Cards that can be filled from disk are filled
+        *synchronously*, before the shelf is painted, so they do not flicker in
+        one at a time on a second launch. Only genuine misses go to the network,
+        and they land in space the card has already reserved — see
+        `cards.placeholder`.
+        """
+        missing = []
+        for card in cards:
+            if (data := self._cover_bytes(card.anime)) is not None:
+                card.set_cover(data)
+            elif card.anime.cover_url:
+                missing.append((card.anime.id.anilist, card.anime.cover_url))
+        if missing:
+            self._fetch_covers(missing)
+
+    @work(group="covers")
+    async def _fetch_covers(self, wanted: list[tuple[int, str]]) -> None:
+        """Fetch the covers not yet on disk, a few at a time."""
+        gate = asyncio.Semaphore(self._COVER_GATE)
+
+        async def one(anilist: int, url: str) -> None:
+            async with gate:
+                if anilist in self._covers:
+                    return  # another shelf wanted the same show and got there
+                data = await fetch_cover(url)
+                # The attempt is recorded even when it fails, so a cover that
+                # 404s is tried once rather than re-requested by every shelf it
+                # appears on. An empty entry paints nothing, which is what a
+                # missing poster should do anyway.
+                self._covers[anilist] = data or b""
+                if data:
+                    self._apply_cover(anilist, data)
+
+        await asyncio.gather(*(one(a, u) for a, u in wanted))
+
+    def _apply_cover(self, anilist: int, data: bytes) -> None:
+        """Hand freshly-arrived bytes to every card showing that show.
+
+        Every card, not the first: a show can be on two shelves at once —
+        trending and this season overlap most weeks — and filling only one of
+        them left the same poster blank beside itself.
+        """
+        for card in self.query(PosterCard):
+            if card.anime.id.anilist == anilist:
+                card.set_cover(data)
+        if self._hero_id == anilist and (card := self._current_card()) is not None:
+            self._paint_hero_art(card.anime)
+
+    # ------------------------------------------------------------------ #
+    # navigation
+    # ------------------------------------------------------------------ #
+    def _shelves(self) -> list[Shelf]:
+        """The shelves currently on screen, in the order Tab walks them.
+
+        Only the ones *showing*: Continue Watching and Favourites hide
+        themselves when empty, and a Tab that stopped on an invisible shelf left
+        the screen with no cursor anywhere and no way to tell why.
         """
         out = []
-        for wid in (*self._FOCUS_ORDER, "#results"):
-            try:
-                lv = self.query_one(wid, ListView)
-            except Exception:
-                continue
-            if lv.display and len(lv.children):
-                out.append(lv)
+        for sec in (*SECTIONS, _RESULTS_SECTION):
+            with contextlib.suppress(Exception):
+                shelf = self.query_one(sec.list_id, Shelf)
+                if shelf.display and shelf.cards:
+                    out.append(shelf)
         return out
 
     def _cycle_section(self, step: int) -> None:
-        sections = self._sections()
-        if not sections:
+        shelves = self._shelves()
+        if not shelves:
             return
-        current = self._focused_list()
-        index = sections.index(current) if current in sections else -step
-        sections[(index + step) % len(sections)].focus()
-
-    # -- shelves, zoom and the shell ---------------------------------------- #
-    #: What one shelf costs besides its rows: a label and the blank line that
-    #: separates it from the next shelf.
-    _SHELF_CHROME = 2
-    #: Fewest rows worth showing. Below this a shelf is a label with a sample so
-    #: small it says nothing, and the screen is better off scrolling.
-    _SHELF_MIN = 3
-    #: Most rows one shelf takes on a short terminal — the real ceiling grows
-    #: with the window (see `_compute_caps`), because a shelf that stops at ten
-    #: rows on a 60-row screen leaves half the column empty. What this floor is
-    #: for is the other direction: no one shelf swallowing a small window and
-    #: pushing the rest below the fold, which is the original complaint.
-    _SHELF_MAX = 10
-
-    def _shelf_cap(self) -> int:
-        """Rows per shelf, divided out of the height actually available.
-
-        A fixed table was tried first and under-filled by ten rows at 120×40 —
-        four shelves of six on a screen with room for seven, which left a block
-        of dead space under Trending while the label above it still said there
-        were four more. The height is known; dividing it is strictly better than
-        guessing at it.
-
-        Four shelves at twenty rows each is what this exists to stop: the old
-        screen put eighteen Continue rows on a forty-row terminal and pushed
-        Trending below the fold, where nobody ever saw it.
-        """
-        caps = self._compute_caps()
-        return max(caps.values()) if caps else self._SHELF_MIN
-
-    def _compute_caps(self) -> dict:
-        """Rows for each shelf, by list id.
-
-        Not one number shared by all of them. Favourites holds two rows and was
-        being handed the same seventh of the screen as Trending's ten, so a
-        fifth of the window sat empty under a shelf that had nothing more to
-        put there while the shelf below it still said "7 of 19".
-
-        Shortest first, each taking only what it needs, and whatever it does not
-        use going back into the pot for the rest.
-        """
-        shelves = self._visible_shelves()
-        if getattr(self, "_zoomed", False) or not shelves:
-            return {s.list_id: 1000 for s in shelves}
-
-        # The two bars, and the search box when it is open.
-        taken = 2
-        try:
-            if self.query_one("#search", Input).display:
-                taken += 2
-        except Exception:
-            pass
-        room = (self.size.height or 40) - taken - len(shelves) * self._SHELF_CHROME
-
-        sizes = {}
-        for s in shelves:
-            try:
-                sizes[s.list_id] = len(self.query_one(s.list_id, ListView).children)
-            except Exception:
-                sizes[s.list_id] = 0
-
-        # Seed every shelf with the fewest rows worth showing, then hand the
-        # rest out in weighted rounds until nothing can take any more.
-        #
-        # One proportional pass was tried and under-filled badly: a shelf
-        # clamped to its own length hands nothing back, so at 200×60 the four
-        # shelves took 36 of 59 rows and twenty-three sat empty beneath a label
-        # that still said "8 of 19". The note here used to call that leftover a
-        # margin; the screenshot calls it an empty half-screen.
-        #
-        # Handing it back *by weight* is what keeps the hierarchy that single
-        # pass was protecting. An earlier attempt redistributed it evenly and
-        # flattened exactly that: This Season drew level with Continue Watching
-        # and the screen read as four equal blocks again. Here Continue takes
-        # three fifths of every round, so it stays visibly the largest thing.
-        ceiling = max(self._SHELF_MAX, room // 2)
-        want = {s.list_id: min(sizes[s.list_id] or self._SHELF_MIN, ceiling)
-                for s in shelves}
-        caps = {s.list_id: min(want[s.list_id], self._SHELF_MIN) for s in shelves}
-        pool = room - sum(caps.values())
-        while pool > 0:
-            hungry = [s for s in shelves if caps[s.list_id] < want[s.list_id]]
-            if not hungry:
-                break
-            weight = sum(s.weight for s in hungry)
-            moved = 0
-            for s in hungry:
-                if moved >= pool:
-                    break
-                give = min(want[s.list_id] - caps[s.list_id], pool - moved,
-                           max(1, round(pool * s.weight / weight)))
-                caps[s.list_id] += give
-                moved += give
-            if not moved:
-                break
-            pool -= moved
-        return caps
-
-    def _visible_shelves(self) -> list:
-        """The shelves currently on screen — what the height has to divide by.
-
-        Favourites hides itself when empty and the browse shelves hide during a
-        search, so the number is not a constant; dividing by four when two are
-        showing halves the rows for no reason.
-        """
-        out = []
-        for section in (*SECTIONS, _RESULTS_SECTION):
-            try:
-                lv = self.query_one(section.list_id, ListView)
-            except Exception:
-                continue
-            if lv.display and len(lv.children):
-                out.append(section)
-        return out
-
-    def _apply_caps(self) -> None:
-        """Cut every shelf to its share of the screen.
-
-        Done with `max-height` rather than by building fewer rows, so expanding
-        a shelf costs a style change instead of a rebuild — and so the rows that
-        are not currently visible are still *there* to scroll through, which is
-        what makes a capped shelf a sample rather than a truncation.
-        """
-        caps = self._compute_caps()
-        for section in (*SECTIONS, _RESULTS_SECTION):
-            try:
-                lv = self.query_one(section.list_id, ListView)
-            except Exception:
-                continue
-            zoomed = getattr(self, "_zoomed", False)
-            target = getattr(self, "_zoom_target", None)
-            if zoomed and target is not None:
-                lv.display = section.list_id == target
-                try:
-                    self.query_one(section.head_id).display = lv.display
-                except Exception:
-                    pass
-                if lv.display:
-                    lv.styles.max_height = None
-                continue
-            lv.styles.max_height = caps.get(section.list_id, self._SHELF_MIN)
-
-    def action_zoom(self) -> None:
-        """Expand the focused shelf to the whole screen, or collapse back.
-
-        The nav rail names the shelves and `z` is how you open one; together
-        they are the navigation model. Nothing else changes about where you are,
-        which is why this is one key rather than a mode.
-        """
-        focused = self._focused_list()
-        if not getattr(self, "_zoomed", False):
-            if focused is None:
-                self.notify("Nothing to expand — pick a shelf first.")
-                return
-            self._zoomed = True
-            self._zoom_target = f"#{focused.id}"
-        else:
-            self._zoomed = False
-            self._zoom_target = None
-            self._show_home_sections(not self._searching())
-        self._apply_caps()
-        self._paint_shell()
-        self.call_after_refresh(self._apply_grid)
-        if focused is not None:
-            focused.focus()
-
-    def action_jump(self, list_id: str) -> None:
-        """Put the keyboard on a named shelf, expanding it if it is hidden."""
-        try:
-            lv = self.query_one(list_id, ListView)
-        except Exception:
+        current = self._focused_shelf()
+        if current not in shelves:
+            shelves[0].focus()
             return
-        if getattr(self, "_zoomed", False):
-            self._zoom_target = list_id
-            self._apply_caps()
-        if not (lv.display and len(lv.children)):
-            self.notify("Nothing there yet.")
-            return
-        lv.focus()
-        if lv.index is None:
-            lv.index = 0
-        self._paint_shell()
-
-    def _searching(self) -> bool:
-        try:
-            return bool(self.query_one("#search", Input).value.strip())
-        except Exception:
-            return False
-
-    def _paint_shell(self) -> None:
-        """Repaint the furniture: where you are, what else there is, what the
-        thing under the cursor can do."""
-        width = self.size.width or 100
-        focused = self._focused_list()
-        current = f"#{focused.id}" if focused is not None else None
-        counts = {}
-        for section in SECTIONS:
-            try:
-                counts[section.list_id] = len(
-                    self.query_one(section.list_id, ListView).children
-                )
-            except Exception:
-                counts[section.list_id] = 0
-
-        here = next((s.label for s in SECTIONS if s.list_id == current), None)
-        if self._searching():
-            here = "Search"
-        try:
-            self.query_one("#topbar", TopBar).render_bar(here or "Home", width)
-        except Exception:
-            pass
-        searching = self._searching()
-        try:
-            nav = self.query_one("#nav", NavRail)
-            # Emptied while searching, but its column is kept.
-            #
-            # Emptied because searching hides all four shelves, so the rail was
-            # a map to four destinations that did not exist, with four digits
-            # that jumped to hidden lists behind it.
-            #
-            # Kept because panels that move cost more than panels that go quiet.
-            # Hiding it outright was the first version and it shifted the whole
-            # content column five cells left — twenty at 160 — on the first
-            # character typed, so the result list landed somewhere the shelves
-            # had never been. Spatial memory is the navigation in an interface
-            # this dense; an empty gutter reads as margin, while a list that
-            # jumps sideways as you type reads as a different screen.
-            nav.display = nav_width(width) > 0
-            if nav.display:
-                nav.render_nav(None if searching else current,
-                               nav_width(width), counts,
-                               blank=searching)
-        except Exception:
-            pass
-        try:
-            bar = self.query_one("#actionbar", ActionBar)
-            contextual = []
-            if focused is not None and focused.index is not None:
-                item = (focused.children[focused.index]
-                        if focused.index < len(focused.children) else None)
-                if isinstance(item, AnimeItem):
-                    contextual = [("↵", "open")]
-                    if item.resume_episode is not None:
-                        verb = "resume" if item.fraction > 0 else "play"
-                        contextual = [("↵", verb)]
-            # "tab next shelf" with one shelf on screen names a key that does
-            # nothing. What you actually want from a result list is out of it.
-            contextual.append(("esc", "back") if searching else ("tab", "next shelf"))
-            bar.render_actions(width, contextual=contextual,
-                               zoomed=getattr(self, "_zoomed", False))
-        except Exception:
-            pass
-
-    def on_descendant_focus(self, event) -> None:
-        # The rail marks whichever shelf the keyboard is on, so it has to follow
-        # Tab rather than be driven separately.
-        self._paint_shell()
+        i = (shelves.index(current) + step) % len(shelves)
+        shelves[i].focus()
 
     def action_next_section(self) -> None:
         self._cycle_section(1)
@@ -511,401 +508,209 @@ class HomeScreen(Screen):
     def action_previous_section(self) -> None:
         self._cycle_section(-1)
 
-    def _focused_list(self) -> ListView | None:
-        node = self.focused
-        return node if isinstance(node, ListView) else None
+    def action_first_section(self) -> None:
+        if shelves := self._shelves():
+            shelves[0].focus()
 
-    def action_cursor_down(self) -> None:
-        if (lv := self._focused_list()) is not None:
-            lv.action_cursor_down()
+    def action_last_section(self) -> None:
+        if shelves := self._shelves():
+            shelves[-1].focus()
 
-    def action_cursor_up(self) -> None:
-        if (lv := self._focused_list()) is not None:
-            lv.action_cursor_up()
+    def action_jump(self, list_id: str) -> None:
+        """Go straight to a shelf by its number key.
 
-    def action_cursor_top(self) -> None:
-        if (lv := self._focused_list()) is not None and len(lv.children):
-            lv.index = 0
-
-    def action_cursor_bottom(self) -> None:
-        if (lv := self._focused_list()) is not None and len(lv.children):
-            lv.index = len(lv.children) - 1
-
-    def compose(self) -> ComposeResult:
-        # The shell, not a Header and a Footer. Textual's Header spends a row on
-        # a centred app title and a clock — the clock is the terminal's job, and
-        # the one thing the old bar never said was which section you were in.
-        yield TopBar(id="topbar")
-        # Hidden until `/` asks for it. An always-on box spent four rows — a
-        # margin, a tall border and the field — to show a placeholder telling
-        # you which key opens it, on a screen whose scarcest resource is rows.
-        # The top bar says `/ search`, which is the same information for free.
-        yield Input(placeholder="Search anime…  (esc to close)", id="search")
-        # Region B (the rows) and Region C (the context rail) side by side. The
-        # rows cap themselves at a readable measure, so on a wide terminal they
-        # stop around column 96 and leave most of the window empty; the rail is
-        # what that space is for. It is hidden below 120 columns — see
-        # `_size_rail` — so a small terminal is exactly as it was.
-        with Horizontal(id="columns"):
-            # The nav rail is a map, not a control: Tab already moves between
-            # shelves, so a rail that also took focus would be a second way to
-            # do one thing and a second place for the cursor to get lost in.
-            yield NavRail(id="nav")
-            with VerticalScroll(id="body"):
-                yield Label(spaced("Continue watching"), classes="shelf-label",
-                            id="sec-continue")
-                yield ListView(id="continue")
-                yield Label(spaced("Favourites"), classes="shelf-label",
-                            id="sec-favorites")
-                yield ListView(id="favorites")
-                yield Label(spaced("This season"), classes="shelf-label",
-                            id="sec-seasonal")
-                yield ListView(id="seasonal")
-                yield Label(spaced("Trending"), classes="shelf-label", id="sec-trending")
-                yield ListView(id="trending")
-                yield Label(spaced("Results"), classes="shelf-label", id="sec-results")
-                yield ListView(id="results")
-                # Searching hides the browse sections, so a query that matches
-                # nothing left the whole screen blank under a "Results" heading with
-                # no indication of what had happened. This is what fills that space.
-                yield Label("", id="results-empty")
-            with VerticalScroll(id="rail"):
-                # The hero. Poster first, then the show, then the one thing to
-                # press. It used to be a second list of episodes and nothing
-                # else, which left a client for a visual medium with no image on
-                # its main screen and no focal point anywhere.
-                yield Container(id="rail-cover")
-                yield Static("", id="rail-preview")
-                yield Label(spaced("Coming up"), classes="shelf-label",
-                            id="sec-rail")
-                yield Static("", id="rail-body")
-        yield ActionBar(id="actionbar")
-
-    @property
-    def _cols(self) -> Columns:
-        """Column widths for the current terminal. Before the first layout the
-        screen reports width 0, so fall back to a sane measure rather than
-        collapsing every row to its minimum."""
-        return columns_for_space(self._row_space())
-
-    def _cols_for(self, rows, key: str) -> Columns:
-        """Columns for a list about to be filled, on the screen's shared grid.
-
-        Deliberately *not* sized to this list alone. Every section sizing itself
-        put Continue Watching's episode column at column 76 and Seasonal's at
-        70, with Trending somewhere else again — three grids stacked down one
-        screen, so the eye had no vertical line to follow and the whole thing
-        read as output rather than as a layout. `rows` only contributes to the
-        shared target; it never sets it on its own.
+        A no-op when that shelf is empty, rather than focusing it: an empty
+        shelf is hidden, and focus on a hidden widget is focus nowhere.
         """
-        # Keyed by list so a section that reloads replaces its own contribution
-        # instead of piling a second copy onto the sample.
-        self._title_widths[key] = [title_cells(r) for r in rows]
-        # Deliberately does NOT update `self._grid`. That is `_apply_grid`'s to
-        # set, and it decides whether to move the other lists by comparing
-        # against it — assign it here and the comparison always finds itself
-        # equal, so the lists already on screen never follow the new grid.
-        return columns_for_space(self._row_space(), self._grid_target())
+        with contextlib.suppress(Exception):
+            shelf = self.query_one(list_id, Shelf)
+            if shelf.display and shelf.cards:
+                shelf.focus()
 
-    def _row_space(self) -> int:
-        """Cells a row may actually occupy, measured from a mounted row.
+    def on_shelf_exited(self, event: Shelf.Exited) -> None:
+        """Up and down leave a shelf for its neighbour."""
+        self._cycle_section(event.delta)
 
-        Asked of the widget, not computed from a constant. The paddings between
-        the screen edge and a row's text all live in `app.tcss`, the scrollbar
-        comes and goes with the content, and `CHROME` was six cells wrong at 100
-        columns — rows overflowed their label, Textual wrapped them, `height: 1`
-        hid the overflow, and the last column silently vanished.
-
-        Before the first row exists there is nothing to measure, so the estimate
-        stands in; the first `_apply_grid` after they mount corrects it.
-        """
-        widths = [
-            item.content_region.width
-            for item in self.query(AnimeItem)
-            if item.content_region.width > 0
-        ]
-        # The narrowest, not the first. Lists do not all get the same room: a
-        # section long enough to scroll gives up two columns to its scrollbar
-        # and a short one does not, so Continue Watching measured 84 while
-        # Seasonal measured 86. One grid spans both, so it has to fit the
-        # tighter of them or the longer list silently clips its last column.
-        return min(widths) if widths else self._body_width() - CHROME
-
-    def _grid_target(self) -> int | None:
-        """The title width every list on this screen is cut to."""
-        return title_target_from(
-            [w for group in self._title_widths.values() for w in group]
-        )
-
-    def _apply_grid(self) -> None:
-        """Re-cut every list to the shared grid.
-
-        Lists arrive from independent workers, so the sample the grid is drawn
-        from grows as they land: Continue Watching alone gives one answer,
-        Continue Watching plus Seasonal another. Whenever the answer changes,
-        every list already on screen has to move to the new one — otherwise the
-        first list to arrive keeps the grid it was born with and the alignment
-        this exists to create never happens.
-        """
-        cols = columns_for_space(self._row_space(), self._grid_target())
-        if cols == getattr(self, "_grid", None):
-            return
-        self._grid = cols
-        for item in self.query(AnimeItem):
-            item.relayout(cols)
-        # Measuring is one step behind laying out: the rows this pass just
-        # re-cut may have been sized against a list that had not yet grown its
-        # scrollbar, so run once more against what is now on screen. This
-        # terminates — a row's width comes from its list, never from the text
-        # inside it, so the second pass measures the same space, computes the
-        # same columns, and returns at the check above.
-        self.call_after_refresh(self._apply_grid)
-
-    def _body_width(self) -> int:
-        """Cells available to Region B, the rail's share already taken out.
-
-        Used only where nothing is mounted yet to measure — see `_row_space`.
-        The rows were once sized against the whole terminal while living in a
-        column the rail had already shortened, which at 120 columns produced
-        96-cell rows inside a 78-cell body.
-        """
-        width = self.size.width or 100
-        taken = nav_width(width)
-        if width >= self._RAIL_MIN_WIDTH:
-            taken += self._rail_base(width)
-        return width - taken
-
-    # Region C appears only when there is genuinely room for it. Below this the
-    # rows alone fill the window and a rail would be stealing from them; the
-    # monospace-design standard puts the same boundary at 120 columns.
-    # The poster's width in cells. Region C is narrower than the detail
-    # screen's column, and a cover wider than the text beside it stops being an
-    # illustration and becomes the panel.
-    _COVER_COLS = 22
-
-    # How long the cursor must rest on a row before its poster is requested.
-    # Long enough that walking a list never fetches anything; short enough that
-    # stopping on a row feels like it responds. A named constant so a test can
-    # widen or close the window instead of racing a real clock — the first
-    # version of that test pressed keys and hoped, and failed one run in three.
-    _COVER_DEBOUNCE_S = 0.35
-
-    _RAIL_MIN_WIDTH = 120
-    _RAIL_MIN_RAIL = 34
-    _RAIL_MAX_RAIL = 72
-    _RAIL_SHARE = 0.33
-
-    def _rail_base(self, width: int) -> int:
-        """Region C's share of a ``width``-cell terminal before any leftover.
-
-        A proportion, not the old two fixed steps of 34 and 42. Those stopped
-        growing at 160 columns, so on a 200-column terminal the rail ellipsized
-        every single title at 27 characters while 54 columns sat empty between
-        it and the rows — both regions truncating on either side of a void.
-        """
-        share = round(width * self._RAIL_SHARE)
-        return max(self._RAIL_MIN_RAIL, min(self._RAIL_MAX_RAIL, share))
-
-    def _rail_width(self, width: int) -> int:
-        """Region C's width on a ``width``-cell terminal.
-
-        Deliberately a function of the terminal alone. An earlier version also
-        absorbed whatever Region B left unused, which read better but closed a
-        loop the moment row widths began being *measured* rather than computed:
-        a wider rail makes a narrower body, which makes a narrower measured row,
-        which leaves more spare, which widens the rail again.
-
-        It costs less than it sounds. The shared grid and the raised measure cap
-        let the rows use the width themselves, so on a 200-column terminal the
-        leftover is a handful of cells rather than the 54 that started this.
-        """
-        return self._rail_base(width)
-
-    def _size_nav(self) -> None:
-        """Show, hide and size the nav rail for the current terminal.
-
-        Gone entirely below 80 cells, icons only to 120, labels past that. At
-        80–119 every column spent on a word is one the titles do not get, and
-        the icons carry the order on their own once the labels have been seen.
-        """
-        try:
-            nav = self.query_one("#nav", NavRail)
-        except Exception:
-            return
-        width = nav_width(self.size.width or 100)
-        nav.display = width > 0
-        if width:
-            nav.styles.width = width
-
-    def _size_rail(self) -> None:
-        """Show, hide and size the context rail for the current terminal."""
-        try:
-            rail = self.query_one("#rail")
-        except Exception:
-            return
-        width = self.size.width or 100
-        rail.display = width >= self._RAIL_MIN_WIDTH
-        if rail.display:
-            rail.styles.width = self._rail_width(width)
-            self._render_rail()
-
-    def _rail_showing(self) -> bool:
-        """Whether Region C is on screen. Asked of the width rather than of the
-        widget's `display`, because the first Continue Watching paint can land
-        before `_size_rail` has run and a `display` of False would then be read
-        as "no rail" on a terminal that is about to have one."""
-        return (self.size.width or 100) >= self._RAIL_MIN_WIDTH
-
-    def _without_rail_duplicates(self, rows):
-        """Drop the Continue Watching rows the rail has taken over.
-
-        A *waiting* row is a show you are caught up on: there is nothing to
-        play, and the row exists only to carry a countdown to the next episode.
-        That is exactly what the rail says, grouped by day and easier to read —
-        so every one of these rows was on screen twice at once. Six of six,
-        measured against the real library.
-
-        Dimming them was already an admission that they are not actionable.
-        Once something else says the same thing better, the honest move is to
-        stop saying it here, and give Continue Watching back to the rows you can
-        press Enter on.
-
-        Only rows the rail is *genuinely* showing are dropped — see
-        `scheduled_ids`. On a narrow terminal there is no rail, and a show
-        beyond the rail's horizon never reaches it; in both cases the dimmed row
-        is the only place that countdown exists, so it stays.
-        """
-        if not self._rail_showing():
-            return rows
-        on_rail = scheduled_ids(
-            schedule(self._upcoming_source, datetime.now(timezone.utc))
-        )
-        if not on_rail:
-            return rows
-        return [
-            entry
-            for entry in rows
-            if entry[1].rank != RANK_WAITING or entry[0].id.anilist not in on_rail
-        ]
-
-    def _render_rail(self) -> None:
-        """Repaint the rail from the shows Continue Watching already loaded."""
-        try:
-            body = self.query_one("#rail-body", Static)
-            rail = self.query_one("#rail")
-        except Exception:
-            return
-        if not rail.display:
-            return
-        width = (int(rail.styles.width.value) if rail.styles.width
-                 else self._rail_width(self.size.width or 100))
-        days = schedule(self._upcoming_source, datetime.now(timezone.utc))
-        body.update(render(days, width - 4))  # -4 for the rail's own padding
-        # Not while searching. This runs whenever a list reloads, so without the
-        # guard any background refresh landing mid-search put the schedule back
-        # under the result the hero was describing.
-        showing = not self._searching()
-        self.query_one("#sec-rail").display = showing
-        body.display = showing
-
-    def on_resize(self) -> None:
-        was_showing = getattr(self, "_rail_was_showing", None)
-        self._size_rail()
-        self._size_nav()
-        self._apply_caps()
+    def on_descendant_focus(self, event) -> None:
+        shelf = self._focused_shelf()
+        if shelf is not None:
+            self._scroll_to_shelf(shelf)
+            self._paint_hero()
         self._paint_shell()
-        now_showing = self._rail_showing()
-        self._rail_was_showing = now_showing
 
-        # Re-lay-out in place. Rebuilding the lists would be simpler and would
-        # also drop the user's selection every time they dragged a window edge.
-        # One re-cut for the whole screen, not one per list — the grid is shared.
-        self._apply_grid()
+    def _scroll_to_shelf(self, shelf: Shelf) -> None:
+        """Bring a shelf and its own label into view together.
 
-        # Whether the rail is present decides whether Continue Watching hides its
-        # waiting rows, so crossing that threshold is the one resize that has to
-        # rebuild — a relayout only re-measures the rows already there, and would
-        # leave a narrowed terminal with no rail *and* no countdowns. Every other
-        # list is relaid out above first, so this rebuild is the only work the
-        # crossing costs.
-        if was_showing is not None and was_showing != now_showing:
-            self._load_continue()
+        The label, not just the shelf: scrolling to the shelf alone puts its
+        heading one row above the viewport, so the shelf you have just jumped to
+        is the one shelf on screen that does not say what it is.
+        """
+        head = next((s.head_id for s in (*SECTIONS, _RESULTS_SECTION)
+                     if s.list_id == f"#{shelf.id}"), None)
+        target = shelf
+        if head:
+            with contextlib.suppress(Exception):
+                target = self.query_one(head)
+        with contextlib.suppress(Exception):
+            self.query_one("#body", VerticalScroll).scroll_to_widget(
+                target, animate=False, top=True
+            )
 
-    def on_mount(self) -> None:
-        self._density = self._configured_density()
-        self._apply_density()
-        self._debounce = None
-        self._continue_ids: set[int] = set()
-        self._upcoming_source: list = []
-        self._rail_was_showing = self._rail_showing()
-        # Title widths per list, pooled into the one grid every section is cut
-        # to. See `_cols_for`.
-        self._title_widths: dict[str, list[int]] = {}
-        self._grid: Columns | None = None
-        # Posters, by AniList id. Small, and the alternative is
-        # re-fetching an image every time the cursor passes a row.
-        self._covers: dict[int, bytes] = {}
-        self._cover_timer = None
-        self._preview_id: int | None = None
-        self._show_home_sections(True)
-        self.query_one("#sec-results").display = False
-        self.query_one("#results").display = False
-        self.query_one("#results-empty").display = False
-        self._zoomed = False
-        self._zoom_target: str | None = None
-        self.query_one("#search", Input).display = False
-        self._size_rail()
-        self._apply_caps()
-        self._paint_shell()
-        self._load_continue()
-        self._load_favorites()
-        self._load_seasonal()
-        self._load_trending()
-        # If AniList is linked, pull remote progress so Continue Watching
-        # reflects what you watched on another device (phone, web).
-        self._auto_sync()
-        # Tick the airing countdowns in place every minute (no network).
-        self.set_interval(60, self._tick_countdowns)
-        # Focus a browse list, not the search box (the placeholder says "press /
-        # to focus"). Keeps arrow-nav, Enter and the global `?` working at once.
-        #
-        # Deliberately *not* done here, which is what the previous version got
-        # wrong: at mount every list is still empty, focusing an empty ListView
-        # does not stick, and the rows arrive later from workers that clear and
-        # rebuild the list. The failure was silent — a bare try/except — so the
-        # app launched with focus on the search Input, where arrow keys did
-        # nothing to the lists and no row was ever selected. `_adopt_focus` runs
-        # once rows actually exist.
-        self._focus_claimed = None
+    def _adopt_focus(self) -> None:
+        """Put the cursor on the first shelf that has cards, once.
 
-    def on_screen_suspend(self) -> None:
-        # A screen (detail, sources, …) was pushed over Home.
-        self._was_suspended = True
+        Deliberately not done at mount, which is what the previous version got
+        wrong: at mount every shelf is empty, focusing an empty container does
+        not stick, and the cards arrive later from workers. The failure was
+        silent, so the app launched with focus on the search box, where the
+        arrow keys did nothing and no card was ever selected.
+        """
+        if self._focus_claimed or self._searching():
+            return
+        shelves = self._shelves()
+        if not shelves:
+            return
+        self._focus_claimed = shelves[0].id
+        shelves[0].focus()
+        # After the refresh, not now: focus lands before Textual has laid the
+        # cards out, so the hero would be drawn from a shelf that does not yet
+        # report a cursor.
+        self.call_after_refresh(self._paint_hero)
 
-    def on_screen_resume(self) -> None:
-        # Only refresh after Home was actually suspended and revealed again —
-        # i.e. you went into a show and came back. Whatever you watched changed
-        # the library, so rebuild the library-backed sections. Guarding on the
-        # suspend avoids re-loading on the initial show (which on_mount already
-        # did) — that double-load churned the exclusive workers.
-        if getattr(self, "_was_suspended", False):
-            self._was_suspended = False
-            self._load_continue()
-            self._load_favorites()
+    # ------------------------------------------------------------------ #
+    # the shell
+    # ------------------------------------------------------------------ #
+    def _searching(self) -> bool:
+        try:
+            return bool(self.query_one("#search", Input).value.strip())
+        except Exception:
+            return False
 
-    def _tick_countdowns(self) -> None:
-        self._render_rail()
-        for wid in ("#seasonal", "#trending", "#results"):
-            try:
-                lv = self.query_one(wid, ListView)
-            except Exception:
-                continue
-            for item in lv.children:
-                if isinstance(item, AnimeItem) and item.anime.is_airing:
-                    fresh = browse_cells(item.anime)
-                    item.set_status(fresh.status, fresh.status_cells)
+    def _section_label(self) -> str:
+        """What the top bar calls where you are."""
+        if self._searching():
+            return "Search"
+        shelf = self._focused_shelf()
+        if shelf is None:
+            return "Home"
+        return next((s.label for s in (*SECTIONS, _RESULTS_SECTION)
+                     if s.list_id == f"#{shelf.id}"), "Home")
 
-    # -- AniList sync ------------------------------------------------------- #
+    def _paint_shell(self) -> None:
+        width = self.size.width or 100
+        with contextlib.suppress(Exception):
+            self.query_one("#topbar", TopBar).render_bar(
+                self._section_label(), width,
+                hint="esc close   ? help" if self._searching() else "",
+            )
+        # What the card under the cursor can do, named in the words the key
+        # press deserves. The bar's whole reason for existing is that the one
+        # row guaranteed to be visible should describe the selection rather than
+        # list the same six global commands on every screen.
+        contextual: list[tuple[str, str]] = []
+        if (card := self._current_card()) is not None:
+            contextual.append(
+                ("↵", "resume" if card.resume_episode is not None else "open")
+            )
+        if self._searching():
+            # The way out, on the one row guaranteed to be visible. Searching
+            # hides every browse shelf, so without this the screen offers no
+            # clue that the home screen is still there behind the results.
+            contextual.append(("esc", "back"))
+        else:
+            contextual.append(("l", "my list"))
+        with contextlib.suppress(Exception):
+            # `zoom=False`: there is nothing left to expand. A shelf scrolls and
+            # holds every card it was given, so the key that used to unfold a
+            # capped list has no job — and a bar advertising a key the screen
+            # ignores is worse than a shorter bar.
+            self.query_one("#actionbar", ActionBar).render_actions(
+                width, contextual=tuple(contextual), zoom=False
+            )
+
+    # ------------------------------------------------------------------ #
+    # building shelves
+    # ------------------------------------------------------------------ #
+    async def _fill_shelf(self, sec: Section, built: list, count: int | None = None,
+                          *, label: str | None = None) -> None:
+        """Replace a shelf's cards, or hide it when there are none.
+
+        ``built`` is ``(anime, caption, resume_episode, fraction)`` — the shelf
+        decides what its cards say, not the card, because Continue Watching
+        wants a resume percentage where This Season wants a countdown, and a
+        card that chose for itself would have to know which shelf it was on.
+        """
+        try:
+            shelf = self.query_one(sec.list_id, Shelf)
+            head = self.query_one(sec.head_id, Label)
+        except Exception:
+            return
+        await shelf.remove_children()
+        if not built:
+            head.display = False
+            shelf.display = False
+            return
+        # A browse shelf stays hidden while a search is showing, and the results
+        # shelf is the one that appears.
+        showing = (sec is _RESULTS_SECTION) == self._searching()
+        head.display = showing
+        shelf.display = showing
+        cards = [
+            PosterCard(anime, caption, resume_episode=resume, fraction=fraction)
+            for anime, caption, resume, fraction in built
+        ]
+        await shelf.mount_all(cards)
+        shelf.index = 0
+        cards[0].selected = True
+        self._fill_covers(cards)
+        self._set_section(sec.head_id, label or sec.label,
+                          count if count is not None else len(built))
+        self._adopt_focus()
+
+    def _set_section(self, sec_id: str, base: str, count: int) -> None:
+        """Draw a shelf label: letterspaced caps and the count.
+
+        Letterspacing is what lets a label read as structure without a rule
+        under it. The previous design drew `Continue Watching ───────── 18` —
+        forty cells of line art carrying one integer, four times down the page.
+
+        No "6 of 18" and no expand affordance any more: a shelf holds every card
+        it was given and scrolls sideways, so there is nothing hidden for a
+        second number to be honest about.
+        """
+        if sec_id in self._unavailable:
+            return  # the shelf could not load; do not relabel it as empty
+        with contextlib.suppress(Exception):
+            label = self.query_one(sec_id, Label)
+            tail = f"[dim]{count}[/dim]" if count else ""
+            label.update(f"[b]{spaced(base)}[/b]   {tail}".rstrip())
+
+    def _mark_section_unavailable(self, sec: Section) -> None:
+        """Say a shelf could not be loaded, instead of leaving it blank.
+
+        The failure was already announced — once, in a toast, which is gone by
+        the time anyone looks. What was left behind was a heading with no count
+        over empty space, and an empty "Trending" does not read as "we could not
+        reach AniList", it reads as "nothing is trending".
+
+        Learned the day AniList disabled its own public API: two shelves went
+        silently empty and the app looked broken rather than blocked.
+        """
+        self._unavailable.add(sec.head_id)
+        with contextlib.suppress(Exception):
+            head = self.query_one(sec.head_id, Label)
+            head.update(
+                f"[b]{spaced(sec.label)}[/b]   [$warning]unavailable[/$warning]"
+            )
+            head.display = not self._searching()
+            self.query_one(sec.list_id).display = False
+
+    def _clear_section_unavailable(self, sec: Section) -> None:
+        self._unavailable.discard(sec.head_id)
+
+    # ------------------------------------------------------------------ #
+    # AniList sync
+    # ------------------------------------------------------------------ #
     @work(exclusive=True, group="autosync")
     async def _auto_sync(self) -> None:
         """Pull the linked AniList list on launch so Continue Watching reflects
@@ -921,123 +726,117 @@ class HomeScreen(Screen):
             return
         if result.pulled:
             self.notify(f"Synced {result.pulled} from AniList", timeout=3)
-            # Remote progress may have advanced a show or added a new one — rebuild
-            # the rows that read from the library.
             self._load_continue()
             self._load_favorites()
 
-    # -- home data ---------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    # home data
+    # ------------------------------------------------------------------ #
     @work(exclusive=True, group="continue")
     async def _load_continue(self) -> None:
         try:
             await self._continue_worker()
         except Exception as e:
-            # An unhandled worker error takes the whole TUI down with a traceback.
-            # A momentarily busy or damaged database must degrade to an empty
-            # section and a message, never a crash on launch.
+            # An unhandled worker error takes the whole TUI down with a
+            # traceback. A momentarily busy or damaged database must degrade to
+            # an empty shelf and a message, never a crash on launch.
             self.notify(f"Couldn't load Continue Watching: {e}", severity="warning")
 
     async def _continue_worker(self) -> None:
         items = await self.app.services.library.continue_watching(limit=20)
-        # First paint from the cached rows — a local DB read, so it's instant.
+        # First paint from the cached rows — a local DB read, so it is instant.
         # This is what stops Continue Watching sitting blank on launch while a
         # dozen metadata fetches run.
         await self._render_continue(items, {})
-        # Then enrich with fresh airing schedules in the background and repaint —
-        # that's how a caught-up airing show gets its countdown and a
+        # Then enrich with fresh airing schedules in the background and repaint:
+        # that is how a caught-up airing show gets its countdown and a
         # finished-and-fully-watched show drops off.
         if items:
             fresh = await self._fresh_airing(items)
             await self._render_continue(items, fresh)
 
     async def _render_continue(self, items, fresh: dict) -> None:
-        rows = []
+        now = datetime.now(timezone.utc)
+        built = []
         for it in items:
             anime = fresh.get(it.anime.id.anilist) or it.anime
-            built = continue_cells(anime, it.progress)
-            if built is None:
+            progress = it.progress
+            if not self._continuable(anime, progress):
                 continue  # finished and fully watched — nothing to continue
-            row, resume = built
-            # Only a part-watched episode has a meaningful fraction; a row that
-            # is merely "ready" is at zero and must not draw a progress bar in
-            # the rail as though it were started. `fraction` is already 0.0 when
-            # the duration is unknown, so the duration does not need testing here
-            # too -- doing that is what made a positioned-but-duration-less row
-            # look unstarted everywhere at once.
-            rows.append((anime, row, resume,
-                         it.progress.fraction if it.progress.resumable else 0.0))
-
-        lv = self.query_one("#continue", ListView)
-        sec = self.query_one("#sec-continue")
-        await lv.clear()
-        if not rows:
-            sec.display = False
-            lv.display = False
-            return
-        # Ordered by how ready each row is to be acted on: the episode you are
-        # part-way through first, then unwatched episodes waiting, then the shows
-        # you are caught up on, dimmed at the bottom.
-        rows.sort(key=lambda r: r[1].rank)
-        sec.display = True
-        lv.display = True
-        # The rail is built from every row, including the ones about to be
-        # hidden from the list — feeding it the filtered set would take the show
-        # off the rail, which would then put the row back, and the two would
-        # flip against each other on every repaint.
-        self._upcoming_source = [a for a, _, _, _ in rows]
-        shown = self._without_rail_duplicates(rows)
-        cols = self._cols_for([r for _, r, _, _ in shown], "continue")
-        for anime, row, resume, fraction in shown:
-            lv.append(AnimeItem(anime, row, cols, resume_episode=resume,
-                                fraction=fraction))
-        self._set_section("#sec-continue", "Continue watching", len(shown))
-
-        # A show you are already watching does not need to be advertised again
-        # further down the page: Seasonal listed four of these twice, with
+            self._progress[anime.id.anilist] = progress
+            # Only a part-watched episode has a meaningful fraction. A card that
+            # is merely "ready" sits at zero and must not draw a progress bar in
+            # the hero as though it had been started.
+            built.append((
+                anime,
+                card_caption(anime, progress, now),
+                progress.next_episode,
+                progress.fraction if progress.resumable else 0.0,
+            ))
+        # Ordered by how ready each card is to be acted on: the episode you are
+        # part-way through first, then episodes waiting unwatched, then the
+        # shows you are caught up on.
+        built.sort(key=lambda b: 0 if b[3] > 0 else (1 if "ready" in b[1] else 2))
+        await self._fill_shelf(SECTIONS[0], built, label="Continue watching")
+        # A show you are already watching does not need advertising again
+        # further down the page: This Season listed four of these twice, with
         # different metadata each time, which read as two different shows.
-        # Hidden rows count too — one you are caught up on is still one you are
-        # watching, and should not reappear in Seasonal just because the rail is
-        # carrying its countdown now.
-        self._continue_ids = {a.id.anilist for a, _, _, _ in rows}
-        # Re-size first: the rail's width depends on how much room the rows
-        # turned out to need, which is only known now they exist.
-        self._size_rail()
+        self._continue_ids = {b[0].id.anilist for b in built}
         self._hide_seasonal_duplicates()
 
-    def _hide_seasonal_duplicates(self) -> None:
-        """Hide seasonal rows for shows already in Continue Watching.
+    @staticmethod
+    def _continuable(anime, progress) -> bool:
+        """Whether there is anything left to continue to.
 
-        Deliberately hides rather than rebuilds: both lists are filled by
+        A *completed* episode is exactly what keeps a still-airing show in
+        Continue Watching once you have finished its latest one, so "completed"
+        on its own is not grounds for dropping the card — which is the mistake
+        that once had `anime resume` replaying the episode just finished.
+        """
+        if not progress.completed:
+            return True  # stopped part-way through: this is the episode to open
+        if anime.is_airing:
+            return True
+        total = anime.episode_count
+        return bool(total) and progress.episode < total
+
+    def _hide_seasonal_duplicates(self) -> None:
+        """Hide This Season cards for shows already in Continue Watching.
+
+        Deliberately hides rather than rebuilds: both shelves are filled by
         independent workers, and clearing one from the other's worker is a
         check-then-act across an await. Setting ``display`` touches nothing the
         other worker owns.
         """
         try:
-            lv = self.query_one("#seasonal", ListView)
+            shelf = self.query_one("#seasonal", Shelf)
         except Exception:
             return
         shown = 0
-        for item in lv.children:
-            if isinstance(item, AnimeItem):
-                item.display = item.anime.id.anilist not in self._continue_ids
-                shown += item.display
+        for card in shelf.all_cards:
+            card.display = card.anime.id.anilist not in self._continue_ids
+            shown += card.display
+        # The cursor may have been sitting on a card that has just been hidden,
+        # or on an index past the end of what is left.
+        shelf.reselect()
         self._set_section("#sec-seasonal", "This season", shown)
 
     async def _fresh_airing(self, items) -> dict:
-        """Map anilist id → freshly-fetched Anime for the rows whose airing
+        """Map anilist id → freshly-fetched Anime for the shows whose airing
         schedule could actually have changed.
 
         This used to fetch *every* Continue-Watching row at once — twenty
         concurrent AniList queries on launch, on top of seasonal, trending and
-        the AniList sync. AniList rate-limits well below that, so a normal launch
-        earned a 429, and because the limiter is shared the next thing you typed
-        failed too: "Search failed: rate limited — try again in about 41s".
+        the AniList sync. AniList rate-limits well below that, so a normal
+        launch earned a 429, and because the limiter is shared the next thing
+        you typed failed too: "Search failed: rate limited — try again in about
+        41s".
 
         Almost none of those requests could return anything new:
 
         * a show that has finished airing has no schedule left to change;
         * a show whose cached next episode is still in the future already has
-          everything the row needs — the countdown ticks locally, no network.
+          everything the card needs — the countdown ticks locally, no network.
 
         What remains is the handful whose next episode has aired since the row
         was cached, and those go out a few at a time rather than all at once.
@@ -1072,72 +871,65 @@ class HomeScreen(Screen):
             items = await self.app.services.library.favorites()
         except Exception:
             items = []
-        lv = self.query_one("#favorites", ListView)
-        await lv.clear()
-        # Empty favorites: hide the section rather than show a blank row.
-        if not items:
-            self.query_one("#sec-favorites").display = False
-            lv.display = False
-            return
-        self.query_one("#sec-favorites").display = True
-        lv.display = True
-        built = [(fav.anime, browse_cells(fav.anime)) for fav in items]
-        cols = self._cols_for([r for _, r in built], "favorites")
-        for anime, row in built:
-            lv.append(AnimeItem(anime, row, cols))
-        self._set_section("#sec-favorites", "Favourites", len(items))
-        self._size_rail()
+        built = [(fav.anime, card_caption(fav.anime), None, 0.0) for fav in items]
+        await self._fill_shelf(SECTIONS[1], built)
 
     @work(exclusive=True, group="seasonal")
     async def _load_seasonal(self) -> None:
         season, year = _current_season()
-        lv = self.query_one("#seasonal", ListView)
-        lv.loading = True  # spinner while the network call runs
+        sec = SECTIONS[2]
         try:
             animes = await self.app.services.metadata.seasonal(season, year)
         except Exception as e:
             self.notify(f"Couldn't load this season: {e}", severity="warning")
-            self._mark_section_unavailable("#sec-seasonal", "This season",
-                                           "#seasonal")
+            self._mark_section_unavailable(sec)
             return
-        finally:
-            lv.loading = False
-        self._clear_section_unavailable("#sec-seasonal", "#seasonal")
-        # Soonest-airing first, so the next release to drop sits at the top.
+        self._clear_section_unavailable(sec)
+        # Soonest-airing first, so the next release to drop leads the shelf.
         far = datetime.max.replace(tzinfo=timezone.utc)
         animes = sorted(animes, key=lambda a: a.next_airing_at or far)
-        await lv.clear()
-        built = [(a, browse_cells(a)) for a in animes[:20]]
-        cols = self._cols_for([r for _, r in built], "seasonal")
-        for a, row in built:
-            lv.append(AnimeItem(a, row, cols))
-        # Counts the rows that survive de-duplication, not the fetch limit. The
-        # header used to read "20" for both this and Continue Watching because
-        # both had simply hit their cap — a number that looked like data.
+        built = [(a, card_caption(a), None, 0.0) for a in animes[:20]]
+        await self._fill_shelf(sec, built)
+        # Counts the cards that survive de-duplication, not the fetch limit.
         self._hide_seasonal_duplicates()
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
-        lv = self.query_one("#trending", ListView)
-        lv.loading = True
+        sec = SECTIONS[3]
         try:
             animes = await self.app.services.metadata.trending(limit=20)
         except Exception as e:
             self.notify(f"Couldn't load trending: {e}", severity="warning")
-            self._mark_section_unavailable("#sec-trending", "Trending", "#trending")
+            self._mark_section_unavailable(sec)
             return
-        finally:
-            lv.loading = False
-        self._clear_section_unavailable("#sec-trending", "#trending")
-        await lv.clear()
-        built = [(a, browse_cells(a)) for a in animes]
-        cols = self._cols_for([r for _, r in built], "trending")
-        for a, row in built:
-            lv.append(AnimeItem(a, row, cols))
-        self._set_section("#sec-trending", "Trending", len(animes))
-        self._size_rail()
+        self._clear_section_unavailable(sec)
+        built = [(a, card_caption(a), None, 0.0) for a in animes]
+        await self._fill_shelf(sec, built)
 
-    # -- search ------------------------------------------------------------- #
+    def _tick_countdowns(self) -> None:
+        """Re-cut the captions that contain a clock. No network."""
+        now = datetime.now(timezone.utc)
+        for card in self.query(PosterCard):
+            if card.anime.is_airing:
+                card.set_caption(card_caption(
+                    card.anime, self._progress.get(card.anime.id.anilist), now
+                ))
+
+    # ------------------------------------------------------------------ #
+    # search
+    # ------------------------------------------------------------------ #
+    def action_clear_search(self) -> None:
+        box = self.query_one("#search", Input)
+        if not box.display and not box.value:
+            return
+        box.value = ""
+        box.display = False
+        self.workers.cancel_group(self, "search")
+        self._toggle_results(False)
+        self._paint_shell()
+        if shelves := self._shelves():
+            shelves[0].focus()
+
     def on_input_changed(self, event: Input.Changed) -> None:
         if self._debounce is not None:
             self._debounce.stop()
@@ -1148,8 +940,8 @@ class HomeScreen(Screen):
         self._paint_shell()
         if not query:
             # Cancel any search already in flight too — otherwise a request for
-            # a half-typed query lands *after* the box is cleared and slams stale
-            # results back over the home screen.
+            # a half-typed query lands *after* the box is cleared and slams
+            # stale results back over the home screen.
             self.workers.cancel_group(self, "search")
             self._toggle_results(False)
             return
@@ -1167,24 +959,43 @@ class HomeScreen(Screen):
         # stale matches over whatever the user is looking at now.
         if self.query_one("#search", Input).value.strip() != query:
             return
-        lv = self.query_one("#results", ListView)
-        await lv.clear()
-        built = [(r.anime, browse_cells(r.anime)) for r in results]
-        cols = self._cols_for([row for _, row in built], "results")
-        for anime, row in built:
-            lv.append(AnimeItem(anime, row, cols))
+        built = [(r.anime, card_caption(r.anime), None, 0.0) for r in results]
         self._toggle_results(True)
+        await self._fill_shelf(_RESULTS_SECTION, built)
         self._show_no_matches(None if results else query)
         if results:
-            lv.index = 0
+            self.query_one("#results", Shelf).focus()
+
+    def _toggle_results(self, on: bool) -> None:
+        """Swap the browse shelves for the results shelf, or back.
+
+        A shelf that hid itself for being empty stays hidden either way: a
+        search closing is not news about whether you have any favourites.
+        """
+        for sec in SECTIONS:
+            with contextlib.suppress(Exception):
+                shelf = self.query_one(sec.list_id, Shelf)
+                showing = (not on) and bool(shelf.cards)
+                shelf.display = showing
+                self.query_one(sec.head_id).display = showing
+        with contextlib.suppress(Exception):
+            results = self.query_one("#results", Shelf)
+            showing = on and bool(results.cards)
+            results.display = showing
+            self.query_one("#sec-results").display = showing
+        if not on:
+            # Clearing the box brings the browse shelves back; the no-matches
+            # notice must not outlive the search that produced it.
+            self._show_no_matches(None)
+        self._paint_shell()
 
     def _show_no_matches(self, query: str | None) -> None:
         """Say so when a search found nothing, instead of showing bare space.
 
         AniList's search is strict about word boundaries, so a near-miss really
-        does come back empty — and since searching hides the browse sections,
-        the result was an empty screen under a "Results" heading that gave no
-        clue whether it was still loading, broken, or simply had no answer.
+        does come back empty — and since searching hides the browse shelves, the
+        result was an empty screen under a "Results" heading that gave no clue
+        whether it was still loading, broken, or simply had no answer.
         """
         label = self.query_one("#results-empty", Label)
         if query is None:
@@ -1206,280 +1017,39 @@ class HomeScreen(Screen):
             f"  [dim]Press [/][cyan]esc[/][dim] to clear the search.[/dim]"
         )
         label.display = True
-        # A heading over nothing. "Results" above an empty plate above a notice
-        # saying there are none is the same fact three times, and the notice is
-        # the only one of the three that says anything useful.
         with contextlib.suppress(Exception):
+            # A heading over nothing. "Results" above an empty plate above a
+            # notice saying there are none is the same fact three times, and the
+            # notice is the only one of the three that says anything useful.
             self.query_one("#sec-results").display = False
-            # And the plate under it. An empty ListView still draws its own
-            # vertical padding, so hiding only the heading left two blank rows
-            # between the search box and the notice explaining them.
             self.query_one("#results").display = False
-        # The hero was still describing whichever row the cursor sat on before
+        # The hero was still describing whichever card the cursor sat on before
         # the search — a show that is, by definition, not among the results. A
-        # panel confidently detailing something the list does not contain is
-        # worse than an empty panel.
+        # hero confidently detailing something the shelves do not contain is
+        # worse than an empty one.
         with contextlib.suppress(Exception):
-            self.query_one("#rail-preview", Static).update(
+            self.query_one("#hero-art", Container).remove_children()
+            self.query_one("#hero-text", Static).update(
                 empty_state("Nothing to show",
                             "Pick a result to see it here.",
-                            self._rail_width(self.size.width or 100) - 4)
+                            self._hero_text_width())
             )
-            self._preview_id = None
+            self._hero_id = None
 
-    # -- navigation --------------------------------------------------------- #
-    # -- Region C: the row the cursor is on --------------------------------- #
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        """Repaint the preview for the newly highlighted row."""
-        item = event.item
-        if isinstance(item, AnimeItem):
-            self._show_preview(item)
+    # ------------------------------------------------------------------ #
+    # lifecycle
+    # ------------------------------------------------------------------ #
+    def on_screen_suspend(self) -> None:
+        # A screen (detail, sources, …) was pushed over Home.
+        self._was_suspended = True
 
-    def _show_preview(self, item: AnimeItem) -> None:
-        """Draw Region C's header block for one row, and ask for its poster.
-
-        The text goes up immediately — every field it needs is already on the
-        Anime the row was built from. Only the image has to be fetched, and it
-        arrives separately so the panel is never waiting on the network to say
-        what it already knows.
-        """
-        if not self._rail_showing():
-            return
-        try:
-            panel = self.query_one("#rail-preview", Static)
-        except Exception:
-            return
-        self._preview_id = item.anime.id.anilist
-        width = self._rail_width(self.size.width or 100) - 4
-        panel.update(preview_render(
-            item.anime, width,
-            resume_episode=item.resume_episode,
-            fraction=item.fraction,
-            synopsis_lines=self._synopsis_lines(),
-        ))
-        self._request_cover(item.anime)
-
-    #: Rows the hero needs for everything that is not the synopsis: the title
-    #: over two lines, the facts, the tags, the status, the progress bar, the
-    #: action, and the blank line before each of them.
-    _HERO_CHROME = 14
-
-    def _synopsis_lines(self) -> int:
-        """How much of the description to show, by how much room there is.
-
-        Four lines regardless was fine beside a full home screen and absurd
-        beside a two-result search: the schedule hides while searching, so the
-        hero had thirty blank rows under a paragraph cut off mid-sentence. The
-        space a short result list frees belongs to the one result you are
-        looking at — that is the whole argument for a hero.
-
-        Floored at four so this can only ever add, never take away what the
-        panel showed before.
-        """
-        free = (self.size.height or 40) - self._HERO_CHROME
-        if not self._searching():
-            # The schedule is below the hero and wants the rest of the column.
-            return 4
-        return max(4, min(free, 24))
-
-    def _request_cover(self, anime) -> None:
-        """Show this show's poster, fetching it at most once.
-
-        Debounced: holding an arrow key walks the cursor through a dozen rows a
-        second, and a request per row would be a launch storm with a different
-        trigger — the same mistake that once earned this screen a 429 on every
-        start. The timer is reset on each move, so only the row you actually
-        stopped on is fetched.
-        """
-        self._covers = getattr(self, "_covers", {})
-        anilist = anime.id.anilist
-        if anilist in self._covers:
-            self._paint_cover(anilist)
-            return
-        self._clear_cover()
-        if not anime.cover_url:
-            return
-        if (timer := getattr(self, "_cover_timer", None)) is not None:
-            timer.stop()
-        self._cover_timer = self.set_timer(
-            self._COVER_DEBOUNCE_S,
-            lambda: self._fetch_cover(anilist, anime.cover_url),
-        )
-
-    @work(exclusive=True, group="cover")
-    async def _fetch_cover(self, anilist: int, url: str) -> None:
-        data = await fetch_cover(url)
-        # The attempt is recorded even when it fails, so a cover that 404s or
-        # times out is tried once rather than re-requested every time the cursor
-        # passes its row. An empty entry paints nothing, which is what a missing
-        # poster should do anyway.
-        self._covers[anilist] = data or b""
-        # The cursor may have moved on while this was in flight; painting it
-        # then would put one show's poster beside another show's text.
-        if data and getattr(self, "_preview_id", None) == anilist:
-            self._paint_cover(anilist)
-
-    def _clear_cover(self) -> None:
-        try:
-            self.query_one("#rail-cover", Container).remove_children()
-        except Exception:
-            pass
-
-    def _paint_cover(self, anilist: int) -> None:
-        """Mount the cached poster. Decoration only — any failure leaves the
-        panel textual rather than costing the screen."""
-        data = self._covers.get(anilist)
-        if not data:
-            return
-        try:
-            container = self.query_one("#rail-cover", Container)
-        except Exception:
-            return
-        container.remove_children()
-        cols = min(self._COVER_COLS,
-                   max(8, self._rail_width(self.size.width or 100) - 4))
-        if graphics_protocol_active():
-            widget = graphics_cover_widget(data, cols)
-            if widget is not None:
-                try:
-                    container.mount(widget)
-                    return
-                except Exception:
-                    pass
-        art = render_cover(data, cols=cols)
-        if art is not None:
-            try:
-                container.mount(Static(art))
-            except Exception:
-                pass
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        item = event.item
-        if isinstance(item, AnimeItem):
-            # Go through the source picker; it forwards straight to the detail
-            # screen when there's only one match.
-            self.app.push_screen(
-                SourcesScreen(item.anime, resume_episode=item.resume_episode)
-            )
-
-    # -- helpers ------------------------------------------------------------ #
-    def _toggle_results(self, on: bool) -> None:
-        self.query_one("#sec-results").display = on
-        self.query_one("#results").display = on
-        if not on:
-            # Clearing the box brings the browse sections back; the no-matches
-            # notice must not outlive the search that produced it.
-            self._show_no_matches(None)
-        self._show_home_sections(not on)
-        # Next week's broadcast schedule is a home-screen answer to "what is on
-        # tonight". While you are searching for something else it is sixteen
-        # rows of the hero spent on a question nobody asked — so the hero keeps
-        # the highlighted result and nothing else.
-        for wid in ("#sec-rail", "#rail-body"):
-            with contextlib.suppress(Exception):
-                self.query_one(wid).display = not on
-        self._apply_caps()
-        self._paint_shell()
-
-    def _show_home_sections(self, on: bool) -> None:
-        for wid in ("#sec-continue", "#continue", "#sec-favorites", "#favorites",
-                    "#sec-seasonal", "#seasonal", "#sec-trending", "#trending"):
-            node = self.query_one(wid)
-            # Continue-watching and favorites hide themselves when empty; respect
-            # that instead of forcing them back on when search results close.
-            if wid in ("#sec-continue", "#continue") and not self._has_rows("#continue"):
-                node.display = False
-            elif wid in ("#sec-favorites", "#favorites") and not self._has_rows("#favorites"):
-                node.display = False
-            else:
-                node.display = on
-
-    def _has_rows(self, selector: str) -> bool:
-        try:
-            return len(self.query_one(selector, ListView)) > 0
-        except Exception:
-            return False
-
-    def _clear_section_unavailable(self, sec_id: str, list_id: str) -> None:
-        """A section that has just loaded is no longer unavailable."""
-        getattr(self, "_unavailable", set()).discard(sec_id)
-        with contextlib.suppress(Exception):
-            self.query_one(list_id).display = True
-
-    def _mark_section_unavailable(self, sec_id: str, base: str, list_id: str) -> None:
-        """Say a section could not be loaded, instead of leaving it blank.
-
-        The failure was already announced — once, in a toast, which is gone by
-        the time anyone looks. What was left behind was a heading with no count
-        above an empty plate, and an empty "Trending" does not read as "we could
-        not reach AniList", it reads as "nothing is trending".
-
-        Learned the day AniList disabled its own public API: two sections went
-        silently empty and the app looked broken rather than blocked.
-        """
-        try:
-            label = self.query_one(sec_id, Label)
-        except Exception:
-            return
-        # Recorded, because another worker gets there afterwards. Continue
-        # Watching finishes last and calls `_hide_seasonal_duplicates`, which
-        # re-runs `_set_section` — which quietly overwrote this heading with an
-        # ordinary empty one, so seasonal went back to looking merely empty.
-        if not hasattr(self, "_unavailable"):
-            self._unavailable: set[str] = set()
-        self._unavailable.add(sec_id)
-        room = max(12, self._row_space() - 2)
-        tail = "unavailable"
-        rule = max(1, room - len(base) - len(tail) - 4)
-        label.update(
-            f"[b]{base}[/b]  [dim]{'─' * rule}[/dim]  [$warning]{tail}[/$warning]"
-        )
-        # Hide the plate rather than leave an empty one: a blank surface reads
-        # as a list that happens to have no rows.
-        with contextlib.suppress(Exception):
-            self.query_one(list_id).display = False
-
-    def _set_section(self, sec_id: str, base: str, count: int) -> None:
-        """Draw a shelf label: letterspaced caps, the count, and how much more
-        there is.
-
-        This used to draw `Continue Watching ───────────────── 18` — forty cells
-        of line art carrying one integer, three times down the screen. The rule
-        was doing a job the eye does by itself once the label is set differently
-        from everything else on screen, and letterspaced caps are the one
-        treatment nothing else here uses.
-
-        The count is not decoration: when a shelf is capped it is the only thing
-        saying that the eight rows you can see are not all of them.
-        """
-        if sec_id in getattr(self, "_unavailable", ()):
-            return  # the section could not load; do not relabel it as empty
-        try:
-            label = self.query_one(sec_id, Label)
-        except Exception:
-            return
-        list_id = next((x.list_id for x in (*SECTIONS, _RESULTS_SECTION)
-                        if x.head_id == sec_id), None)
-        shown = self._compute_caps().get(list_id, self._SHELF_MIN)
-        more = count - shown if count > shown and not self._zoomed else 0
-        tail = f"[dim]{count}[/dim]" if count else ""
-        if more:
-            # The affordance, not just a number: a shelf that silently stops at
-            # eight rows looks like a library with eight shows in it.
-            tail = f"[dim]{shown} of {count}[/dim]  [$accent]z[/]"
-        label.update(f"[b]{spaced(base)}[/b]   {tail}".rstrip())
-        # Every section calls this once it has rendered its rows, which makes it
-        # the one place that reliably knows a list is populated — and therefore
-        # focusable. `_adopt_focus` is a no-op after the first success.
-        self._adopt_focus()
-        # It is also the one place that knows the sample the shared grid is cut
-        # from has just grown, so the sections that arrived earlier can follow
-        # it. A no-op once nothing has changed.
-        #
-        # After the refresh, not now: the grid is cut to a *measured* row, and
-        # the rows this section just appended have no size until Textual has laid
-        # them out. Called directly, `_row_space` finds every candidate still
-        # reporting zero and falls back to the estimate — which is the thing the
-        # measurement exists to replace.
-        self.call_after_refresh(self._apply_grid)
-        self._size_rail()
+    def on_screen_resume(self) -> None:
+        # Only refresh after Home was actually suspended and revealed again —
+        # i.e. you went into a show and came back. Whatever you watched changed
+        # the library, so rebuild the library-backed shelves. Guarding on the
+        # suspend avoids re-loading on the initial show (which `on_mount`
+        # already did) — that double-load churned the exclusive workers.
+        if getattr(self, "_was_suspended", False):
+            self._was_suspended = False
+            self._load_continue()
+            self._load_favorites()

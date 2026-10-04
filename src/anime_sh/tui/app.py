@@ -121,6 +121,16 @@ class AnimeShApp(App):
         await self.services.aclose()
         self.exit()
 
+    def action_press_key(self, key: str) -> None:
+        """Run a key as though it had been typed — what the bars click into.
+
+        Textual's `Footer` does exactly this on mouse-down. Replacing it with a
+        `Static` that only *looks* like a key strip took the behaviour away, and
+        a row of keys that does not respond to a click is worse than no row: it
+        invites the click and then ignores it.
+        """
+        self.simulate_key(key)
+
     def action_focus_search(self) -> None:
         """Open the search box and put the cursor in it.
 

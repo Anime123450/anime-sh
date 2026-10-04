@@ -1,13 +1,18 @@
 """The application shell — the frame every screen sits inside.
 
-Three pieces of furniture that never move, so spatial memory does the
-navigating: a top bar that says where you are, a nav rail that says what else
-there is, and an action bar that says what the thing under the cursor can do.
+Two pieces of furniture that never move, so spatial memory does the navigating:
+a top bar that says where you are, and an action bar that says what the thing
+under the cursor can do.
 
-None of them hold state of their own. The rail is told which section has focus
-and the action bar is told what is focused; both are pure renders of that. That
-is deliberate — navigation lives in one place (the screen), and the furniture
-reflects it rather than competing to own it.
+Neither holds state of its own. Both are told what is focused and are pure
+renders of that. It is deliberate — navigation lives in one place (the screen),
+and the furniture reflects it rather than competing to own it.
+
+There was a third: a nav rail down the left, numbering the four sections. It
+went with the stacked lists it mapped. Twenty columns of permanent labels was
+orientation worth having beside three tall lists of text; beside horizontal
+shelves it is twenty columns taken off every shelf to repeat what the shelf
+headings already say, and a shelf is measured in posters.
 """
 
 from __future__ import annotations
@@ -38,27 +43,21 @@ def spaced(label: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Section:
-    """One destination: a shelf on the home screen and a row on the nav rail."""
+    """One destination: a shelf on the home screen, and the label above it."""
 
-    key: str  #: the digit that jumps to it
-    icon: str  #: a single cell, legible without colour
-    label: str  #: as the rail writes it
-    list_id: str  #: the ListView it governs
-    head_id: str  #: that list's heading Label
-    #: Share of the screen this shelf gets relative to the others. Hierarchy has
-    #: to be visible in *size*, not only in order: four shelves of equal height
-    #: read as four equal things, and then the screen is a dashboard again. What
-    #: you are in the middle of gets twice what you might browse.
-    weight: int = 1
+    label: str  #: as the heading writes it
+    list_id: str  #: the Shelf it governs
+    head_id: str  #: that shelf's heading Label
 
 
-#: Ordered by what you most likely came for. Continue Watching is the reason the
-#: app exists; Trending is where you land when the library is empty.
+#: Ordered by what you most likely came for, and numbered in that order by the
+#: digit keys. Continue Watching is the reason the app exists; Trending is where
+#: you land when the library is empty.
 SECTIONS: tuple[Section, ...] = (
-    Section("1", "▸", "Continue", "#continue", "#sec-continue", weight=3),
-    Section("2", "♥", "Favourites", "#favorites", "#sec-favorites"),
-    Section("3", "◷", "This Season", "#seasonal", "#sec-seasonal"),
-    Section("4", "✦", "Trending", "#trending", "#sec-trending"),
+    Section("Continue", "#continue", "#sec-continue"),
+    Section("Favourites", "#favorites", "#sec-favorites"),
+    Section("This Season", "#seasonal", "#sec-seasonal"),
+    Section("Trending", "#trending", "#sec-trending"),
 )
 
 #: Width bands, from the monospace-design standard. Named rather than inlined
@@ -74,26 +73,6 @@ def band(width: int) -> str:
     if width < 160:
         return EXPANDED
     return WIDE
-
-
-def nav_width(width: int) -> int:
-    """Cells the nav rail takes, or 0 when it is not shown.
-
-    Icons only in the standard band: at 80–119 cells every column spent on a
-    label is one the titles do not get, and the icons carry the order on their
-    own once you have seen the labels once.
-    """
-    b = band(width)
-    if b == COMPACT:
-        return 0
-    # Icons until the terminal is genuinely wide. Labels were tried at 120 and
-    # measured: the rail took 16 cells, the hero 40, and the title column fell
-    # from 34 cells to 18 -- every row ellipsized to make room for four words
-    # that do not change. Orientation is worth five cells, not sixteen.
-    # Twenty, not eighteen: the rail spends eight cells on furniture and the
-    # count, and at eighteen "This Season" came out as "This Seas…" — a nav rail
-    # that cannot write its own destinations is worse than no labels at all.
-    return 5 if b in (STANDARD, EXPANDED) else 20
 
 
 class TopBar(Static):
@@ -137,61 +116,21 @@ class TopBar(Static):
         self.update(f" {left}  {mid}{' ' * pad}{right} ")
 
 
-class NavRail(Static):
-    """The sections, always in the same order, with the focused one marked.
+#: How a key is written on the bars, against the name Textual knows it by.
+#: Only the ones that differ: a bar says `esc`, the binding says `escape`.
+_KEY_NAMES = {"↵": "enter", "esc": "escape", "?": "question_mark"}
 
-    A map rather than a control. Tab already moves between shelves, so a rail
-    that *also* took focus would be a second way to do one thing and a second
-    place for the cursor to get lost in. It shows where Tab has got to, and the
-    digit beside each row jumps straight there.
+
+def clickable(markup: str, action: str) -> str:
+    """Wrap rendered markup in a Textual click action.
+
+    The bars are `Static`s, and a Static does nothing when you click it.
+    Textual's own `Footer` does — `FooterKey.on_mouse_down` calls
+    `simulate_key` — so replacing the footer with a prettier Static quietly took
+    away every mouse affordance the app had. Markup actions give them back
+    without any coordinate arithmetic: the span knows its own extent.
     """
-
-    def render_nav(self, current: str | None, width: int, counts: dict,
-                   *, blank: bool = False) -> None:
-        if width <= 0:
-            return
-        if blank:
-            # The column without its contents. Searching hides the shelves this
-            # maps, but taking the column away with them moved everything beside
-            # it — see the note at the call site.
-            self.update("")
-            return
-        labelled = width >= 16
-        lines: list[str] = [""]
-        for s in SECTIONS:
-            here = s.list_id == current
-            count = counts.get(s.list_id, 0)
-            if not labelled:
-                # The digit, not just the icon. A column of four unexplained
-                # glyphs is decoration; `1 ▸` is the key that goes there, which
-                # is the only reason the rail is worth five cells at this width.
-                if here:
-                    lines.append(f"[$accent]▏[/][b]{s.key} {s.icon}[/b]")
-                elif count:
-                    lines.append(f" [dim]{s.key}[/dim] {s.icon}")
-                else:
-                    lines.append(f" [dim]{s.key} {s.icon}[/dim]")
-                continue
-            # 4 cells of furniture (marker, icon, two spaces) and 4 for the
-            # count and the gap before it. Without that gap "Continue" and "18"
-            # ran together into "Continue18".
-            body = fit(s.label, max(4, width - 8))
-            n = f"{count}" if count else ""
-            # The marker replaces a cell rather than adding one, exactly as the
-            # focused row's border does, so both lines are the same width and
-            # neither wraps. Adding it pushed the focused line one cell over and
-            # the count wrapped onto a line of its own.
-            if here:
-                lines.append(f"[$accent]▏[/][b] {s.icon} {body}[/b] [dim]{n:>2}[/dim]")
-            elif count:
-                lines.append(f" [dim]{s.icon}[/dim] {body} [dim]{n:>2}[/dim]")
-            else:
-                lines.append(f" [dim]{s.icon} {body}   [/dim]")
-        if labelled:
-            lines.append("")
-            lines.append(f"  [dim]{fit('1-4  jump', width - 4)}[/dim]")
-            lines.append(f"  [dim]{fit('z    expand', width - 4)}[/dim]")
-        self.update("\n".join(lines))
+    return f"[@click={action}]{markup}[/]"
 
 
 class ActionBar(Static):
@@ -222,7 +161,10 @@ class ActionBar(Static):
             cells = len(key) + 1 + len(label) + 3
             if used + cells > width - 2:
                 break
-            out.append(f"[$accent]{key}[/] [dim]{label}[/dim]")
+            out.append(clickable(
+                f"[$accent]{key}[/] [dim]{label}[/dim]",
+                f"app.press_key({_KEY_NAMES.get(key, key)!r})",
+            ))
             used += cells
         self.update("  " + "   ".join(out))
 

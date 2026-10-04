@@ -147,18 +147,16 @@ def test_the_layout_names_and_the_screen_cannot_drift():
 async def test_compact_density_gives_the_rows_back_that_chrome_was_taking(
     monkeypatch,
 ):
-    """Every section spends four rows on chrome — the heading, the plate's
-    padding above and below, and the gap to the next heading. On a 34-row laptop
-    terminal that is most of the screen before a single show appears; measured,
-    comfortable reached Trending's *heading* and compact reached the end of
-    Trending's rows.
+    """A shelf spends two rows on the air around it: the gap above its label
+    and the gap under its cards. Four shelves is eight rows, and on a 34-row
+    laptop terminal that is more than half of what is left after the hero.
 
-    Asserted on the padding rather than by counting rows in a render: the count
-    depends on how long the fixture titles happen to be, and would drift with
-    the fixtures rather than with the thing being tested.
+    Asserted on the margins rather than by counting rows in a render: the count
+    depends on how tall the fixture's covers happen to come back, and would
+    drift with the fixtures rather than with the thing being tested.
     """
     import anime_sh.tui.screens.home as home_mod
-    from textual.widgets import ListView
+    from anime_sh.tui.cards import Shelf
 
     from .test_app import _make_app
 
@@ -173,9 +171,10 @@ async def test_compact_density_gives_the_rows_back_that_chrome_was_taking(
             await app.workers.wait_for_complete()
             await pilot.pause()
             screen = app.screen
-            lv = screen.query_one("#continue", ListView)
-            pad = lv.styles.padding
-            seen[density] = (screen.has_class("-dense"), pad.top + pad.bottom)
+            shelf = screen.query_one("#continue", Shelf).styles.margin
+            label = screen.query_one("#sec-continue").styles.margin
+            seen[density] = (screen.has_class("-dense"),
+                             shelf.top + shelf.bottom + label.top + label.bottom)
 
     assert seen["comfortable"][0] is False
     assert seen["compact"][0] is True, "the compact class was never applied"
@@ -186,10 +185,10 @@ async def test_compact_density_gives_the_rows_back_that_chrome_was_taking(
 
 async def test_the_plate_keeps_its_sideways_padding_when_compact(monkeypatch):
     """What makes a background change read as a surface is that the tint does
-    not stop flush against the text, and sideways is where that reads. Compact
-    buys rows, not the layering the whole design rests on."""
+    not stop flush against the content, and sideways is where that reads.
+    Compact buys rows, not the layering the whole design rests on."""
     import anime_sh.tui.screens.home as home_mod
-    from textual.widgets import ListView
+    from anime_sh.tui.cards import Shelf
 
     from .test_app import _make_app
 
@@ -201,7 +200,7 @@ async def test_the_plate_keeps_its_sideways_padding_when_compact(monkeypatch):
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        pad = app.screen.query_one("#continue", ListView).styles.padding
+        pad = app.screen.query_one("#continue", Shelf).styles.padding
         assert pad.left >= 1 and pad.right >= 1, "the plate lost its edges"
 
 

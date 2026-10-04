@@ -4,6 +4,63 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- **The home screen is cover art now, not a list.** 0.2.91 tidied the old
+  screen without changing what it was: stacked vertical lists with an
+  information panel down the right-hand side. Rows are an efficient way to show
+  a database, and anime is not a database -- the poster *is* the metadata, and
+  you recognise a show from a thumbnail faster than from its name in a column.
+
+  What replaces it: one show large at the top, a 24-cell poster beside
+  everything known about it, ending in a filled bar naming what Enter does --
+  and below that, horizontal shelves of 14-cell posters, each captioned with its
+  title and the one piece of state that matters (`ep 8 . 18%`, `3 eps ready`,
+  `ep 9 in 1d 4h`). The panel at the top follows the cursor, so the detail is on
+  screen for exactly one show and never for all of them at once. Left and right
+  walk a shelf, up and down change shelves, `1`-`4` jump to one, and about
+  eleven posters fit across at 190 columns.
+
+  Gone with the lists: the navigation rail (twenty columns repeating what the
+  shelf headings say, where a shelf is measured in posters), the shelf caps and
+  the `z` that expanded them (a shelf holds everything it is given and scrolls,
+  so nothing is hidden), and the "Coming up" schedule panel -- the countdown it
+  carried is on the Continue Watching posters themselves, and `anime calendar`
+  still prints the full week.
+
+  Still there: `v` for tighter spacing, which buys two rows a shelf and is worth
+  more now than it was over rows. Nothing about searching, playback, history,
+  progress, AniList sync or the providers changed -- this is the presentation
+  layer only. The reasoning, including the two arguments the previous design got
+  wrong, is written down in `docs/DESIGN.md`.
+
+### Added
+
+- **Cover art is cached on disk.** Covers lived in memory only and were
+  re-fetched from scratch on every launch, which was tolerable when one poster
+  was on screen and is not when there are fifty. They go in `covers/` under the
+  cache directory, keyed by the image URL rather than by the show -- a cover
+  replaced upstream gets a new URL and so a new file, instead of the old picture
+  being served forever out of an entry that looks perfectly valid. `anime cache
+  info` counts them and says how much space they take; `anime cache clear` takes
+  it back.
+
+  The first paint reads them synchronously, before the shelf is laid out, so on
+  every launch after the first the whole wall appears in one frame rather than
+  filling in one HTTPS round trip at a time. Misses go out six at a time, each
+  fetched once per show however many shelves show it, and a fetch that *fails*
+  is recorded like any other -- a show whose poster 404s used to send a fresh
+  request on every pass, silently, since nothing appeared either way.
+
+### Fixed
+
+- **The cursor could stop on a poster nobody could see.** This Season hides the
+  shows already in Continue Watching, and `display = False` takes a card out of
+  the layout but not out of its parent's children -- so the shelf's cursor could
+  land on one, at which point the arrow key appeared to do nothing while the
+  panel at the top changed to a show that was not on screen.
+
+
 ## [0.2.91] - 2026-10-03
 
 ### Changed
