@@ -96,6 +96,24 @@ def _schedule_is_stale(anime, now: datetime) -> bool:
     return True  # UNKNOWN, NOT_YET_RELEASED, HIATUS — we genuinely do not know
 
 
+def _readiness(built) -> int:
+    """Sort key for the Continue Watching shelf: how ready a card is to be acted
+    on. The episode you are part-way through first, then episodes waiting
+    unwatched, then the shows you are caught up on and cannot act on at all.
+
+    Reading order is the whole argument for this shelf. Ordering by recency
+    instead put a half-watched episode below three shows that merely had a new
+    episode out.
+
+    Reads the caption rather than recomputing the state from the anime, so the
+    order can never disagree with the words printed under the poster.
+    """
+    _, caption, _, fraction = built
+    if fraction > 0:
+        return 0
+    return 1 if "ready" in caption else 2
+
+
 class HomeScreen(Screen):
     BINDINGS = [
         # Escape is bound app-wide to "go back", which on the base screen has
@@ -773,10 +791,7 @@ class HomeScreen(Screen):
                 progress.next_episode,
                 progress.fraction if progress.resumable else 0.0,
             ))
-        # Ordered by how ready each card is to be acted on: the episode you are
-        # part-way through first, then episodes waiting unwatched, then the
-        # shows you are caught up on.
-        built.sort(key=lambda b: 0 if b[3] > 0 else (1 if "ready" in b[1] else 2))
+        built.sort(key=_readiness)
         await self._fill_shelf(SECTIONS[0], built, label="Continue watching")
         # A show you are already watching does not need advertising again
         # further down the page: This Season listed four of these twice, with

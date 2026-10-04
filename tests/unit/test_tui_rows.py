@@ -140,3 +140,26 @@ def test_the_year_badge_is_dropped_rather_than_pushing_the_grid_out_of_line():
     line = _plain(render(Row(title=long_title, badge="2025"), cols))
     assert "(2025)" not in line
     assert cell_len(line.rstrip()) <= cols.width
+
+
+def test_a_marked_up_status_must_declare_its_visible_width():
+    """`render` cannot measure a string carrying markup — `[yellow]★ 8[/yellow]`
+    is twenty-two characters and three cells — so a status with markup has to say
+    how wide it really is. Measured by its characters it overflows a sixteen-cell
+    column, and what the row then shows is the markup itself, cut mid-tag:
+    `★ 8[/ye…`.
+
+    My List is the live producer — a score badge is markup, and it declares its
+    width. A declared badge has to render exactly as the same text would with no
+    markup at all; an undeclared one is the damage this guards against.
+    """
+    cols = Columns(title=20, position=9, status=16)
+    badge = "★ 8"
+    declared = Row(title="Show", position="7/12",
+                   status=f"[yellow]{badge}[/yellow]", status_cells=len(badge))
+    plain = Row(title="Show", position="7/12", status=badge)
+    undeclared = Row(title="Show", position="7/12",
+                     status=f"[yellow]{badge}[/yellow]")
+
+    assert _plain(render(declared, cols)) == _plain(render(plain, cols))
+    assert _plain(render(undeclared, cols)) != _plain(render(plain, cols))
