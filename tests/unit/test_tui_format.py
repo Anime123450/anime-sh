@@ -6,17 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title
 from anime_sh.tui.coverart import render_cover
-from anime_sh.domain.models import WatchProgress
 from anime_sh.tui.format import (
-    browse_cells,
-    continue_cells,
     countdown,
     episode_air_label,
-    home_subtitle,
     meta_line,
     next_episode_line,
     score_badge,
-    waiting_subtitle,
 )
 
 _NOW = datetime(2026, 7, 18, tzinfo=timezone.utc)
@@ -55,169 +50,6 @@ def test_next_episode_line_only_when_airing_data_present():
     airing = _anime(next_airing_episode=3, next_airing_at=_NOW + timedelta(days=1))
     assert next_episode_line(airing, _NOW) == "Ep 3 in 1d 0h"
     assert next_episode_line(_anime(), _NOW) is None
-
-
-def test_home_subtitle_airing_shows_aired_over_total_and_countdown():
-    a = _anime(format=Format.TV, status=Status.RELEASING, episode_count=12,
-               next_airing_episode=3, next_airing_at=_NOW + timedelta(days=4, hours=6))
-    # 2 aired of 12 (next is ep 3), plus the countdown — not the planned "12 eps".
-    assert home_subtitle(a, _NOW) == "TV · 2/12 eps · Ep 3 in 4d 6h"
-
-
-def test_home_subtitle_airing_without_total():
-    a = _anime(format=Format.TV, status=Status.RELEASING,
-               next_airing_episode=4, next_airing_at=_NOW + timedelta(hours=5))
-    assert home_subtitle(a, _NOW) == "TV · 3 eps · Ep 4 in 5h 0m"
-
-
-def test_home_subtitle_finished_shows_total_and_year():
-    a = _anime(format=Format.TV, status=Status.FINISHED, episode_count=12, year=2026)
-    assert home_subtitle(a, _NOW) == "TV · 12 eps · 2026"
-
-
-def test_home_subtitle_airing_without_schedule_falls_back():
-    # RELEASING but AniList has no nextAiringEpisode (between cours) → no bogus count.
-    a = _anime(format=Format.TV, status=Status.RELEASING, episode_count=24, year=2026)
-    assert home_subtitle(a, _NOW) == "TV · 24 eps · 2026"
-
-
-def test_waiting_subtitle_caught_up_shows_countdown():
-    # Airing show, next is ep 6 (5 aired), you've watched ep 5 → caught up.
-    a = _anime(status=Status.RELEASING, next_airing_episode=6,
-               next_airing_at=_NOW + timedelta(days=2, hours=3))
-    assert waiting_subtitle(a, 5.0, _NOW) == "caught up · Ep 6 in 2d 3h"
-
-
-def test_waiting_subtitle_none_when_episodes_left_to_watch():
-    # Same show, but you've only watched ep 3 of the 5 aired → still actionable.
-    a = _anime(status=Status.RELEASING, next_airing_episode=6,
-               next_airing_at=_NOW + timedelta(days=2))
-    assert waiting_subtitle(a, 3.0, _NOW) is None
-
-
-def test_waiting_subtitle_none_for_finished_show():
-    a = _anime(status=Status.FINISHED, episode_count=12)
-    assert waiting_subtitle(a, 12.0, _NOW) is None
-
-
-def _prog(episode, pos, dur=1400, completed=False):
-    return WatchProgress(anime_id=AnimeId(anilist=1), episode=episode,
-                         position_s=pos, duration_s=dur,
-                         updated_at=_NOW, completed=completed)
-
-
-def test_continue_cells_resume_puts_the_percentage_beside_a_bar():
-    """Mid-episode is the one state where the row answers "how far in", so it
-    gets the bar. The episode number stays in the position column with every
-    other row's, or the column stops being scannable."""
-    a = _anime(status=Status.RELEASING, episode_count=12)
-    row, resume = continue_cells(a, _prog(4.0, 700), _NOW)
-    assert row.position == "Ep 4"
-    assert "50%" in row.status and "━" in row.status
-    assert row.dim is False and resume == 4.0
-
-
-def test_continue_cells_ready_row_says_the_episode_is_waiting():
-    # Finished ep 3 of a 12-ep finished show → the next one is already out. The
-    # total is spelled out because "Ep 4" alone reads the same as an airing
-    # show's awaited episode, which is how a finished season gets mistaken for
-    # one you are waiting on.
-    a = _anime(status=Status.FINISHED, episode_count=12)
-    row, resume = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
-    assert row.position == "Ep 4/12"
-    # How many are sitting there, not the words "new episode" — on a real
-    # library that was the same two words down thirteen consecutive rows, in the
-    # one column that could have carried a number differing on every one.
-    assert "+9" in row.status, "nine of twelve are unwatched and out"
-    assert row.dim is False and resume == 4.0
-
-
-def test_continue_cells_ready_row_without_a_known_total():
-    a = _anime(status=Status.FINISHED, episode_count=None)
-    row, _ = continue_cells(a, _prog(3.0, 1400, completed=True), _NOW)
-    # Nothing known to count against, so the status stays empty. A `+0` here
-    # would be a confident statement that nothing is waiting, which is the one
-    # thing this row cannot know.
-    assert row.position == "Ep 4" and row.status == ""
-
-
-def test_continue_cells_waiting_row_is_dimmed_and_shows_only_the_countdown():
-    """The grid names the episode in its own column, so the status cell carries
-    the countdown alone — repeating "Ep 6" inside it would push the countdown
-    out of a column sized for the countdown."""
-    a = _anime(status=Status.RELEASING, next_airing_episode=6,
-               next_airing_at=_NOW + timedelta(days=2, hours=3))
-    row, resume = continue_cells(a, _prog(5.0, 1400, completed=True), _NOW)
-    assert row.position == "Ep 6"
-    assert row.status == "in 2d 3h"
-    assert row.dim is True and resume == 6.0
-
-
-def test_continue_cells_dropped_when_finished_and_fully_watched():
-    a = _anime(status=Status.FINISHED, episode_count=12)
-    assert continue_cells(a, _prog(12.0, 1400, completed=True), _NOW) is None
-
-
-def test_continue_rows_order_resume_then_ready_then_waiting():
-    """Reading order is the whole argument for this list. The episode you are
-    part-way through is the likeliest thing you opened the app to do, so it
-    leads; shows you cannot act on at all sink to the bottom.
-
-    Ordering by recency instead put a half-watched episode below three shows
-    that merely had a new episode out.
-    """
-    resume = _anime(status=Status.RELEASING, episode_count=12)
-    ready = _anime(status=Status.FINISHED, episode_count=12)
-    waiting = _anime(status=Status.RELEASING, next_airing_episode=6,
-                     next_airing_at=_NOW + timedelta(days=2))
-
-    rows = [
-        continue_cells(ready, _prog(3.0, 1400, completed=True), _NOW)[0],
-        continue_cells(waiting, _prog(5.0, 1400, completed=True), _NOW)[0],
-        continue_cells(resume, _prog(4.0, 700), _NOW)[0],
-    ]
-    rows.sort(key=lambda r: r.rank)
-    assert [r.status for r in rows][0].endswith("50%")
-    assert "+9" in rows[1].status
-    assert rows[2].dim is True
-
-
-def test_browse_cells_airing_splits_count_from_countdown():
-    a = _anime(status=Status.RELEASING, episode_count=12, next_airing_episode=3,
-               next_airing_at=_NOW + timedelta(days=4, hours=6))
-    row = browse_cells(a, _NOW)
-    assert row.position == "2/12 eps"
-    assert row.status == "Ep 3 in 4d 6h"
-
-
-def test_the_browse_episode_column_says_what_the_numbers_are():
-    """A season list of bare "7/11", "8/12", "9/14" reads as November, December
-    and September before it reads as episode counts — and it sat in the same
-    column as the finished-show branch's "12 eps", so one column carried two
-    grammars for one kind of fact."""
-    a = _anime(status=Status.RELEASING, episode_count=11, next_airing_episode=8,
-               next_airing_at=_NOW + timedelta(hours=3))
-    assert browse_cells(a, _NOW).position == "7/11 eps"
-
-
-def test_a_long_runner_keeps_its_count_rather_than_the_unit():
-    """`1139/1140` is nobody's idea of a date, and the column is nine cells:
-    spending four of them on "eps" would truncate the number instead — on the
-    one row where the count is the interesting part."""
-    from anime_sh.tui.format import _aired_of
-    from anime_sh.tui.rows import POSITION_W
-
-    assert _aired_of(1139, 1140) == "1139/1140"
-    assert len(_aired_of(1139, 1140)) <= POSITION_W
-    # And the short case still fits the column it has to live in.
-    assert len(_aired_of(21, 24)) <= POSITION_W
-
-
-def test_browse_cells_finished_show_falls_back_to_year():
-    a = _anime(status=Status.FINISHED, episode_count=12, year=2026)
-    row = browse_cells(a, _NOW)
-    assert row.position == "12 eps"
-    assert "2026" in row.status
 
 
 def test_episode_air_label_projects_weekly_from_next_airing():
@@ -340,17 +172,3 @@ def test_sextant_table_maps_known_patterns():
 def test_render_cover_returns_none_on_garbage():
     assert render_cover(b"not an image", cols=10) is None
     assert render_cover(b"", cols=10) is None
-
-
-def test_a_marked_up_status_still_declares_its_visible_width():
-    """`render` cannot measure a string carrying markup — `[dim]+9[/dim]` is
-    fourteen characters and two cells — so any status with markup has to say how
-    wide it really is, or the column padded from the wrong number and every row
-    after it lost its alignment.
-    """
-    from anime_sh.domain.models import Status
-
-    a = _anime(status=Status.FINISHED, episode_count=12)
-    row, _ = continue_cells(a, _prog(3.0, 0, completed=True), _NOW)
-    assert "[" in row.status, "test premise: this status carries markup"
-    assert row.status_cells == len("+9")

@@ -7,10 +7,10 @@ airing. So the top row's `episode` is often one you have already seen, and
 Leveling S2 episode 6, announcing "Episode 6 at 0s", when episode 7 was the one
 waiting.
 
-The TUI never had this bug — `continue_cells` works out the episode to act on for
-each row. The CLI reimplemented the easy half and the two disagreed about the same
+The TUI never had this bug — it worked out the episode to act on for each row.
+The CLI reimplemented the easy half and the two disagreed about the same
 database, which is why the predicate now lives in the domain next to the data it
-reads.
+reads, and both read it from there.
 """
 
 from __future__ import annotations
@@ -81,16 +81,21 @@ def test_half_episode_numbers_survive():
     assert _progress(6.5, 0, 0, True).next_episode == 7.5
 
 
-def test_the_tui_and_the_domain_agree_on_which_rows_are_resumable():
-    """The TUI had this right first. If the two ever disagree, Continue Watching
-    draws a progress bar for an episode `resume` will skip, or the other way
-    round -- and the screen and the command would be describing different shows.
+def test_the_shelf_keeps_every_row_resume_would_play():
+    """The screen and the command have to agree about the same database. The card
+    acts on `progress.next_episode`, so the only way they can still diverge is
+    the shelf *dropping* a show that `resume` would happily play -- and then the
+    episode waiting for you is simply not on screen.
+
+    A completed episode is exactly what keeps a still-airing show on the shelf
+    once you have finished its latest one, which is why "completed" on its own
+    cannot be grounds for dropping the card.
     """
     import pytest
 
     pytest.importorskip("textual")
-    from anime_sh.tui.format import continue_cells
     from anime_sh.domain.models import Anime, Status, Title
+    from anime_sh.tui.screens.home import HomeScreen
 
     anime = Anime(
         id=ID, title=Title(romaji="Solo Leveling Season 2"),
@@ -102,10 +107,16 @@ def test_the_tui_and_the_domain_agree_on_which_rows_are_resumable():
         _progress(4.0, 0, 1420, False),
         _progress(4.0, 300, 0, False),  # position, no duration: the hard case
     ):
-        built = continue_cells(anime, progress)
-        assert built is not None
-        _, resume_episode = built
-        assert resume_episode == progress.next_episode, (
-            f"the TUI would act on {resume_episode} and resume on "
-            f"{progress.next_episode} for the same row"
+        assert HomeScreen._continuable(anime, progress), (
+            f"ep {progress.next_episode:g} is waiting and the shelf dropped the show"
         )
+
+    # The one case with genuinely nothing to continue to: finished airing and
+    # watched to the end. Keeping it would offer a fourteenth episode of
+    # thirteen.
+    done = _progress(13.0, 0, 0, True)
+    assert not HomeScreen._continuable(anime, done)
+    # Still airing, though, and the next episode is reason enough to stay.
+    airing = Anime(id=ID, title=Title(romaji="Solo Leveling Season 2"),
+                   status=Status.RELEASING, episode_count=13)
+    assert HomeScreen._continuable(airing, done)

@@ -5,16 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from ..domain.models import Anime, WatchProgress
-from .rows import POSITION_W, Row
-
-# The Continue-Watching bar shares a column with text statuses, so it stays
-# short enough to leave room for the percentage beside it.
-_RESUME_BAR = 7
-
-# Continue Watching reads top-down as "what can I do right now": the episode you
-# are part-way through, then episodes waiting unwatched, then shows you are
-# caught up on and cannot act on at all.
-RANK_RESUME, RANK_READY, RANK_WAITING = 0, 1, 2
 
 # How long past its air time an episode still reads as "airing now" — wide
 # enough for a broadcast slot or a feature-length special. Beyond it, a date in
@@ -67,180 +57,6 @@ def episode_air_label(
     weeks = int(episode) - anime.next_airing_episode
     airs_at = anime.next_airing_at + timedelta(days=7 * weeks)
     return f"airs {countdown(airs_at, now)}"
-
-
-def waiting_subtitle(
-    anime: Anime, watched_episode: float, now: datetime | None = None
-) -> str | None:
-    """Continue-watching row subtitle for a show you're *caught up on*.
-
-    When the show is still airing and you've watched up to the latest aired
-    episode (nothing new to watch yet), return the countdown to the next one —
-    ``"caught up · Ep 6 in 2d 3h"``. Returns None when there's still an aired
-    episode left to watch, so the caller keeps the normal "Ep x · y%" row and
-    leaves it bright/actionable."""
-    if not (anime.is_airing and anime.next_airing_episode and anime.next_airing_at):
-        return None
-    aired = anime.aired_through(now)
-    if aired is None or watched_episode < aired:
-        return None  # you still have released episodes to catch up on
-    return (
-        f"caught up · Ep {anime.next_airing_episode} "
-        f"{countdown(anime.next_airing_at, now)}"
-    )
-
-
-def continue_cells(
-    anime: Anime, progress: WatchProgress, now: datetime | None = None
-) -> tuple[Row, float] | None:
-    """One Continue-Watching row as ``(Row, resume_episode)``, or None to drop it
-    because the show is finished and you have watched all of it.
-
-    The four states, in order of check, each with its own glyph and colour so the
-    list can be read by shape before it is read by word:
-
-    * **Resume** (``▸`` cyan) — partway through an episode: the episode number
-      and how far in.
-    * **Done** — finished airing and fully watched: dropped, nothing to continue.
-    * **Waiting** (``○`` dim) — a still-airing show whose latest aired episode
-      you have finished: a live countdown to the next one, dimmed because you
-      cannot act on it.
-    * **Ready** (``●`` green) — an aired episode is sitting there unwatched.
-
-    Ready is the state the screen exists to surface, so it is the only one drawn
-    in the accent colour at full brightness.
-    """
-    ep = progress.episode
-    if progress.resumable:
-        # A known position with an unknown duration still resumes *this* episode —
-        # mpv can quit before it reports a duration. Only the bar needs the
-        # duration, so it is the bar that is dropped, not the row's episode. The
-        # earlier test here required a duration and so sent such a row to the next
-        # episode, losing the place it had.
-        if progress.fraction > 0:
-            tail = f"{round(progress.fraction * 100)}%"
-            status = f"{progress_bar(progress.fraction, _RESUME_BAR, color='cyan')}  {tail}"
-            cells = _RESUME_BAR + 2 + len(tail)
-        else:
-            tail = "resume"
-            status = tail
-            cells = len(tail)
-        return (
-            Row(
-                title=anime.title.preferred,
-                glyph="[cyan]▸[/cyan]",
-                position=f"Ep {ep:g}",
-                status=status,
-                status_cells=cells,
-                rank=RANK_RESUME,
-            ),
-            ep,
-        )
-
-    nxt = ep + 1
-    if not anime.is_airing and anime.episode_count and ep >= anime.episode_count:
-        return None
-
-    waiting = waiting_subtitle(anime, ep, now)
-    if waiting is not None:
-        # "caught up · Ep 6 in 2d 3h" — the grid already says which episode in
-        # its own column, so the row only needs the countdown.
-        _, _, when = waiting.partition(f"Ep {anime.next_airing_episode} ")
-        return (
-            Row(
-                title=anime.title.preferred,
-                glyph="○",
-                position=f"Ep {anime.next_airing_episode:g}",
-                status=when or "caught up",
-                dim=True,
-                rank=RANK_WAITING,
-            ),
-            nxt,
-        )
-
-    total = anime.episode_count
-    # "Ep 5 of 12" next to another season's "Ep 5" is genuinely ambiguous — both
-    # read as "the next episode is 5". Spelling out the total is what makes this
-    # one legible as a finished season you are partway through.
-    position = f"Ep {nxt:g}/{total}" if total else f"Ep {nxt:g}"
-    # How many episodes are actually sitting there, rather than the words "new
-    # episode" — which, on a real library, was the same two words repeated down
-    # thirteen consecutive rows in the same dim grey. A third of the screen
-    # spent saying one thing the green ● had already said, in a column that
-    # could have been carrying a number that differs on every row.
-    waiting = _waiting_count(anime, nxt, now)
-    status = f"[dim]+{waiting}[/dim]" if waiting > 0 else ""
-    return (
-        Row(
-            title=anime.title.preferred,
-            glyph="[green]●[/green]",
-            position=position,
-            status=status,
-            status_cells=len(f"+{waiting}") if waiting > 0 else 0,
-            rank=RANK_READY,
-        ),
-        nxt,
-    )
-
-
-def _waiting_count(anime: Anime, nxt: float, now: datetime | None = None) -> int:
-    """Episodes released and unwatched, counting from ``nxt``.
-
-    Uses the airing schedule where there is one and the episode count otherwise,
-    so an airing show says how many have actually dropped rather than how many
-    are planned. Returns 0 when neither is known, which renders as nothing at
-    all — better than a confident `+0`.
-    """
-    released = anime.aired_through(now)
-    if released is None:
-        released = anime.episode_count
-    if not released:
-        return 0
-    return max(0, int(released) - int(nxt) + 1)
-
-
-def _aired_of(aired: int, total: int | None) -> str:
-    """The browse lists' episode column: "7/11 eps", or "7 eps" with no total.
-
-    The unit is not decoration. Bare "7/11" sat directly under "12 eps" in the
-    same column - two grammars for one kind of fact - and on its own it reads as
-    a date: a season list showing 7/11, 8/12 and 9/14 looks like November,
-    December and September before it looks like episode counts.
-
-    Appended only when it fits the column, which is exactly where the ambiguity
-    lives. A long-runner's "1139/1140" is nobody's idea of a date, and spending
-    four cells to say so would truncate the number instead - the one row where
-    the count is the interesting part.
-    """
-    if not total:
-        return f"{aired} eps"
-    bare = f"{aired}/{total}"
-    return f"{bare} eps" if len(bare) + 4 <= POSITION_W else bare
-
-
-def browse_cells(anime: Anime, now: datetime | None = None) -> Row:
-    """A row for the browse lists — seasonal, trending, search results.
-
-    These are shows you are not tracking, so there is no watch state to mark.
-    What earns the columns instead is *how much exists* and *when the next one
-    lands*, which is what the eye is actually looking for when scanning a season.
-    """
-    if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
-        aired = anime.aired_through(now) or 0
-        total = anime.episode_count
-        return Row(
-            title=anime.title.preferred,
-            position=_aired_of(aired, total),
-            status=f"Ep {anime.next_airing_episode} {countdown(anime.next_airing_at, now)}",
-        )
-    eps = anime.episode_count
-    position = ("1 ep" if eps == 1 else f"{eps} eps") if eps else ""
-    return Row(
-        title=anime.title.preferred,
-        position=position,
-        status=f"[dim]{anime.year}[/dim]" if anime.year else "",
-        status_cells=len(str(anime.year)) if anime.year else 0,
-    )
 
 
 def progress_bar(
@@ -306,27 +122,6 @@ def score_badge(score: int | None) -> str | None:
     return f"[{color}]★ {score}%[/{color}]"
 
 
-def home_subtitle(anime: Anime, now: datetime | None = None) -> str:
-    """Compact list-row subtitle. For an airing show it shows how many episodes
-    have actually aired (``2/12``) and a live countdown to the next one — not the
-    misleading planned total. Finished shows show total eps and year."""
-    fmt = anime.format.value
-    if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
-        aired = anime.aired_through(now) or 0
-        total = anime.episode_count
-        count = f"{aired}/{total} eps" if total else f"{aired} eps"
-        return (
-            f"{fmt} · {count} · Ep {anime.next_airing_episode} "
-            f"{countdown(anime.next_airing_at, now)}"
-        )
-    bits = [fmt]
-    if anime.episode_count:
-        bits.append(f"{anime.episode_count} eps")
-    if anime.year:
-        bits.append(str(anime.year))
-    return " · ".join(bits)
-
-
 def meta_line(anime: Anime) -> str:
     """The compact facts line: format · status · eps · year · studio · score."""
     status = anime.status.value.replace("_", " ").title()
@@ -355,8 +150,8 @@ def card_caption(anime: Anime, progress: WatchProgress | None = None,
     this is. So the caption answers only the question the poster cannot: what,
     if anything, is waiting for you here.
 
-    Deliberately not `continue_cells`' status reused at a smaller width. That
-    string is built around a seven-cell progress bar and a column grid, neither
+    Deliberately not the old list row's status reused at a smaller width. That
+    string was built around a seven-cell progress bar and a column grid, neither
     of which exists under a card, and cutting it to fit produced `▁▁▁▁ 4` —
     which is not a shorter version of the information, it is damage.
     """

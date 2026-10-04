@@ -170,23 +170,31 @@ def test_aired_through_counts_the_episode_once_its_time_has_passed():
 
 
 def test_a_past_due_schedule_does_not_claim_you_are_caught_up():
-    """The symptom with teeth. Episode 12 aired two days ago and is unwatched,
-    and `waiting_subtitle` called that "caught up" -- which `continue_cells`
-    renders dim and ranks below the actionable rows. The one episode the screen
-    exists to surface was both greyed out and sorted to the bottom."""
-    from anime_sh.tui.format import RANK_READY, continue_cells, waiting_subtitle
-    from anime_sh.domain.models import WatchProgress
+    """The symptom with teeth. Episode 12 aired two days ago and is unwatched, and
+    the screen called that "caught up" -- which it drew dimmed and ranked below
+    the actionable cards. The one episode the screen exists to surface was both
+    greyed out and sorted to the bottom."""
+    import pytest
 
-    assert waiting_subtitle(FUTURE, 11.0, NOW) == "caught up · Ep 12 in 2d 0h"
-    assert waiting_subtitle(PAST, 11.0, NOW) is None, "episode 12 is out and unwatched"
+    pytest.importorskip("textual")
+    from anime_sh.domain.models import WatchProgress
+    from anime_sh.tui.format import card_caption
+    from anime_sh.tui.screens.home import _readiness
 
     finished_11 = WatchProgress(
         anime_id=AnimeId(anilist=1), episode=11.0, position_s=0,
         duration_s=0, completed=True, updated_at=NOW,
     )
-    row, plays = continue_cells(PAST, finished_11, NOW)
-    assert plays == 12.0
-    assert row.rank == RANK_READY and not row.dim, "a released episode must not be dimmed"
+    assert finished_11.next_episode == 12.0
+    # The released episode is named as waiting, and the still-unaired one is the
+    # only card of the two that counts down -- which is what puts it below.
+    out = card_caption(PAST, finished_11, NOW)
+    not_yet = card_caption(FUTURE, finished_11, NOW)
+    assert out == "ep 12 ready", out
+    assert not_yet == "ep 12 in 2d 0h", not_yet
+    assert _readiness((PAST, out, 12.0, 0.0)) < _readiness((FUTURE, not_yet, 12.0, 0.0)), (
+        "a released episode must not sort below one that has not aired"
+    )
 
 
 def test_auto_next_reaches_an_episode_that_has_just_aired():
@@ -203,14 +211,6 @@ def test_auto_next_reaches_an_episode_that_has_just_aired():
 def test_play_does_not_refuse_an_episode_that_has_already_aired():
     assert [has_aired(FUTURE, n) for n in (11, 12)] == [True, False]
     assert [has_aired(PAST, n) for n in (12, 13)] == [True, False]
-
-
-def test_the_counts_on_the_browse_rows_include_it_too():
-    from anime_sh.tui.format import browse_cells, home_subtitle
-
-    assert browse_cells(FUTURE, NOW).position == "11/12 eps"
-    assert browse_cells(PAST, NOW).position == "12/12 eps", "12 of 12 have aired"
-    assert "12/12 eps" in home_subtitle(PAST, NOW)
 
 
 def test_a_countdown_stops_calling_a_stale_date_a_live_broadcast():
