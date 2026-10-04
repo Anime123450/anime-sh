@@ -4,6 +4,8 @@ All notable changes to anime-sh. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.2.92] - 2026-10-04
+
 ### Changed
 
 - **The home screen is cover art now, not a list.** 0.2.91 tidied the old
