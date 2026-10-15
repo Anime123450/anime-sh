@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-11
 
-**Status:** Draft for written-spec approval. Ani approved the overall direction on 2026-10-11; the written specification remains subject to review before implementation planning.
+**Status:** Approved for implementation planning. Ani approved the written specification on 2026-10-15.
 
 ## 1. Purpose
 
