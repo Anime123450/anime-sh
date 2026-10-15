@@ -37,4 +37,13 @@ The captures are 994×636 SVGs at 80×24 and 1482×1026 at 120×40. Review again
 
 ## Task-1 disposition
 
-One reproducible, narrowly scoped UI defect was found: the help annotation is horizontally clipped. No stylistic differences were logged as defects. The next audit task should add the regression test first and fix only this behavior; the design direction and unaffected screens remain unchanged.
+One reproducible, narrowly scoped UI defect was found: the help annotation is horizontally clipped. No stylistic differences were logged as defects. The search-caret export discrepancy is excluded because the live Pilot state showed a correctly focused input and cursor position; the design direction and unaffected screens remain unchanged.
+
+## Task-2 result
+
+- **Regression-first:** `tests/tui/test_ui_audit_regressions.py::test_help_description_wraps_to_fit_modal` was run against the original layout and failed because the rendered help text omitted the final word “cursor.” After the fix, the test passes. Its assertion removes box-border glyphs before checking the full sentence, so legitimate word wrapping is accepted.
+- **Root cause:** At 120×40, `#help-scroll` was capped at a 70-cell region, while `#help-box` used `width: auto` and produced a 78-cell region. Although `Static` reported `text_wrap=wrap`, its intrinsic width exceeded the scroll viewport, so the last word was clipped rather than wrapped.
+- **Fix:** Changed only `HelpScreen #help-box` to `width: 1fr`. The post-fix Pilot probe measured a 70-cell parent region and a 68-cell child region; the child now fits and wraps within the viewport.
+- **Verification:** The focused regression passed (**1 passed in 1.05s**). The planned UI suite passed (**60 passed in 131.02s**): regression, home design, focus/keys, episode layouts, themes, and providers.
+- **After captures:** `C:/Users/anime/AppData/Local/Temp/anime-sh-help-fixed/help-80x24.{txt,svg}` and `help-120x40.{txt,svg}`. At 120×40, the complete annotation is visible across two lines with no horizontal clipping. At 80×24, the help content extends below the initial viewport (vertical scrollbar visible); visible long lines wrap without horizontal clipping.
+- No other audit finding or screen was changed. The only production change is the help-box width rule; the new regression test and this report are the only accompanying changes.

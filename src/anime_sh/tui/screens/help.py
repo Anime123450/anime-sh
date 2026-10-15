@@ -59,7 +59,7 @@ class HelpScreen(ModalScreen):
         border: round $panel; background: $surface;
         scrollbar-size-vertical: 1;
     }
-    HelpScreen #help-box { width: auto; height: auto; padding: 1 3; }
+    HelpScreen #help-box { width: 1fr; height: auto; padding: 1 3; }
     """
 
     def compose(self) -> ComposeResult:
