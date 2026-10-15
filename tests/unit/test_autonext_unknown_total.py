@@ -7,7 +7,7 @@ populated for those, so what has aired *is* known; it is only the planned total
 that isn't.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from anime_sh.app.playback import PlaybackService
 from anime_sh.domain.models import Anime, AnimeId, Status, Title
@@ -23,7 +23,7 @@ def _show(*, planned: int | None, next_ep: int | None,
         status=status,
         episode_count=planned,
         next_airing_episode=next_ep,
-        next_airing_at=datetime(2026, 10, 5, tzinfo=timezone.utc) if next_ep else None,
+        next_airing_at=datetime.now(timezone.utc) + timedelta(days=2) if next_ep else None,
     )
 
 
