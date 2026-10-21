@@ -11,9 +11,28 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+#: Players anime-sh can drive. mpv is the default; VLC is the opt-in second
+#: backend. Anything else used to load fine and then quietly played nothing
+#: (the container fell back to a do-nothing player), so it is refused here.
+PLAYER_NAMES: tuple[str, ...] = ("mpv", "vlc")
+
+
 class PlayerConfig(BaseModel):
     name: str = "mpv"
     args: list[str] = Field(default_factory=list)
+    #: Full path to vlc(.exe) when it is not where discovery looks. Empty means
+    #: discover it (PATH, then the standard install locations).
+    vlc_path: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _known_player(cls, v: str) -> str:
+        name = v.strip().lower()
+        if name not in PLAYER_NAMES:
+            raise ValueError(
+                f"unknown player {v!r}; choose one of: " + ", ".join(PLAYER_NAMES)
+            )
+        return name
 
 
 class PlaybackConfig(BaseModel):

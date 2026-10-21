@@ -18,6 +18,7 @@ from .models import (
     Episode,
     FavoriteItem,
     HistoryItem,
+    PlayerInfo,
     ProviderHealth,
     ProviderRef,
     ResumeItem,
@@ -130,6 +131,24 @@ class Player(Protocol):
     async def play(
         self, stream: Stream, *, title: str, start_s: int = 0
     ) -> PlaybackHandle: ...
+
+
+@runtime_checkable
+class PlayerProvider(Protocol):
+    """Builds the player for one playback session from the current settings.
+
+    The composition root owns the concrete players; services and screens ask
+    this port instead, so a backend chosen in Settings takes effect on the next
+    play without anything above the infra layer importing mpv or VLC code.
+    Implementations must not silently substitute another backend: when the
+    chosen one is unavailable, ``create`` raises and ``status`` says why.
+    """
+
+    def status(self, name: str, *, path_override: str = "") -> PlayerInfo: ...
+
+    def create(
+        self, name: str, *, path_override: str = "", args: list[str] | None = None
+    ) -> Player: ...
 
 
 @runtime_checkable

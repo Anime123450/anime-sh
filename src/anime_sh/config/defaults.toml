@@ -3,7 +3,8 @@
 # an ANIME_SH_* environment variable. Precedence: CLI flag > env > file > these.
 
 [player]
-name = "mpv"          # mpv | vlc | iina | potplayer
+name = "mpv"          # mpv | vlc
+vlc_path = ""         # empty = auto-detect vlc(.exe)
 args = []
 
 [playback]

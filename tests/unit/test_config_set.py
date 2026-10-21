@@ -105,3 +105,12 @@ def test_provider_parallelism_must_be_at_least_one(tmp_path):
 
     path.write_text("[providers]\nparallel = 2\n", encoding="utf-8")
     assert load_config(path).providers.parallel == 2
+
+
+def test_a_windows_vlc_path_round_trips_and_leaves_no_temp_files(tmp_path):
+    """The atomic writer must keep backslashes intact and clean up after itself."""
+    path = tmp_path / "config.toml"
+    vlc = r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+    assert set_config_value("player.vlc_path", vlc, path) == vlc
+    assert load_config(path).player.vlc_path == vlc
+    assert [p.name for p in tmp_path.iterdir()] == ["config.toml"]

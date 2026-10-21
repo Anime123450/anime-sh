@@ -415,3 +415,18 @@ class DownloadItem:
     path: str | None
     status: DownloadStatus
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerInfo:
+    """What a player backend looks like on this machine, for the Settings
+    screen and for a clear error before playback starts.
+
+    ``path`` is the executable that would be launched (None when not found);
+    ``detail`` is a short human reason, e.g. why it is unavailable.
+    """
+
+    name: str
+    available: bool
+    path: str | None = None
+    detail: str = ""

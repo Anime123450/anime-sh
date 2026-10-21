@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any, get_args, get_origin
@@ -73,9 +75,33 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
     except Exception as e:
         raise ConfigError(f"{dotted_key}={value!r} is invalid: {e}") from e
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_dump_toml(raw), encoding="utf-8")
+    _write_atomic(path, _dump_toml(raw))
     return typed
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace ``path`` with ``text`` all at once, or not at all.
+
+    Writing in place truncates first, so a crash, a full disk, or an antivirus
+    lock mid-write left a half-written config that refused to load — the one
+    failure a settings screen must never cause. The new content goes to a
+    temporary file beside the target (same directory, so the replace stays on
+    one filesystem) and only a successful ``os.replace`` makes it visible.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        raise ConfigError(f"could not write config at {path}: {e}") from e
 
 
 # Settings typed as plain strings that nonetheless accept only a fixed set.
@@ -83,6 +109,7 @@ def set_config_value(dotted_key: str, value: str, path: Path | None = None) -> A
 # loads (playback falls back to a sane default) — but writing one is a typo, and
 # a typo that silently changes behaviour is worse than an error.
 _CHOICES: dict[str, tuple[str, ...]] = {
+    "player.name": ("mpv", "vlc"),
     "playback.quality": ("best", "1080p", "720p", "480p", "360p", "worst"),
     "playback.audio": ("sub", "dub"),
     "ui.episodes": ("grid", "list", "compact"),
