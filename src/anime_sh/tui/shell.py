@@ -118,7 +118,7 @@ class TopBar(Static):
 
 #: How a key is written on the bars, against the name Textual knows it by.
 #: Only the ones that differ: a bar says `esc`, the binding says `escape`.
-_KEY_NAMES = {"↵": "enter", "esc": "escape", "?": "question_mark"}
+_KEY_NAMES = {"↵": "enter", "esc": "escape", "?": "question_mark", ",": "comma"}
 
 
 def clickable(markup: str, action: str) -> str:
@@ -143,7 +143,7 @@ class ActionBar(Static):
     """
 
     #: Always available, in the order they are most often wanted.
-    _GLOBAL = (("/", "search"), ("?", "help"), ("q", "quit"))
+    _GLOBAL = (("/", "search"), ("?", "help"), ("q", "quit"), (",", "settings"))
 
     def render_actions(self, width: int, *, contextual=(), zoomed: bool = False,
                        zoom: bool = True) -> None:

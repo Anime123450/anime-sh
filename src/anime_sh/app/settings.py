@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from ..config.loader import _read_raw, config_path, load_config, set_config_value
+from ..config.loader import (
+    _read_raw,
+    choices_for,
+    config_path,
+    load_config,
+    set_config_value,
+)
 from ..config.schema import Config
 from ..domain.errors import ConfigError
 
@@ -110,6 +116,11 @@ class SettingsService:
             source=source,
             read_only=source in ("cli", "env"),
         )
+
+    def choices(self, dotted_key: str) -> tuple[str, ...]:
+        """The values a fixed-choice setting cycles through; () for free text."""
+        _split(dotted_key)
+        return choices_for(dotted_key)
 
     # -- writes --------------------------------------------------------------- #
     def update(self, dotted_key: str, value: str) -> SettingInfo:

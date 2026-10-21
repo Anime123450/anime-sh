@@ -146,6 +146,13 @@ class DetailScreen(Screen):
             return DEFAULT_EPISODE_LAYOUT
         return value if value in EPISODE_LAYOUTS else DEFAULT_EPISODE_LAYOUT
 
+    def apply_setting(self, key: str, value) -> None:
+        """Settings saved a value; re-lay the episodes if it was the layout."""
+        if key == "ui.episodes" and value != self._layout:
+            self._layout = str(value)
+            if self._numbers:
+                self._relayout_episodes()
+
     def action_cycle_layout(self) -> None:
         """Step to the next episode layout and remember it.
 

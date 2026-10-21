@@ -20,6 +20,7 @@ from textual.screen import Screen
 from ..app.library import LibraryService
 from ..app.playback import PlaybackService
 from ..app.search import SearchService
+from ..app.settings import SettingsService
 from ..domain.models import Audio
 from ..domain.ports import MetadataSource
 from .screens.home import HomeScreen
@@ -38,6 +39,12 @@ class TuiServices:
     # Optional AniList sync service — lets the home screen pull remote progress
     # on launch so Continue Watching reflects other devices. None when unlinked.
     sync: object | None = None
+    # Reads and writes settings with their sources. None means "the user's
+    # config file, nothing overridden" — what a bare launch has anyway.
+    settings: SettingsService | None = None
+    # A PlayerProvider, when the composition root has one: lets Settings say
+    # whether mpv and VLC are actually installed before you pick one.
+    players: object | None = None
 
 
 # There used to be a map from config theme names onto Textual's built-ins. It
@@ -54,11 +61,14 @@ class AnimeShApp(App):
         Binding("q", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
         Binding("l", "my_list", "My List"),
-        Binding("t", "themes", "Theme"),
+        # One Settings screen with tabs. `t` and `p` predate it and still land
+        # on the tab they always meant, so nobody's muscle memory breaks.
+        Binding("comma", "settings", "Settings"),
+        Binding("t", "settings('appearance')", "Theme"),
         # Which sources are searched was only reachable through
         # `anime providers enable|disable` — a thing you had to know existed,
         # and the setting most worth reaching when nothing will play.
-        Binding("p", "providers", "Providers"),
+        Binding("p", "settings('sources')", "Providers"),
         # priority so `?` opens help even while the search box has focus.
         Binding("question_mark", "help", "Help", priority=True),
         Binding("escape", "back", "Back", show=False),
@@ -152,16 +162,32 @@ class AnimeShApp(App):
         if not isinstance(self.screen, HelpScreen):
             self.push_screen(HelpScreen())
 
-    def action_providers(self) -> None:
-        from .screens.providers import ProvidersScreen
+    @property
+    def settings_service(self) -> SettingsService:
+        if self.services.settings is None:
+            self.services.settings = SettingsService()
+        return self.services.settings
 
-        self.push_screen(ProvidersScreen())
+    def action_settings(self, category: str | None = None) -> None:
+        """Open Settings, or switch tab if it is already open.
+
+        Never stacks a second copy: `p` pressed inside Settings moves to
+        Sources rather than opening Settings over Settings.
+        """
+        from .screens.settings import SettingsScreen
+
+        if isinstance(self.screen, SettingsScreen):
+            if category is not None:
+                self.screen.show_category(category)
+            return
+        self.push_screen(SettingsScreen(category or "appearance"))
+
+    # The old entry points, kept for anything that still calls them by name.
+    def action_providers(self) -> None:
+        self.action_settings("sources")
 
     def action_themes(self) -> None:
-        from .screens.themes import ThemesScreen
-
-        if not isinstance(self.screen, ThemesScreen):
-            self.push_screen(ThemesScreen())
+        self.action_settings("appearance")
 
     def action_my_list(self) -> None:
         from .screens.mylist import MyListScreen

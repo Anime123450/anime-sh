@@ -37,8 +37,8 @@ _HELP = """[b]anime-sh[/b]
   [cyan]v[/cyan]              denser view — home shelves, or the episode grid
   [cyan]n[/cyan]              next season, on a show
   [cyan]l[/cyan]              my AniList list
-  [cyan]t[/cyan]              theme, previewed live — Esc keeps the old one
-  [cyan]p[/cyan]              providers, the sources that get searched
+  [cyan],[/cyan]              settings — appearance, playback, sources
+  [cyan]t[/cyan]  [cyan]p[/cyan]           settings at the theme / the sources
   [cyan]?[/cyan]  [cyan]q[/cyan]           this help, and quit
   [cyan]Ctrl+P[/cyan]         command palette
 

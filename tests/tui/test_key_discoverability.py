@@ -36,6 +36,7 @@ _AS_WRITTEN = {
     "home": "Home",
     "end": "End",
     "enter": "Enter",
+    "comma": ",",
 }
 
 

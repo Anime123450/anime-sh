@@ -117,6 +117,11 @@ _CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 
+def choices_for(dotted_key: str) -> tuple[str, ...]:
+    """The fixed values ``section.field`` accepts, or () for a free value."""
+    return _CHOICES.get(dotted_key, ())
+
+
 def _reject_unknown_choice(dotted_key: str, typed: Any) -> None:
     allowed = _CHOICES.get(dotted_key)
     if allowed and str(typed) not in allowed:

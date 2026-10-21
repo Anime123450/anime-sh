@@ -132,30 +132,41 @@ def test_builtin_names_are_offered_in_a_stable_order():
 
 
 # --------------------------------------------------------------------------- #
-# The picker
+# The picker — the theme list on the Appearance tab of Settings
 # --------------------------------------------------------------------------- #
-def _themed_app():
+def _themed_app(config=None):
+    import tempfile
+    from pathlib import Path
+
+    from anime_sh.app.settings import SettingsService
     from anime_sh.tui import AnimeShApp, TuiServices
 
     from .test_app import FakeLibrary, FakeMetadata, FakePlayback, FakeSearch, _noop
 
+    config = config or Path(tempfile.mkdtemp()) / "config.toml"
     return AnimeShApp(
         TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
-                    library=FakeLibrary(), playback=FakePlayback(), aclose=_noop),
+                    library=FakeLibrary(), playback=FakePlayback(), aclose=_noop,
+                    settings=SettingsService(config)),
         theme="midnight",
     )
 
 
 async def _open_picker(app, pilot):
-    from anime_sh.tui.screens.themes import ThemesScreen
+    from anime_sh.tui.screens.settings import SettingsScreen, ThemeRow
 
     await pilot.pause()
     await app.workers.wait_for_complete()
     await pilot.press("t")
     await pilot.pause()
-    assert isinstance(app.screen, ThemesScreen), (
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+    assert isinstance(app.screen, SettingsScreen), (
         f"pressing t opened {type(app.screen).__name__}"
     )
+    assert app.screen.category == "appearance"
+    assert isinstance(app.screen.query_one("#settings-list").highlighted_child,
+                      ThemeRow), "t did not land on the theme list"
     return app.screen
 
 
@@ -187,52 +198,44 @@ async def test_escape_puts_back_the_theme_you_arrived_with():
         assert app.theme == original, "cancelling kept the previewed theme"
 
 
-async def test_choosing_a_theme_writes_it_to_the_config():
+async def test_choosing_a_theme_writes_it_to_the_config(tmp_path):
     """A theme chosen in the app and gone again next launch reads as the setting
     not having worked."""
-    import anime_sh.tui.screens.themes as picker
+    from anime_sh.config.loader import load_config
 
-    saved: list[tuple[str, str]] = []
-
-    async def _run():
-        app = _themed_app()
-        async with app.run_test(size=(120, 40)) as pilot:
-            screen = await _open_picker(app, pilot)
-            screen._persist = lambda name: saved.append(("ui.theme", name))
-            await pilot.press("down")
-            await pilot.pause()
-            chosen = app.theme
-            await pilot.press("enter")
-            await pilot.pause()
-            return chosen
-
-    chosen = await _run()
-    assert saved == [("ui.theme", chosen)], f"config writes were {saved}"
-    assert picker  # silence the unused import in the failure path
+    config = tmp_path / "config.toml"
+    app = _themed_app(config)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _open_picker(app, pilot)
+        await pilot.press("down")
+        await pilot.pause()
+        chosen = app.theme
+        await pilot.press("enter")
+        await pilot.pause()
+    assert load_config(config).ui.theme == chosen
 
 
 async def test_the_picker_offers_every_theme():
-    from textual.widgets import ListView
+    from anime_sh.tui.screens.settings import ThemeRow
 
     app = _themed_app()
     async with app.run_test(size=(120, 40)) as pilot:
         screen = await _open_picker(app, pilot)
-        lv = screen.query_one("#theme-list", ListView)
-        names = [item.theme_name for item in lv.children]
+        names = [item.theme_name for item in screen.query(ThemeRow)]
         assert names == list(ALL_THEMES), f"picker showed {names}"
 
 
-async def test_the_picker_lets_the_preview_show_through():
-    """The live preview is the point, and it is invisible behind an opaque
-    modal. This was broken once already and looked fine in every test: the
-    screen's own DEFAULT_CSS asked for translucency and `app.tcss`'s app-level
-    `Screen` rule silently outranked it."""
+async def test_the_preview_is_visible_on_the_settings_screen_itself():
+    """The live preview is the point. Settings is a full screen drawn in the
+    app's own colours, so the preview has to repaint it — a screen that kept
+    its old background while the theme changed would preview nothing."""
     app = _themed_app()
     async with app.run_test(size=(120, 40)) as pilot:
         screen = await _open_picker(app, pilot)
-        assert screen.styles.background.a < 1.0, (
-            "the theme picker is opaque, so nothing it previews can be seen"
-        )
+        before = screen.query_one("#settings-list").styles.background
+        await pilot.press("down")
+        await pilot.pause()
+        assert screen.query_one("#settings-list").styles.background != before
 
 
 # --------------------------------------------------------------------------- #

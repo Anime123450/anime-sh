@@ -7,7 +7,9 @@ playback. This is how the TUI is verified in CI.
 
 from __future__ import annotations
 
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from textual.widgets import Label, ListView, Static
@@ -23,6 +25,7 @@ from anime_sh.domain.models import (
     Title,
     WatchProgress,
 )
+from anime_sh.app.settings import SettingsService
 from anime_sh.tui import AnimeShApp, TuiServices
 from anime_sh.tui.cards import Shelf
 from anime_sh.tui.screens.detail import DetailScreen
@@ -95,6 +98,9 @@ def _make_app(tracker=None):
         search=FakeSearch(), metadata=FakeMetadata(),
         library=FakeLibrary(), playback=playback,
         aclose=_noop, tracker=tracker,
+        # A throwaway config: opening Settings in a test must never write the
+        # developer's real one.
+        settings=SettingsService(Path(tempfile.mkdtemp()) / "config.toml"),
     )
     return AnimeShApp(services, theme="tokyo-night"), playback
 

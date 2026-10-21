@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import re
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,7 +37,9 @@ from anime_sh.domain.models import (  # noqa: E402
     Title,
     WatchProgress,
 )
+from anime_sh.app.settings import SettingsService  # noqa: E402
 from anime_sh.tui import AnimeShApp, TuiServices  # noqa: E402
+from anime_sh.tui.screens.settings import CATEGORIES, SettingsScreen  # noqa: E402
 
 NOW = datetime.now(timezone.utc)
 
@@ -300,7 +303,15 @@ def make_app(theme: str = "midnight") -> AnimeShApp:
     services = TuiServices(
         search=FakeSearch(), metadata=FakeMetadata(), library=FakeLibrary(),
         playback=FakePlayback(), aclose=_noop, tracker=None, sync=None,
+        # A throwaway config, so a shot never reads (or writes) the real one
+        # and two machines photograph the same values.
+        settings=SettingsService(Path(tempfile.mkdtemp()) / "config.toml"),
     )
+    # Fixed source lists: what is installed differs between machines.
+    SettingsScreen._installed_providers = staticmethod(
+        lambda: [("anizone", 90), ("anikoto", 85), ("allanime", 80)])
+    SettingsScreen._installed_resolvers = staticmethod(
+        lambda: ["filemoon", "megacloud", "zoko"])
     return AnimeShApp(services, theme=theme, audio=Audio.SUB)
 
 
@@ -321,7 +332,7 @@ def _with_intrinsic_size(svg: str) -> str:
 
 
 async def _shoot(out: Path, size, screen: str, theme: str, settle: float,
-                 query: str = "frie") -> Path:
+                 query: str = "frie", category: str = "appearance") -> Path:
     w, h = size
     app = make_app(theme)
     async with app.run_test(size=(w, h)) as pilot:
@@ -338,6 +349,12 @@ async def _shoot(out: Path, size, screen: str, theme: str, settle: float,
             await pilot.press("enter")
             await asyncio.sleep(0.8)
             await pilot.pause()
+        elif screen == "settings":
+            await app.push_screen(SettingsScreen(category))
+            await asyncio.sleep(0.4)
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
         elif screen == "help":
             await pilot.press("question_mark")
             await asyncio.sleep(0.4)
@@ -345,6 +362,8 @@ async def _shoot(out: Path, size, screen: str, theme: str, settle: float,
         svg = _with_intrinsic_size(
             app.export_screenshot(title=f"anime-sh {w}x{h}"))
         text = _export_text(app)
+    if screen == "settings":
+        screen = f"settings-{category}"
     name = f"{screen}-{w}x{h}.svg"
     (out / name).write_text(svg, encoding="utf-8")
     # The character grid beside the picture. A screenshot shows whether it looks
@@ -379,7 +398,9 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--screen", default="home",
-                    choices=["home", "search", "detail", "help"])
+                    choices=["home", "search", "detail", "help", "settings"])
+    ap.add_argument("--settings-category", default="appearance",
+                    choices=list(CATEGORIES))
     ap.add_argument("--theme", default="midnight")
     ap.add_argument("--settle", type=float, default=1.2)
     # What `--screen search` types. `--query zzz` is how the no-matches state
@@ -397,7 +418,7 @@ async def main() -> None:
     made = []
     for size in sizes:
         made.append(await _shoot(out, size, args.screen, args.theme, args.settle,
-                                 args.query))
+                                 args.query, args.settings_category))
         print("wrote", made[-1].name)
 
     # One viewer page per shot, with the SVG blown up to the full viewport width.

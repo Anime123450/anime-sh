@@ -246,6 +246,12 @@ class HomeScreen(Screen):
     def _apply_density(self) -> None:
         self.set_class(self._density == "compact", "-dense")
 
+    def apply_setting(self, key: str, value) -> None:
+        """Settings saved a value; show it here without waiting for a restart."""
+        if key == "ui.density":
+            self._density = str(value)
+            self._apply_density()
+
     def action_cycle_density(self) -> None:
         """Swap the home screen between comfortable and compact, and remember it.
 
