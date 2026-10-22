@@ -29,7 +29,7 @@ class DownloadService:
         downloader: Downloader,
         store: DownloadStore,
         library: Library,
-        download_dir: str = "~/Videos/anime",
+        download_dir: "str | Path | Callable[[], str | Path]" = "~/Videos/anime",
         stream_proxy=None,
     ) -> None:
         # Either the service itself, or a zero-argument factory for it. Only
@@ -40,7 +40,11 @@ class DownloadService:
         self._downloader = downloader
         self._store = store
         self._library = library
-        self._dir = Path(download_dir).expanduser()
+        # A path, or a zero-argument callable returning the currently configured
+        # one (the TUI's Settings can change it while the app runs). Read once
+        # per job: a job writes where it started, and the next job — and every
+        # "is this on disk?" check after the change — uses the new folder.
+        self._dir_source = download_dir
         # Same reasoning as `playback`: the proxy is only consulted while a
         # download is actually running, and building one eagerly dragged the
         # HTTP stack into `anime downloads`.
@@ -69,12 +73,26 @@ class DownloadService:
             self._playback_source = source  # resolve once, then reuse
         return source
 
+    @property
+    def _dir(self) -> Path:
+        source = self._dir_source
+        if callable(source):
+            try:
+                source = source()
+            except Exception:
+                # An unreadable config must not break listing or playback's
+                # "on disk?" check; fall back to where downloads go by default.
+                source = "~/Videos/anime"
+        return Path(source).expanduser()
+
     def available(self) -> bool:
         return self._downloader.available()
 
-    def destination(self, anime: Anime, episode: float) -> Path:
+    def destination(
+        self, anime: Anime, episode: float, *, root: Path | None = None
+    ) -> Path:
         show = _safe(anime.title.preferred)
-        return self._dir / show / f"{show} - E{episode:g}.mp4"
+        return (root or self._dir) / show / f"{show} - E{episode:g}.mp4"
 
     def local_path(self, anime: Anime, episode: float) -> Path | None:
         """Where this episode already sits on disk, or None.
@@ -91,13 +109,14 @@ class DownloadService:
         self, anime: Anime, episode: float, *, audio: Audio = Audio.SUB,
         on_line: Callable[[str], None] | None = None,
     ) -> Path:
+        root = self._dir  # this job's folder, fixed before anything slow happens
         resolved = await self._playback.resolve(anime, episode, audio=audio)
         stream = (
             self._stream_proxy.rewrite(resolved.stream)
             if self._stream_proxy else resolved.stream
         )
         await self._library.save_anime(anime)
-        dest = self.destination(anime, episode)
+        dest = self.destination(anime, episode, root=root)
 
         download_id = await self._store.add(anime.id, episode, str(dest))
         await self._store.set_status(download_id, DownloadStatus.DOWNLOADING)

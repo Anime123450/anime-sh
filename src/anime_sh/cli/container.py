@@ -31,8 +31,11 @@ def _order_resolvers(resolvers: list) -> list:
 class Container:
     """Lazily-built object graph. Attribute access is the trigger."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(self, config: Config | None = None, *, settings=None) -> None:
         self.config = config or load_config()
+        # Optional SettingsService. When given, each playback session and
+        # download job re-reads the settings it uses instead of the launch config.
+        self.settings = settings
         self._closed = False
 
     # -- databases ---------------------------------------------------------- #
@@ -210,7 +213,40 @@ class Container:
         # deadlock the graph — and dropping this line entirely is worse, because
         # it silently disables offline playback rather than failing loudly.
         playback.set_local_source(lambda *a, **kw: self.download.local_path(*a, **kw))
+        if self.settings is not None:
+            playback.set_session_source(self._session_settings)
         return playback
+
+    def _session_settings(self):
+        """Settings for one new playback session, read from the config now.
+
+        Only wired when a SettingsService was supplied (the TUI), so a CLI run
+        keeps exactly the config — and flags — it started with.
+        """
+        from ..app.playback import PlaybackSettings
+        from ..infra.players import UnavailablePlayer
+
+        cfg = self.settings.snapshot()
+        name = cfg.player.name.lower()
+        if (name, cfg.player.vlc_path, tuple(cfg.player.args)) == self._player_key:
+            player = self.player  # unchanged: keep the instance built at launch
+        else:
+            try:
+                player = self.players.create(
+                    name, path_override=cfg.player.vlc_path, args=cfg.player.args)
+            except Exception as e:
+                player = UnavailablePlayer(name, e)
+        pb = cfg.playback
+        return PlaybackSettings(
+            player=player, quality=pb.quality, skip_intro=pb.skip_intro,
+            skip_outro=pb.skip_outro, auto_next=pb.auto_next,
+            prefer_local=pb.prefer_downloads,
+        )
+
+    @property
+    def _player_key(self):
+        p = self.config.player
+        return (p.name.lower(), p.vlc_path, tuple(p.args))
 
     @cached_property
     def download(self):
@@ -224,10 +260,17 @@ class Container:
             downloader=FfmpegDownloader(),
             store=self.download_store,
             library=self.library,
-            download_dir=self.config.downloads.dir,
+            download_dir=self._download_dir,
             # Also a factory: listing downloads must not start the proxy.
             stream_proxy=lambda: self.stream_proxy,
         )
+
+    @property
+    def _download_dir(self):
+        """The configured downloads folder: read live when the TUI can change it."""
+        if self.settings is None:
+            return self.config.downloads.dir
+        return lambda: self.settings.snapshot().downloads.dir
 
     # -- shutdown ----------------------------------------------------------- #
     async def aclose(self) -> None:
@@ -268,6 +311,6 @@ class Container:
                 await db.close()
 
 
-def build_container(config: Config | None = None) -> Container:
+def build_container(config: Config | None = None, *, settings=None) -> Container:
     """Wire everything. Nothing is constructed until it is first asked for."""
-    return Container(config)
+    return Container(config, settings=settings)

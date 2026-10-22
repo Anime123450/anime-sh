@@ -27,11 +27,12 @@ import asyncio
 import contextlib
 import logging
 import time
-from dataclasses import replace
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..domain.errors import NoStreamsFound, PlayerError, ResolverError
+from ..domain.errors import NoStreamsFound, PlayerError, PlayerUnavailable, ResolverError
 from ..domain.models import (
     Anime,
     Audio,
@@ -81,6 +82,31 @@ class ResolvedPlayback:
         self.resume_s = resume_s
 
 
+@dataclass(frozen=True, slots=True)
+class PlaybackSettings:
+    """Everything one playback session reads from settings, fixed at its start.
+
+    A session is one ``play`` / ``play_and_track`` call, including the episodes
+    auto-next rolls on to. Settings saved while it runs apply to the next one:
+    switching player or quality under a running episode would mean tearing down
+    the window the user is watching.
+    """
+
+    player: Player
+    quality: str = "best"
+    skip_intro: bool = True
+    skip_outro: bool = False
+    auto_next: bool = True
+    prefer_local: bool = True
+
+
+# (service, settings) for the session running in the current task. A ContextVar,
+# not an attribute, so two sessions on one service never see each other's.
+_ACTIVE: "ContextVar[tuple[object, PlaybackSettings] | None]" = ContextVar(
+    "anime_sh_playback_session", default=None
+)
+
+
 class PlaybackService:
     def __init__(
         self,
@@ -106,13 +132,10 @@ class PlaybackService:
         # An episode already on this disk beats anything on the internet. Off
         # only when the caller explicitly asked to stream (`anime play --stream`)
         # -- usually because the local copy is suspect.
-        self._prefer_local = prefer_local
         # Set by the composition root via set_local_source.
         self._local_path = None
         self._resolvers = resolvers
-        self._player = player
         self._library = library
-        self._quality = quality
         # Optional de-obfuscating proxy for hostile CDNs (PNG-disguised segments).
         self._stream_proxy = stream_proxy
         # Optional liveness probe: skips a resolved stream whose CDN is already
@@ -123,11 +146,74 @@ class PlaybackService:
         self._skip_source = skip_source
         # Optional list-sync tracker (AniList): progress is pushed on completion.
         self._tracker = tracker
-        self._skip_intro = skip_intro
-        self._skip_outro = skip_outro
-        self._auto_next = auto_next
+        # What a session uses when nothing re-reads settings (the CLI, tests).
+        self._defaults = PlaybackSettings(
+            player=player, quality=quality, skip_intro=skip_intro,
+            skip_outro=skip_outro, auto_next=auto_next, prefer_local=prefer_local,
+        )
+        # Optional: returns fresh PlaybackSettings at the start of each session
+        # (the TUI wires this so Settings changes reach the next episode).
+        self._session_source: "Callable[[], PlaybackSettings | None] | None" = None
         # Optional UI hook for status lines ("Skipped intro", "Next episode…").
         self._notify = on_event or (lambda _msg: None)
+
+    # -- per-session settings ----------------------------------------------- #
+    def set_session_source(
+        self, source: "Callable[[], PlaybackSettings | None] | None"
+    ) -> None:
+        """Late-bind where each new session reads its settings from."""
+        self._session_source = source
+
+    def _settings(self) -> PlaybackSettings:
+        active = _ACTIVE.get()
+        if active is not None and active[0] is self:
+            return active[1]
+        return self._defaults
+
+    @property
+    def _player(self) -> Player:
+        return self._settings().player
+
+    @property
+    def _quality(self) -> str:
+        return self._settings().quality
+
+    @property
+    def _skip_intro(self) -> bool:
+        return self._settings().skip_intro
+
+    @property
+    def _skip_outro(self) -> bool:
+        return self._settings().skip_outro
+
+    @property
+    def _auto_next(self) -> bool:
+        return self._settings().auto_next
+
+    @property
+    def _prefer_local(self) -> bool:
+        return self._settings().prefer_local
+
+    @contextlib.contextmanager
+    def _session(self):
+        """Fix this session's settings once; nested calls reuse the outer ones."""
+        active = _ACTIVE.get()
+        if active is not None and active[0] is self:
+            yield active[1]
+            return
+        settings = self._defaults
+        if self._session_source is not None:
+            try:
+                settings = self._session_source() or self._defaults
+            except Exception as e:
+                # A hand-broken config file must not stop playback.
+                log.warning("couldn't read settings, using launch settings: %s", e)
+                self._notify("Couldn't read your settings — using the ones from launch.")
+        token = _ACTIVE.set((self, settings))
+        try:
+            yield settings
+        finally:
+            _ACTIVE.reset(token)
 
     def set_local_source(self, local_path: "Callable[[Anime, float], object] | None") -> None:
         """Late-bind "where is this episode on disk", which DownloadService owns.
@@ -171,13 +257,14 @@ class PlaybackService:
         ``allow_local`` defaults to False because the download path calls this:
         handing it a local file would make ffmpeg read and write the same path.
         """
-        progress = await self._library.get_progress(anime.id, episode_number)
-        resume_s = progress.position_s if progress and not progress.completed else 0
-        refs = [source.ref()] if source else None
-        async for episode, stream, _provider, _host in self._candidate_streams(
-            anime, episode_number, audio, refs, allow_local=allow_local
-        ):
-            return ResolvedPlayback(episode, stream, resume_s)
+        with self._session():
+            progress = await self._library.get_progress(anime.id, episode_number)
+            resume_s = progress.position_s if progress and not progress.completed else 0
+            refs = [source.ref()] if source else None
+            async for episode, stream, _provider, _host in self._candidate_streams(
+                anime, episode_number, audio, refs, allow_local=allow_local
+            ):
+                return ResolvedPlayback(episode, stream, resume_s)
         raise NoStreamsFound(
             f"no source resolved a stream for {anime.title.preferred!r} "
             f"ep {episode_number:g}"
@@ -394,13 +481,14 @@ class PlaybackService:
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB
     ):
         """Resolve then launch the player. Returns a PlaybackHandle."""
-        resolved = await self.resolve(
-            anime, episode_number, audio=audio, allow_local=True
-        )
-        title = _window_title(anime, episode_number)
-        return await self._player.play(
-            resolved.stream, title=title, start_s=resolved.resume_s
-        )
+        with self._session():
+            resolved = await self.resolve(
+                anime, episode_number, audio=audio, allow_local=True
+            )
+            title = _window_title(anime, episode_number)
+            return await self._player.play(
+                resolved.stream, title=title, start_s=resolved.resume_s
+            )
 
     async def play_and_track(
         self, anime: Anime, episode_number: float, *, audio: Audio = Audio.SUB,
@@ -414,12 +502,14 @@ class PlaybackService:
         otherwise it fans out across providers.
         """
         number = episode_number
-        while True:
-            finished = await self._play_episode(anime, number, audio=audio, source=source)
-            if not (self._auto_next and finished and self._has_next(anime, number)):
-                break
-            number += 1
-            self._notify(f"Next episode: {_ep_label(anime, number)}")
+        with self._session():  # one player and one set of settings throughout
+            while True:
+                finished = await self._play_episode(
+                    anime, number, audio=audio, source=source)
+                if not (self._auto_next and finished and self._has_next(anime, number)):
+                    break
+                number += 1
+                self._notify(f"Next episode: {_ep_label(anime, number)}")
 
     async def _play_episode(
         self, anime: Anime, episode_number: float, *, audio: Audio,
@@ -439,6 +529,7 @@ class PlaybackService:
 
         refs = [source.ref()] if source else None
         tried = 0
+        last_player_error: PlayerError | None = None
         async for episode, stream, provider, host in self._candidate_streams(
             anime, episode_number, audio, refs, allow_local=True
         ):
@@ -451,8 +542,11 @@ class PlaybackService:
             play_stream = await self._augment_skips(play_stream, anime, episode_number)
             try:
                 handle = await self._player.play(play_stream, title=title, start_s=resume_s)
-            except PlayerError as e:  # mpv exited before playback started
+            except PlayerUnavailable:
+                raise  # no player at all: another stream won't help
+            except PlayerError as e:  # the player gave up before playback started
                 log.debug("player failed on %s: %s", host, e)
+                last_player_error = e
                 continue
 
             played, last_event = await self._track(
@@ -468,6 +562,7 @@ class PlaybackService:
             f"couldn't play {anime.title.preferred!r} ep {episode_number:g} — "
             f"no source worked (your network may be blocking streaming hosts, "
             f"or the hosts are down)"
+            + (f"; last player error: {last_player_error}" if last_player_error else "")
         )
 
     async def _track(self, handle, anime, episode_number, provider, stream):

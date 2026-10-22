@@ -700,15 +700,22 @@ class DetailScreen(Screen):
             # of flattening both into a generic miss, which hides the real cause.
             hint = " Try another source (Esc, then pick a different one)." if self.source else ""
             self.notify(f"Episode {number:g}: {e}{hint}", severity="error")
-        except PlayerUnavailable:
-            # The single most common first-run wall: no mpv. Say exactly how to fix it.
-            self.notify(
-                "mpv isn't installed — that's the video player anime-sh uses.\n"
-                "Windows: scoop install mpv   ·   macOS: brew install mpv\n"
-                "Linux: sudo apt install mpv (or your package manager).\n"
-                "Then run `anime doctor` to confirm.",
-                title="Player not found", severity="error", timeout=15,
-            )
+        except PlayerUnavailable as e:
+            if "vlc" in str(e).lower():
+                # VLC was chosen in Settings and isn't where we looked: the
+                # error already names the fix (install it, set the path, or
+                # switch back to mpv). Never fall back to mpv silently.
+                self.notify(f"{e}\nChange it in Settings (,) → Playback.",
+                            title="VLC not found", severity="error", timeout=15)
+            else:
+                # The single most common first-run wall: no mpv. Say exactly how to fix it.
+                self.notify(
+                    "mpv isn't installed — that's the video player anime-sh uses.\n"
+                    "Windows: scoop install mpv   ·   macOS: brew install mpv\n"
+                    "Linux: sudo apt install mpv (or your package manager).\n"
+                    "Then run `anime doctor` to confirm.",
+                    title="Player not found", severity="error", timeout=15,
+                )
         except Exception as e:  # keep the TUI alive on any playback failure
             self.notify(f"Playback error: {e}", severity="error")
         # Playback (and any auto-next) is done and progress is saved — refresh

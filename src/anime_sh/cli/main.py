@@ -250,7 +250,8 @@ def _launch_tui() -> None:
     from ..tui import TuiServices, run_tui
 
     config = load_config()
-    c = build_container(config)
+    settings = SettingsService()
+    c = build_container(config, settings=settings)
     services = TuiServices(
         search=c.search,
         metadata=c.metadata,
@@ -259,7 +260,7 @@ def _launch_tui() -> None:
         aclose=c.aclose,
         tracker=c.tracker,
         sync=c.sync,
-        settings=SettingsService(),
+        settings=settings,
     )
     # Same reading of `playback.audio` every other command does. The TUI used to
     # take only the theme from config, which is why a dub preference stopped at
