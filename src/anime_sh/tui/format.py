@@ -119,7 +119,7 @@ def score_badge(score: int | None) -> str | None:
     if not score:
         return None
     color = "green" if score >= 75 else "yellow" if score >= 60 else "red"
-    return f"[{color}]★ {score}%[/{color}]"
+    return f"[b $background on {color}] ★ {score}% [/]"
 
 
 def meta_line(anime: Anime) -> str:

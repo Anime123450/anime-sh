@@ -30,6 +30,24 @@ from ..theme_names import BUILTIN_THEMES
 # cool, one warm — so the picker offers a real choice rather than two shades of
 # the same idea.
 
+# The default since the Marquee redesign. Plum-black tiers so poster art is the
+# brightest thing on screen; pink carries structure (brand, headings, titles),
+# gold is kept for "the keyboard is here", green/amber/rose for state.
+SAKURA = Theme(
+    name="sakura",
+    background="#0F0D16",
+    surface="#191624",
+    panel="#2A2440",
+    primary="#FF6FA8",
+    secondary="#A99BFF",
+    accent="#FFC857",
+    foreground="#ECE7F6",
+    success="#6EE7B7",
+    warning="#FBBF24",
+    error="#FB7185",
+    dark=True,
+)
+
 MIDNIGHT = Theme(
     name="midnight",
     # A deep blue-black that stays blue: pure greys make the covers, which are
@@ -85,7 +103,7 @@ PAPER = Theme(
 )
 
 #: Themes this app defines, by name.
-THEMES: dict[str, Theme] = {t.name: t for t in (MIDNIGHT, EMBER, PAPER)}
+THEMES: dict[str, Theme] = {t.name: t for t in (SAKURA, MIDNIGHT, EMBER, PAPER)}
 
 #: Textual's own themes offered alongside ours. The list lives in
 #: `anime_sh.theme_names` so the config schema can validate a theme name without

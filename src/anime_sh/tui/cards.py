@@ -56,7 +56,7 @@ def placeholder(cols: int = CARD_COLS, rows: int = CARD_ART_ROWS) -> Text:
         # `grey` rather than `$panel`: this is a Rich renderable (see
         # `PosterCard._colour`), and a Textual variable in a Rich style resolves
         # to nothing at all.
-        body.append("░" * cols, style="grey30")
+        body.append("╱" * cols, style="grey27")
         if i < rows - 1:
             body.append("\n")
     return body
@@ -120,19 +120,20 @@ class PosterCard(Static):
     def render(self):
         art = self._art if self._art is not None else placeholder()
         title = fit(self.anime.title.preferred, CARD_COLS).rstrip()
-        # The selected card says so in two ways at once: an accent rule under
-        # the art, and its title at full strength while the others sit dim. The
-        # rule is a shape, so the distinction survives a terminal with no
-        # colour — the same bargain the focused row makes everywhere else.
-        rule = Text(
-            "▔" * CARD_COLS,
-            style=self._colour("accent", "cyan") if self.selected
-            else self._colour("surface", "grey23"),
-        )
-        name = Text(title, style="bold" if self.selected else "dim")
-        caption = Text(fit(self.caption, CARD_COLS).rstrip(),
-                       style=self._colour("accent", "cyan") if self.selected
-                       else "dim")
+        accent = self._colour("accent", "yellow")
+        if self.selected:
+            # The poster sits on a gold bar and its caption becomes a chip: the
+            # one card on the shelf that Enter will open is unmistakable.
+            rule = Text("━" * CARD_COLS, style=accent)
+            name = Text(title, style="bold")
+            cap = fit(self.caption, CARD_COLS - 2).rstrip()
+            bg = self._colour("background", "black")
+            caption = Text(f" {cap} " if cap else "", style=f"bold {bg} on {accent}")
+        else:
+            rule = Text(" " * CARD_COLS)
+            name = Text(title, style="dim")
+            caption = Text(fit(self.caption, CARD_COLS).rstrip(),
+                           style=self._colour("primary", "magenta"))
         return Group(art, rule, name, caption)
 
 

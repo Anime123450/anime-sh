@@ -16,6 +16,7 @@ is the most obviously clickable thing the app has ever drawn, and `Shelf` is a
 from __future__ import annotations
 
 import asyncio
+import re
 
 from anime_sh.tui import AnimeShApp, TuiServices
 from anime_sh.tui.cards import PosterCard, Shelf
@@ -149,9 +150,11 @@ async def test_clicking_the_action_bar_runs_the_key():
         await _settle(app, pilot)
         bar = app.screen.query_one("#actionbar")
         text = str(bar.render())
-        assert "? help" in text, f"test premise: no help key on the bar: {text!r}"
+        # The key sits on a keycap chip, so it is padded: find the chip.
+        found = re.search(r"\?\s+help", text)
+        assert found, f"test premise: no help key on the bar: {text!r}"
 
-        await pilot.click(bar, offset=(text.index("? help"), 0))
+        await pilot.click(bar, offset=(found.start(), 0))
         await pilot.pause()
         await asyncio.sleep(0.3)
         await pilot.pause()

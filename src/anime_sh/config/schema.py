@@ -85,7 +85,7 @@ class ResolversConfig(BaseModel):
 
 
 class UiConfig(BaseModel):
-    theme: str = "midnight"
+    theme: str = "sakura"
     #: How the detail screen lays its episodes out. A grid suits a twelve-part
     #: season; a list suits someone who wants each episode's state spelled out;
     #: compact suits a series with four figures of them. None is right for

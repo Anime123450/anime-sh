@@ -80,7 +80,7 @@ class AnimeShApp(App):
     _REPEAT_TOAST_WINDOW_S = 8.0
 
     def __init__(
-        self, services: TuiServices, *, theme: str = "tokyo-night",
+        self, services: TuiServices, *, theme: str = "sakura",
         audio: Audio = Audio.SUB,
     ) -> None:
         super().__init__()
@@ -205,7 +205,7 @@ class AnimeShApp(App):
 
 
 async def run_tui(
-    services: TuiServices, *, theme: str = "tokyo-night", audio: Audio = Audio.SUB
+    services: TuiServices, *, theme: str = "sakura", audio: Audio = Audio.SUB
 ) -> None:
     """Entry point used by the CLI's bare ``anime`` command."""
     # Probe the terminal for a graphics protocol (Sixel/kitty) before Textual

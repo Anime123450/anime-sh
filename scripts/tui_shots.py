@@ -299,7 +299,7 @@ async def _noop():
     return None
 
 
-def make_app(theme: str = "midnight") -> AnimeShApp:
+def make_app(theme: str = "sakura") -> AnimeShApp:
     _fake_posters()
     services = TuiServices(
         search=FakeSearch(), metadata=FakeMetadata(), library=FakeLibrary(),
@@ -404,7 +404,7 @@ async def main() -> None:
                     choices=["home", "search", "detail", "help", "settings"])
     ap.add_argument("--settings-category", default="appearance",
                     choices=list(CATEGORIES))
-    ap.add_argument("--theme", default="midnight")
+    ap.add_argument("--theme", default="sakura")
     ap.add_argument("--settle", type=float, default=1.2)
     # What `--screen search` types. `--query zzz` is how the no-matches state
     # gets photographed.

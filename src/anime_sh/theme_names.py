@@ -14,7 +14,7 @@ that these names and the themes it builds cannot drift apart.
 from __future__ import annotations
 
 #: Themes defined by this app.
-OWN_THEMES: tuple[str, ...] = ("midnight", "ember", "paper")
+OWN_THEMES: tuple[str, ...] = ("sakura", "midnight", "ember", "paper")
 
 #: Textual themes offered alongside them. Named explicitly rather than taking
 #: whatever Textual registers, so the picker cannot fill with a future release's

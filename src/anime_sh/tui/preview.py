@@ -66,7 +66,7 @@ def title_block(anime, width: int, *, limit: int = 2) -> str:
     context.
     """
     body = _wrap(anime.title.preferred, width, limit) or [""]
-    return "\n".join(f"[b]{fit(line, width).rstrip()}[/b]" for line in body)
+    return "\n".join(f"[b $primary]{fit(line, width).rstrip()}[/]" for line in body)
 
 
 def facts(anime) -> str:
@@ -80,7 +80,7 @@ def facts(anime) -> str:
     if anime.average_score:
         colour = ("green" if anime.average_score >= 75
                   else "yellow" if anime.average_score >= 60 else "red")
-        line += f"   [{colour}]★ {anime.average_score}%[/{colour}]"
+        line += f"   [b $background on {colour}] ★ {anime.average_score}% [/]"
     return line
 
 
@@ -91,7 +91,7 @@ def status_chip(anime) -> str:
     and the colour was doing all the work in the version before this.
     """
     if anime.is_airing:
-        return "[$success]●[/] [dim]airing[/dim]"
+        return "[b $background on $success] ● airing [/]"
     name = anime.status.value.replace("_", " ").lower()
     if name in ("finished", "unknown"):
         return "[dim]✓ complete[/dim]" if name == "finished" else ""
@@ -107,7 +107,7 @@ def action(anime, resume_episode: float | None, *, in_progress: bool) -> str:
     lists global keys, not what *this* row is offering.
     """
     if resume_episode is None:
-        return "[dim] ⏎  open [/dim]"
+        return "[b $foreground on $panel] ⏎  open [/]"
     verb = "resume" if in_progress else "play"
     return f"[b $background on $accent] ▶  {verb} episode {resume_episode:g} [/]"
 
@@ -116,7 +116,7 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
           fraction: float = 0.0, synopsis_lines: int = 4) -> list[str]:
     """The hero block, as markup lines at most ``width`` cells wide."""
     width = max(12, width)
-    out: list[str] = [title_block(anime, width), f"[dim]{facts(anime)}[/dim]"]
+    out: list[str] = [title_block(anime, width), facts(anime)]
 
     # Genres are the fastest way to tell whether a show is for you, and the
     # panel has the room — it was showing a synopsis and no way to place it.
@@ -132,7 +132,7 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
         elif cell_len(" · ".join([*tags[:2], anime.studio])) <= width:
             tags = [*tags[:2], anime.studio]
     if tags:
-        out.append(f"[dim]{fit(' · '.join(tags), width).rstrip()}[/dim]")
+        out.append(f"[$secondary]{fit(' · '.join(tags), width).rstrip()}[/]")
 
     # Where the show is, and when the next one lands, on one line. These were
     # two separate stanzas with a blank between them, which spent three rows of

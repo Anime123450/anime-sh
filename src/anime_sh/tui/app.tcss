@@ -24,7 +24,7 @@ Screen {
    and the one thing the old bar never said was which section you were in. */
 #topbar {
     height: 1;
-    background: $surface;
+    background: $panel 45%;
     color: $text;
 }
 
@@ -35,6 +35,14 @@ Screen {
     height: 1;
     background: $surface;
     color: $text-muted;
+    /* The keycaps are click targets, and Textual underlines links: every
+       label read as `my_list`. The chip already says "press me". */
+    link-style: none;
+    link-color: $text-muted;
+    link-background: transparent;
+    link-style-hover: bold;
+    link-color-hover: $text;
+    link-background-hover: transparent;
 }
 
 /* One row, not three. A `tall` border spent two rows drawing $panel against
@@ -82,7 +90,9 @@ Screen {
    poster comes back 17 rows tall and that number belongs next to the width that
    produced it. */
 #hero {
-    padding: 1 2 0 2;
+    padding: 1 2 1 2;
+    margin: 0 2;
+    background: $primary 7%;
 }
 
 /* Width is set from the band in `_size_hero`. `height: 1fr` lets the art fill
@@ -170,7 +180,7 @@ PosterCard {
    moving between them, but `$accent` and the lift both mean "the keyboard is
    here", and four shelves claiming that at once means none of them do. */
 Shelf:focus PosterCard.-on {
-    background: $panel;
+    background: $primary 14%;
 }
 
 /* Letterspaced caps are the one typographic treatment nothing else on the
@@ -187,7 +197,7 @@ Shelf:focus PosterCard.-on {
    and it is not "heading". */
 .shelf-label {
     margin: 1 0 0 0;
-    padding: 0 1;
+    padding: 0 0;
     text-style: bold;
     color: $text;
 }

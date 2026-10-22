@@ -605,14 +605,14 @@ class DetailScreen(Screen):
                     # came here to play unselected for seconds.
                     self._size_episode_grid()
                     lv.index = select_index
-                    lv.focus()
+                    self._focus_grid(lv)
                     placed = True
                 if start + self._RENDER_CHUNK < len(items):
                     await asyncio.sleep(0)
             if not placed:
                 self._size_episode_grid()
                 lv.index = select_index
-                lv.focus()
+                self._focus_grid(lv)
             else:
                 # The column count depends on the widest episode number, which
                 # is only certain once every cell is mounted.
@@ -753,6 +753,24 @@ class DetailScreen(Screen):
         self.notify(f"Next season: {sequel.title.preferred}")
         self.app.push_screen(SourcesScreen(sequel))
 
+    def _focus_grid(self, lv) -> None:
+        """Focus the episode grid without throwing away the top of the screen.
+
+        A plain `focus()` scrolls the whole grid into view, which on a 40-row
+        terminal pushed the poster and the start of the synopsis off the top
+        before you had read either. Scroll only as far as the cursor's own
+        episode needs — usually not at all.
+        """
+        lv.focus(scroll_visible=False)
+
+        def _reveal() -> None:
+            with contextlib.suppress(Exception):
+                cell = lv.highlighted_child
+                if cell is not None:
+                    cell.scroll_visible(animate=False)
+
+        self.call_after_refresh(_reveal)
+
     def _header_text(self) -> str:
         a = self.anime
         # No title. The top bar carries it, and this panel used to repeat it as
@@ -765,12 +783,12 @@ class DetailScreen(Screen):
         alt = a.title.romaji if a.title.english and a.title.romaji else None
         if alt and alt != a.title.preferred:
             lines.append(f"[dim]{alt}[/dim]")
-        lines.append(f"[dim]{meta_line(a)}[/dim]")
+        lines.append(meta_line(a))
         nxt = next_episode_line(a)
         if nxt:
-            lines.append(f"[green]▸ Next: {nxt}[/green]")
+            lines.append(f"[b $background on $success] ● next [/] {nxt}")
         if a.genres:
-            lines.append(f"[cyan]{' · '.join(a.genres[:5])}[/cyan]")
+            lines.append(f"[$secondary]{' · '.join(a.genres[:5])}[/]")
         synopsis = (a.synopsis or "").strip()
         if synopsis:
             if len(synopsis) > 500:

@@ -30,15 +30,12 @@ WORDMARK = "▞▘"
 
 
 def spaced(label: str) -> str:
-    """``"CONTINUE"`` → ``"C O N T I N U E"``.
+    """A section heading: a pink bar and the label in title case.
 
-    Letterspacing is what lets a shelf label read as structure without a rule
-    under it. The previous design drew `Continue Watching ───────────── 18`,
-    spending forty cells of line art to carry one integer; the eye reads the
-    spaced caps as a heading on their own, because nothing else on the screen is
-    set that way.
+    Was letter-spaced capitals (``C O N T I N U E``), which doubled the width of
+    every heading and read as decoration rather than as a name.
     """
-    return " ".join(label.upper())
+    return f"[$primary]▍[/] {label}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,48 +73,30 @@ def band(width: int) -> str:
 
 
 class TopBar(Static):
-    """Identity, where you are, and how to search — one row.
+    """Brand pill, where you are, and the two keys that work everywhere."""
 
-    Replaces Textual's `Header`, which spent a row on a centred app title and a
-    clock. The clock is the terminal's job; the row is better spent saying which
-    section is open, which is the one thing the old screen never said.
-    """
+    _BRAND = " ▶ anime-sh "
 
     def render_bar(self, section: str, width: int, *, hint: str = "") -> None:
         if width <= 0:
             return
-        left = f"[b $primary]{WORDMARK}[/] [b]anime-sh[/b]"
-        left_cells = len(WORDMARK) + 1 + len("anime-sh")
+        pill = "[b $background on $primary]{}[/]"
         if band(width) == COMPACT:
-            # No room for both identity and location; location wins, because the
-            # name of the app is on the terminal's title bar anyway.
-            self.update(f" [b]{fit(section, max(0, width - 2))}[/b]")
+            self.update(f"{pill.format(' ▶ ')} [b]{fit(section, max(0, width - 5)).rstrip()}[/b]")
             return
-        # What goes on the right, and the cells it needs. Plain text, so its
-        # length is its width.
+        left_cells = len(self._BRAND)
         tail = hint or "/ search   ? help"
-        # The section is cut to what is left over, rather than the row being
-        # allowed to overrun. The detail screen puts a show's whole title here
-        # beside a "12/12 episodes available" hint, which at 80 columns came to
-        # 84 cells and lost the end of the hint off the right edge — and the hint
-        # is the half of that pair a reader cannot guess back.
         room = width - left_cells - len(tail) - 8
         if room < 8:
-            # Not even both at their shortest. Location wins: it is the part
-            # that changes, and `? help` is on every other screen anyway.
             tail = ""
             room = width - left_cells - 6
         section = fit(section, max(0, room)).rstrip()
-        mid = f"[dim]·[/dim]  [$accent]{section}[/]"
-        mid_cells = 4 + len(section)
+        mid = f"[$primary]›[/] [b]{section}[/b]"
+        mid_cells = 2 + len(section)
         right = f"[dim]{tail}[/dim]" if tail else ""
-        right_cells = len(tail)
-        pad = max(1, width - left_cells - mid_cells - right_cells - 4)
-        self.update(f" {left}  {mid}{' ' * pad}{right} ")
+        pad = max(1, width - left_cells - mid_cells - len(tail) - 4)
+        self.update(f"{pill.format(self._BRAND)}  {mid}{' ' * pad}{right}  ")
 
-
-#: How a key is written on the bars, against the name Textual knows it by.
-#: Only the ones that differ: a bar says `esc`, the binding says `escape`.
 _KEY_NAMES = {"↵": "enter", "esc": "escape", "?": "question_mark", ",": "comma"}
 
 
@@ -158,15 +137,16 @@ class ActionBar(Static):
         parts.extend(self._GLOBAL)
         out, used = [], 0
         for key, label in parts:
-            cells = len(key) + 1 + len(label) + 3
+            # A keycap: the key on a raised chip, its meaning beside it.
+            cells = len(key) + 2 + 1 + len(label) + 2
             if used + cells > width - 2:
                 break
             out.append(clickable(
-                f"[$accent]{key}[/] [dim]{label}[/dim]",
+                f"[b $foreground on $panel] {key} [/] [$text-muted]{label}[/]",
                 f"app.press_key({_KEY_NAMES.get(key, key)!r})",
             ))
             used += cells
-        self.update("  " + "   ".join(out))
+        self.update(" " + "  ".join(out))
 
 
 def empty_state(title: str, hint: str, width: int) -> Text:
