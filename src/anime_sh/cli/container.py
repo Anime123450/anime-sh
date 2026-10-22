@@ -136,19 +136,31 @@ class Container:
         return AniSkipSource()
 
     @cached_property
-    def player(self):
-        from ..infra.players import MpvPlayer, NullPlayer
+    def players(self):
+        """The `PlayerProvider`: builds mpv or VLC on request, reports both."""
+        from ..infra.players import PlayerFactory
 
-        name = self.config.player.name.lower()
-        if name == "mpv":
-            player = MpvPlayer(binary="mpv", extra_args=self.config.player.args)
-            if player.available():
-                return player
+        return PlayerFactory()
+
+    @cached_property
+    def player(self):
+        from ..domain.errors import PlayerError
+        from ..infra.players import NullPlayer, UnavailablePlayer
+
+        cfg = self.config.player
+        name = cfg.name.lower()
+        try:
+            player = self.players.create(
+                name, path_override=cfg.vlc_path, args=cfg.args)
+        except PlayerError as e:
+            # Never a silent substitute: a chosen VLC that is missing fails at
+            # play time with the reason, rather than opening mpv instead.
+            log.warning("player %r unavailable: %s", name, e)
+            return UnavailablePlayer(name, e)
+        if name == "mpv" and not player.available():
             log.warning("mpv not found on PATH; falling back to NullPlayer")
             return NullPlayer()
-        # vlc/iina/potplayer adapters arrive later; NullPlayer keeps wiring valid.
-        log.warning("player %r not yet implemented; using NullPlayer", name)
-        return NullPlayer()
+        return player
 
     # -- tracker ------------------------------------------------------------ #
     @cached_property

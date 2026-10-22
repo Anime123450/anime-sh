@@ -1,7 +1,10 @@
-"""Player adapters. mpv (over JSON IPC) is the real one; NullPlayer is for
+"""Player adapters: mpv (over JSON IPC, the default), VLC (over its loopback
+HTTP interface), the factory that picks between them, and NullPlayer for
 wiring/tests."""
 
-from .null import NullPlayer
+from .factory import PlayerFactory, UnavailablePlayer
 from .mpv import MpvPlayer
+from .null import NullPlayer
+from .vlc import VlcPlayer
 
-__all__ = ["NullPlayer", "MpvPlayer"]
+__all__ = ["MpvPlayer", "NullPlayer", "PlayerFactory", "UnavailablePlayer", "VlcPlayer"]
