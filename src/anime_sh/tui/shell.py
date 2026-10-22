@@ -146,7 +146,7 @@ class ActionBar(Static):
                 f"app.press_key({_KEY_NAMES.get(key, key)!r})",
             ))
             used += cells
-        self.update(" " + "  ".join(out))
+        self.update("  " + "  ".join(out))
 
 
 def empty_state(title: str, hint: str, width: int) -> Text:

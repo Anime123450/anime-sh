@@ -312,8 +312,25 @@ ListView:focus > ListItem.-highlight {
 }
 
 #episodes {
-    padding: 1 2;
+    /* No side padding: the grid ends on the same column as the info card and
+       the Episodes heading above it, and one row below keeps the last episode
+       off the key bar. */
+    /* No padding row: the list's tint made a blank band under the heading.
+       One cell of right margin so it ends where the info card does. */
+    padding: 0 0;
+    margin: 0 1 1 0;
     max-height: 24;
+}
+
+/* Every scrolling page uses the same one-cell bar in the page's own tones;
+   the default was a black rail with a black end cap. */
+#detail-body, #episodes {
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $background;
+    scrollbar-corner-color: $background;
+    scrollbar-color: $panel;
+    scrollbar-color-hover: $primary 60%;
+    scrollbar-color-active: $primary;
 }
 
 

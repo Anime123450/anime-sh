@@ -31,9 +31,9 @@ def test_countdown_scales_by_magnitude():
 
 
 def test_score_badge_color_thresholds():
-    assert "green" in score_badge(91)
-    assert "yellow" in score_badge(65)
-    assert "red" in score_badge(40)
+    assert "$success" in score_badge(91)  # theme token, so every theme colours it
+    assert "$warning" in score_badge(65)
+    assert "$error" in score_badge(40)
     assert score_badge(None) is None
     assert score_badge(0) is None
 

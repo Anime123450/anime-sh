@@ -643,7 +643,7 @@ class DetailScreen(Screen):
         total = self.anime.episode_count
         if next_number is None:
             if total and watched_through >= total:
-                text = "[green]✓ You've finished this series.[/green]"
+                text = "[b $background on $success] ✓ finished [/] [$text-muted]You've watched every episode.[/]"
             elif self._available is not None and self._available:
                 # Nothing left to play *here*, but the series isn't finished —
                 # this source just stops earlier than the show does. Silence

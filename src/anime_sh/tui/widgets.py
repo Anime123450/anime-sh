@@ -143,14 +143,14 @@ class EpisodeItem(ListItem):
         n = f"{number:g}".rjust(width)
         disk = "[dim]⤓[/dim]" if downloaded else " "
         if not available:
-            return f"[grey42]○ {n}[/grey42]{disk}"
+            return f"[$text-disabled]· {n}[/]{disk}"
         if watched:
-            return f"[green]✓[/green] [dim]{n}[/dim]{disk}"
+            return f"[$success]✓[/] [$text-muted]{n}[/]{disk}"
         if progress_pct or resume_s:
-            return f"[green]▸[/green] [b]{n}[/b]{disk}"
+            return f"[b $accent]▸ {n}[/]{disk}"
         if is_next:
-            return f"[cyan]▶ {n}[/cyan]{disk}"
-        return f"[grey54]○[/grey54] {n}{disk}"
+            return f"[b $primary]▶ {n}[/]{disk}"
+        return f"[$text-muted]○[/] {n}{disk}"
 
     @staticmethod
     def _label(number, watched, resume_s, available, progress_pct, air_label, is_next):
@@ -161,15 +161,15 @@ class EpisodeItem(ListItem):
             # made a season that finished airing in 2025 claim its later episodes
             # were unreleased — when really the chosen source only had four.
             tail = air_label or "not on this source"
-            return f"[grey42]○  Episode {n}[/grey42]  [dim]· {tail}[/dim]"
+            return f"[$text-disabled]·  Episode {n}  · {tail}[/]"
         if watched:
-            return f"[green]✓[/green]  [dim]Episode {n}[/dim]"
+            return f"[$success]✓[/]  [$text-muted]Episode {n}[/]"
         if progress_pct or resume_s:
             pct = progress_pct or 0
-            bar = progress_bar(pct / 100, 10, color="green")
-            return f"[green]▸[/green]  [b]Episode {n}[/b]   {bar}  [green]{pct}%[/green]"
+            bar = progress_bar(pct / 100, 10, color="$accent")
+            return f"[b $accent]▸  Episode {n}[/]   {bar}  [$accent]{pct}%[/]"
         if is_next:
-            return f"[cyan]▶  Episode {n}[/cyan]  [dim]· up next[/dim]"
+            return f"[b $primary]▶  Episode {n}[/]  [$text-muted]· up next[/]"
         return f"[grey54]○[/grey54]  Episode {n}"
 
 

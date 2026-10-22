@@ -81,7 +81,8 @@ def progress_bar(
     full = int(exact)
     tip = "╸" if full < width and exact - full >= 0.5 else ""
     rest = width - full - len(tip)
-    return f"[{color}]{'━' * full}{tip}[/{color}][{track}]{'─' * rest}[/{track}]"
+    # Closed with [/] so a theme token ($accent) works as well as a name.
+    return f"[{color}]{'━' * full}{tip}[/][{track}]{'─' * rest}[/]"
 
 
 def _human_duration(minutes: int) -> str:
@@ -104,21 +105,21 @@ def watch_summary(
         n = f"{watched} watched" if watched else "not started"
         return f"[dim]{n}[/dim]"
     if watched >= total:
-        return f"{progress_bar(1.0, width, color='green')}  [b green]✓ complete[/b green]"
+        return f"{progress_bar(1.0, width, color='$success')}  [b $success]✓ complete[/]"
     frac = watched / total
     pct = round(frac * 100)
     left = total - watched
     tail = f"{pct}% · {left} left"
     if ep_minutes:
         tail += f" · ~{_human_duration(left * ep_minutes)}"
-    return f"{progress_bar(frac, width, color='cyan')}  [b]{watched}/{total}[/b] [dim]· {tail}[/dim]"
+    return f"{progress_bar(frac, width, color='$primary')}  [b]{watched}/{total}[/b] [dim]· {tail}[/dim]"
 
 
 def score_badge(score: int | None) -> str | None:
     """A colored ★ badge from a 0-100 AniList score (green ≥75, yellow ≥60)."""
     if not score:
         return None
-    color = "green" if score >= 75 else "yellow" if score >= 60 else "red"
+    color = "$success" if score >= 75 else "$warning" if score >= 60 else "$error"
     # No space inside the chip: Rich wraps at any space (even a non-breaking
     # one), and a wrapped chip stranded the star at the end of a line.
     return f"[b $background on {color}] ★ {score}% [/]"

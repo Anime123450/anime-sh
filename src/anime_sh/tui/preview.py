@@ -78,8 +78,8 @@ def facts(anime) -> str:
         bits.append(str(anime.year))
     line = " · ".join(b for b in bits if b)
     if anime.average_score:
-        colour = ("green" if anime.average_score >= 75
-                  else "yellow" if anime.average_score >= 60 else "red")
+        colour = ("$success" if anime.average_score >= 75
+                  else "$warning" if anime.average_score >= 60 else "$error")
         line += f"   [b $background on {colour}] ★ {anime.average_score}% [/]"
     return line
 
@@ -107,7 +107,7 @@ def action(anime, resume_episode: float | None, *, in_progress: bool) -> str:
     lists global keys, not what *this* row is offering.
     """
     if resume_episode is None:
-        return "[b $foreground on $panel] ⏎  open [/]"
+        return "[b $foreground on $panel] ↵ open [/]"
     verb = "resume" if in_progress else "play"
     return f"[b $background on $accent] ▶  {verb} episode {resume_episode:g} [/]"
 
@@ -147,7 +147,7 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
 
     if fraction > 0:
         pct = round(fraction * 100)
-        bar = progress_bar(fraction, max(8, min(_BAR_MAX, width - 7)), color="cyan")
+        bar = progress_bar(fraction, max(8, min(_BAR_MAX, width - 7)), color="$primary")
         out += ["", f"{bar}  [b]{pct}%[/b]"]
 
     if anime.synopsis:
