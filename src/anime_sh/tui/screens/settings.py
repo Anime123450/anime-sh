@@ -74,8 +74,8 @@ _ABOUT = {
     "downloads.dir": "Where downloads are saved. Applies to the next download.",
 }
 
-_HINT = "←→ tab · ↑↓ move · ⏎ change · esc back"
-_EDIT_HINT = "type a value · ⏎ save · esc cancel"
+_HINT = "←→ tab · ↑↓ move · ↵ change · esc back"
+_EDIT_HINT = "type a value · ↵ save · esc cancel"
 
 
 def _label(text: str) -> Label:
@@ -176,6 +176,9 @@ class SettingsScreen(Screen):
         Binding("escape", "close", "Back"),
         Binding("left", "prev_category", "Previous tab", show=False),
         Binding("right", "next_category", "Next tab", show=False),
+        # A screen with tabs answering Tab: it only moved focus to nowhere.
+        Binding("tab", "next_category", "Next tab", show=False),
+        Binding("shift+tab", "prev_category", "Previous tab", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("space", "activate_highlighted", "Change", show=False),
@@ -292,7 +295,7 @@ class SettingsScreen(Screen):
             except Exception:
                 locked = False
             title = "Theme — locked by an override" if locked else (
-                "Theme — ↑↓ previews · ⏎ keeps · esc puts it back")
+                "Theme — ↑↓ previews · ↵ keeps · esc puts it back")
             items.append(_Header(title))
             for name in available(self.app):
                 items.append(ThemeRow(name, self.app.get_theme(name), locked=locked))
@@ -378,13 +381,13 @@ class SettingsScreen(Screen):
     # -- describing the row under the cursor ---------------------------------- #
     def _describe(self, item: ListItem | None) -> None:
         if isinstance(item, ThemeRow):
-            self._show(f"{item.theme_name} — previewing. ⏎ keeps it; esc goes back "
+            self._show(f"{item.theme_name} — previewing. ↵ keeps it; esc goes back "
                        f"to {self._saved_theme}.")
         elif isinstance(item, ToggleRow):
             what = "provider" if item.group == "providers" else "resolver"
             prio = f" · priority {item.priority}" if item.priority is not None else ""
             self._show(f"{item.name_}: {what} {'on' if item.enabled else 'off'}{prio}. "
-                       "⏎ or space toggles; takes effect next launch.")
+                       "↵ or space toggles; takes effect next launch.")
         elif isinstance(item, SettingRow):
             text = _ABOUT.get(item.key, "")
             if item.key == "player.name":

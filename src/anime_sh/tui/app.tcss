@@ -226,6 +226,12 @@ ListView {
     margin: 0 0 1 0;
 }
 
+/* My List groups run their full length; the page is the one thing that
+   scrolls. (A ten-row cap here gave each group its own scrollbar.) */
+MyListScreen #mylist-body > ListView {
+    max-height: 100000;
+}
+
 /* Every row reserves the marker gutter, whether or not it is showing one — as
    padding, not as a border. Painting the border only on the focused row made
    that row one cell narrower than the rest, so the grid had to be cut to the

@@ -222,6 +222,31 @@ async def test_my_list_screen_groups_entries():
         assert total == 2
 
 
+async def test_my_list_arrows_walk_through_every_group():
+    """Focus starts on the first row, and Down runs off one group into the next."""
+    entries = [
+        ListEntry(anime=_anime(1, "Now"), status="CURRENT", progress=5, score=8.0),
+        ListEntry(anime=_anime(2, "Next"), status="CURRENT", progress=1),
+        ListEntry(anime=_anime(3, "Todo"), status="PLANNING", progress=0),
+    ]
+    app, _ = _make_app(tracker=FakeTracker(entries))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.press("l")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        groups = list(app.screen.query(ListView))
+        assert app.focused is groups[0] and groups[0].index == 0
+        await pilot.press("down", "down")
+        await pilot.pause()
+        assert app.focused is groups[1] and groups[1].index == 0
+        await pilot.press("up")
+        await pilot.pause()
+        assert app.focused is groups[0] and groups[0].index == 1
+
+
 async def test_my_list_warns_without_tracker():
     app, _ = _make_app(tracker=None)
     async with app.run_test() as pilot:
