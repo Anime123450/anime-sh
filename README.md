@@ -485,13 +485,14 @@ anime --install-completion
 
 ## ⚙️ Config
 
-`anime config set <section>.<key> <value>` writes one; `anime config get` reads
-it back. Only keys you set are stored, so defaults can keep improving without
+In the app, **`,`** opens Settings: appearance, playback, sources and downloads
+on tabs, saved as you change them. From a shell, `anime config set
+<section>.<key> <value>` writes one and `anime config get` reads it back. Only keys you set are stored, so defaults can keep improving without
 your file pinning them in place.
 
 | Section | Keys |
 |---|---|
-| `player` | `name`, `args` |
+| `player` | `name` (`mpv` or `vlc`), `vlc_path`, `args` (mpv only) |
 | `playback` | `quality`, `audio`, `auto_next`, `skip_intro`, `skip_outro`, `prefer_downloads` |
 | `providers` | `parallel`, `preferred`, `disabled`, `timeout_s`, `match_timeout_s`, `hianime_base` |
 | `resolvers` | `disabled` |
@@ -499,6 +500,7 @@ your file pinning them in place.
 | `downloads` | `dir` |
 
 ```bash
+anime config set player.name vlc        # VLC instead of mpv: see docs/players.md
 anime config set playback.audio dub
 anime config set playback.quality 1080p
 anime config set ui.episodes grid

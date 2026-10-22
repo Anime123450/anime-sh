@@ -119,6 +119,12 @@ def _flag(argv, name):
     return [a.split("=", 1)[1] for a in argv if a.startswith(f"--{name}=")]
 
 
+def _input_opt(argv, name):
+    """Per-input ``:name=value`` options, which only count after the URL."""
+    url_at = next(i for i, a in enumerate(argv) if a.startswith("https://cdn."))
+    return [a.split("=", 1)[1] for a in argv[url_at + 1:] if a.startswith(f":{name}=")]
+
+
 async def test_vlc_loopback_auth_uses_ephemeral_port(caplog):
     caplog.set_level(logging.DEBUG)
     h = Harness([[_playing(1)], [_playing(1)]], ports=[50111, 50222])
@@ -181,17 +187,19 @@ async def test_vlc_preserves_supported_headers_and_subtitles():
                      subtitles=subs)
     await h.player().play(stream, title="Show - Episode 3", start_s=125)
     argv = h.spawned[0]
-    assert _flag(argv, "http-user-agent") == ["UA/1.0"]
+    assert _input_opt(argv, "http-user-agent") == ["UA/1.0"]
+    assert not _flag(argv, "http-user-agent"), "vlc.exe overrides the global form"
     assert _flag(argv, "http-referrer") == ["https://site.example/"]
     assert _flag(argv, "sub-file") == ["https://subs.example/en.vtt"], "default track first"
     assert _flag(argv, "input-slave") == ["https://subs.example/fr.vtt"]
     assert _flag(argv, "start-time") == ["125"]
     assert _flag(argv, "meta-title") == ["Show - Episode 3"]
-    assert argv[-1] == "https://cdn.example/ep1.m3u8"
+    assert argv[-2] == "https://cdn.example/ep1.m3u8"
 
     h = Harness([[_playing(1)]])
     await h.player().play(_stream(), title="t")
-    assert _flag(h.spawned[0], "http-user-agent"), "no browser UA by default"
+    assert _input_opt(h.spawned[0], "http-user-agent")[0].startswith("Mozilla/"), \
+        "no browser UA by default"
     assert not _flag(h.spawned[0], "start-time")
 
 

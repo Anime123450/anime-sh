@@ -259,7 +259,6 @@ class VlcPlayer:
             "--http-host=127.0.0.1",
             f"--http-port={port}",
             f"--http-password={password}",
-            f"--http-user-agent={headers.get('user-agent') or _DEFAULT_UA}",
             f"--meta-title={title}",
         ]
         if headers.get("referer"):
@@ -273,6 +272,10 @@ class VlcPlayer:
                 argv.append("--input-slave=" + "#".join(s.url for s in subs[1:]))
         argv += self.extra_args
         argv.append(stream.url)
+        # Per-input, after the URL: vlc.exe sets its own user agent on the
+        # libvlc instance after parsing the command line, so a global
+        # --http-user-agent is silently replaced by "VLC/3.x" (seen on 3.0.23).
+        argv.append(f":http-user-agent={headers.get('user-agent') or _DEFAULT_UA}")
         return argv
 
     async def play(

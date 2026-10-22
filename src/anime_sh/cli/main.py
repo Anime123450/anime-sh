@@ -261,6 +261,7 @@ def _launch_tui() -> None:
         tracker=c.tracker,
         sync=c.sync,
         settings=settings,
+        players=c.players,
     )
     # Same reading of `playback.audio` every other command does. The TUI used to
     # take only the theme from config, which is why a dub preference stopped at

@@ -38,6 +38,7 @@ from anime_sh.domain.models import (  # noqa: E402
     WatchProgress,
 )
 from anime_sh.app.settings import SettingsService  # noqa: E402
+from anime_sh.infra.players import PlayerFactory  # noqa: E402
 from anime_sh.tui import AnimeShApp, TuiServices  # noqa: E402
 from anime_sh.tui.screens.settings import CATEGORIES, SettingsScreen  # noqa: E402
 
@@ -306,6 +307,8 @@ def make_app(theme: str = "midnight") -> AnimeShApp:
         # A throwaway config, so a shot never reads (or writes) the real one
         # and two machines photograph the same values.
         settings=SettingsService(Path(tempfile.mkdtemp()) / "config.toml"),
+        # Real lookups, nothing launched: shows what mpv/VLC resolve to here.
+        players=PlayerFactory(),
     )
     # Fixed source lists: what is installed differs between machines.
     SettingsScreen._installed_providers = staticmethod(

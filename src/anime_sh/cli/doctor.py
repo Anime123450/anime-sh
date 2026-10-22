@@ -65,7 +65,17 @@ def install_hint(tool: str) -> str:
     return f"sudo apt install {tool}   (or your distro's equivalent)"
 
 
-def _check_player(player_name: str) -> Check:
+def _check_player(player_name: str, vlc_path: str = "") -> Check:
+    if player_name.lower() == "vlc":
+        # The same lookup playback uses: player.vlc_path, PATH, then the
+        # standard install folder (a default Windows install is not on PATH).
+        from ..infra.players.vlc import find_vlc
+
+        found, detail = find_vlc(vlc_path)
+        if found:
+            return Check("player: vlc", True, f"{found} ({detail})")
+        return Check("player: vlc", False, f"{detail} — needed to play anything. "
+                     "Or switch back: anime config set player.name mpv")
     # Not `shutil.which`: on Windows that finds mpv.COM, the console build, while
     # playback deliberately switches to the mpv.exe beside it because the console
     # one can attach to the terminal and never open a video window. Reporting the
@@ -389,7 +399,7 @@ def run_doctor(check_streams: bool = False) -> int:
 
     checks: list[Check] = [
         _check_config(),
-        _check_player(player_name),
+        _check_player(player_name, cfg.player.vlc_path if cfg else ""),
         _check_cover_art(),
         _check_ffmpeg(),
         asyncio.run(_check_databases()),
