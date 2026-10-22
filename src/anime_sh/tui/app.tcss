@@ -188,6 +188,16 @@ PosterCard {
     padding: 0 1;
 }
 
+/* Art over text, each its own child so the art can be a real bitmap. */
+PosterCard > .card-art {
+    width: 14;
+    height: 10;
+}
+PosterCard > .card-meta {
+    width: 14;
+    height: 3;
+}
+
 /* The selected card lifts a tier, exactly as the highlighted row does. Only
    while the shelf has focus: every shelf keeps its place so you do not lose it
    moving between them, but `$accent` and the lift both mean "the keyboard is

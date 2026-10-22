@@ -24,9 +24,11 @@ from textual.binding import Binding
 from textual.containers import HorizontalScroll
 from textual.message import Message
 from textual.reactive import reactive
+from textual.widget import Widget
 from textual.widgets import Static
 
-from .coverart import cover_rows, render_cover
+from .coverart import (cover_rows, graphics_cover_widget,
+                       graphics_protocol_active, render_cover)
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
@@ -62,13 +64,19 @@ def placeholder(cols: int = CARD_COLS, rows: int = CARD_ART_ROWS) -> Text:
     return body
 
 
-class PosterCard(Static):
+class PosterCard(Widget):
     """One show: its cover, its title, and the one fact that matters here.
 
     The fact is chosen by the shelf that built the card, not by the card —
     Continue Watching wants a resume percentage, This Season wants a countdown,
     and a card that tried to decide for itself would need to know which shelf it
     was on, which is exactly the coupling that makes widgets unreusable.
+
+    Two children, art over text. The art used to be part of one Rich render, so
+    it could only ever be sextant blocks: on a terminal that draws Sixel the hero
+    above was a sharp picture and every card under it a mosaic of the same
+    poster. As its own child the art can be a real bitmap when the terminal can
+    draw one, and the blocks when it cannot.
     """
 
     #: Selection is drawn, not implied by scroll position: with eleven cards
@@ -83,42 +91,89 @@ class PosterCard(Static):
         self.resume_episode = resume_episode
         self.fraction = fraction
         self._art: Text | None = None
+        self._cover: bytes | None = None
+        self._bitmap = False
         super().__init__(**kwargs)
+
+    def compose(self):
+        yield Static(placeholder(), classes="card-art")
+        yield Static("", classes="card-meta")
+
+    def on_mount(self) -> None:
+        self._paint_meta()
+        if self._cover is not None:
+            self._paint_art()
+        # Theme colours are baked into the text as literals (see `_colour`),
+        # so a theme switch has to repaint it.
+        self.watch(self.app, "theme", lambda _: self._paint_meta(), init=False)
 
     def set_caption(self, caption: str) -> None:
         """Re-cut the state line. Used by the minute tick for countdowns."""
         if caption != self.caption:
             self.caption = caption
-            self.refresh()
+            self._paint_meta()
 
     def set_cover(self, data: bytes | None) -> None:
         """Hand the card its cover bytes. Safe to call with None."""
+        if not data or data == self._cover:
+            return
+        self._cover = data
+        if self.is_mounted:
+            self._paint_art()
+
+    def _paint_art(self) -> None:
+        data = self._cover
         if not data:
             return
+        old = self.query(".card-art")
+        if graphics_protocol_active():
+            widget = graphics_cover_widget(data, CARD_COLS)
+            if widget is not None:
+                widget.styles.height = CARD_ART_ROWS
+                widget.add_class("card-art")
+                old.remove()
+                self.mount(widget, before=0)
+                self._bitmap = True
+                return
         art = render_cover(data, cols=CARD_COLS)
-        if art is not None:
-            self._art = art
-            self.refresh()
+        if art is None:
+            return
+        self._art = art
+        if self._bitmap or not old:
+            old.remove()
+            self.mount(Static(art, classes="card-art"), before=0)
+            self._bitmap = False
+        else:
+            old.first().update(art)
 
     def watch_selected(self, value: bool) -> None:
         self.set_class(value, "-on")
+        self._paint_meta()
 
     def _colour(self, name: str, fallback: str) -> str:
         """A theme colour as a literal, for the parts drawn with Rich.
 
-        The art is a `rich.text.Text` of per-cell colours, so the whole card has
-        to be a Rich renderable rather than Textual markup — and Rich does not
-        know what `$accent` is. It does not complain either: the style parses,
-        resolves to nothing, and the accent rule comes out in the ordinary
-        foreground, which is the one colour it must not be.
+        Rich does not know what `$accent` is. It does not complain either: the
+        style parses, resolves to nothing, and the accent rule comes out in the
+        ordinary foreground, which is the one colour it must not be.
         """
         try:
             return self.app.get_css_variables().get(name) or fallback
         except Exception:
             return fallback
 
-    def render(self):
-        art = self._art if self._art is not None else placeholder()
+    def _paint_meta(self) -> None:
+        # No `is_mounted` guard: Textual sets it only after `on_mount` returns,
+        # so the first paint from `on_mount` was skipped and every card but the
+        # selected one (repainted on selection) kept an empty caption. The
+        # query below is the real guard: no children yet, nothing to paint.
+        try:
+            meta = self.query_one(".card-meta", Static)
+        except Exception:
+            return
+        meta.update(self._meta())
+
+    def _meta(self):
         title = fit(self.anime.title.preferred, CARD_COLS).rstrip()
         accent = self._colour("accent", "yellow")
         if self.selected:
@@ -134,7 +189,7 @@ class PosterCard(Static):
             name = Text(title, style="dim")
             caption = Text(fit(self.caption, CARD_COLS).rstrip(),
                            style=self._colour("primary", "magenta"))
-        return Group(art, rule, name, caption)
+        return Group(rule, name, caption)
 
 
 class Shelf(HorizontalScroll):

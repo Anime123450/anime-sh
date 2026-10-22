@@ -353,3 +353,16 @@ async def test_a_shelf_that_could_not_load_says_so_instead_of_going_blank():
             assert app.screen.query_one(lst).display is False, (
                 f"{lst} left an empty plate on screen"
             )
+
+
+async def test_every_card_has_its_title_not_only_the_selected_one():
+    """Each card paints its caption on mount; selection must not be what draws it."""
+    app = _app()
+    async with app.run_test(size=(200, 50)) as pilot:
+        await _settle(app, pilot)
+        cards = [c for c in app.screen.query(PosterCard) if c.display and not c.selected]
+        assert cards, "test premise: no unselected card"
+        for c in cards:
+            meta = c.query_one(".card-meta")
+            text = "".join(line.text for line in meta.render_lines(meta.region.reset_offset))
+            assert c.anime.title.preferred[:6] in text, f"card {c.anime.title.preferred!r} has no title"
