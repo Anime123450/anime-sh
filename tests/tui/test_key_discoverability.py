@@ -43,7 +43,7 @@ _AS_WRITTEN = {
 def _documented_keys() -> set[str]:
     """Every key the cheat sheet actually names, from its key column.
 
-    Parsed out of the `[cyan]…[/cyan]` spans the sheet sets keys in, rather than
+    Parsed out of the `[b $accent]…[/]` spans the sheet sets keys in, rather than
     searched for as a substring of the whole text. Substring matching made this
     guard useless for exactly the keys it most needed to cover: `"t" in _HELP`
     is true because of the word "within", so binding `t` to the theme picker and
@@ -52,7 +52,7 @@ def _documented_keys() -> set[str]:
     import re
 
     keys: set[str] = set()
-    for span in re.findall(r"\[cyan\](.*?)\[/cyan\]", _HELP):
+    for span in re.findall(r"\[b \$accent\](.*?)\[/\]", _HELP):
         # A span can hold several keys — "↑ ↓", "j k", "g   G".
         keys.update(part for part in span.split() if part)
     return keys
@@ -112,7 +112,7 @@ def test_the_cheat_sheet_does_not_promise_keys_that_do_not_exist():
     # Every single-character key the sheet marks up as a key must be real.
     import re
 
-    for match in re.finditer(r"\[cyan\]([^\[]{1,5})\[/cyan\]", _HELP):
+    for match in re.finditer(r"\[b \$accent\]([^\[]{1,5})\[/\]", _HELP):
         token = match.group(1).strip()
         if len(token) == 1 and token.isalpha():
             assert token in written, f"`?` documents {token!r}, which is not bound"

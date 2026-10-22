@@ -119,6 +119,8 @@ def score_badge(score: int | None) -> str | None:
     if not score:
         return None
     color = "green" if score >= 75 else "yellow" if score >= 60 else "red"
+    # No space inside the chip: Rich wraps at any space (even a non-breaking
+    # one), and a wrapped chip stranded the star at the end of a line.
     return f"[b $background on {color}] ★ {score}% [/]"
 
 
@@ -138,7 +140,10 @@ def meta_line(anime: Anime) -> str:
     # nobody consciously notices and everybody notices the absence of.
     line = " · ".join(b for b in bits if b)
     badge = score_badge(anime.average_score)
-    return f"{line}   {badge}" if badge else line
+    # The badge is a chip with spaces inside it, and Rich wraps at any space:
+    # on a narrow panel the star stayed on one line and the score went to the
+    # next. On its own line it always stays whole.
+    return f"{line}\n{badge}" if badge else line
 
 
 def card_caption(anime: Anime, progress: WatchProgress | None = None,

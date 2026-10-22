@@ -17,7 +17,7 @@ import contextlib
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Label, ListView, Static
 
@@ -100,9 +100,10 @@ class DetailScreen(Screen):
        already cap themselves at a measure for exactly this reason; this was the
        one place that did not. The width it gives up is the price of the text
        being readable. */
-    DetailScreen #detail-meta { width: 1fr; max-width: 80; height: auto; }
+    DetailScreen #detail-info { width: 1fr; max-width: 80; height: auto; }
+    DetailScreen #detail-meta { width: 100%; height: auto; padding: 0 0 1 0; }
     DetailScreen #detail-progress { height: auto; }
-    DetailScreen #detail-action { height: auto; padding: 0 0 1 0; }
+    DetailScreen #detail-action { height: auto; padding: 1 0 1 0; }
     DetailScreen #detail-body { padding: 0 2; }
     """
 
@@ -192,9 +193,12 @@ class DetailScreen(Screen):
         with VerticalScroll(id="detail-body"):
             with Horizontal(id="detail-top"):
                 yield Container(id="detail-cover")
-                yield Static(self._header_text(), id="detail-meta")
-            yield Static("", id="detail-progress")
-            yield Static("", id="detail-action")
+                # Poster-first: everything about the show, including how far
+                # you are and what Enter will play, sits beside its poster.
+                with Vertical(id="detail-info"):
+                    yield Static(self._header_text(), id="detail-meta")
+                    yield Static("", id="detail-progress")
+                    yield Static("", id="detail-action")
             yield Label(spaced("Episodes"), classes="shelf-label",
                         id="sec-episodes")
             yield EpisodeGrid(id="episodes")
@@ -341,6 +345,16 @@ class DetailScreen(Screen):
         except Exception:
             pass
 
+    def _cover_cols(self) -> int:
+        """Poster width for this terminal.
+
+        A full-size poster is about 23 rows tall. On a 24-row terminal it
+        filled the screen, so the title scrolled away and the poster was the
+        only thing visible. Below 32 rows it shrinks to roughly half height,
+        leaving room for the title, the play button and some episodes.
+        """
+        return _COVER_COLS if self.size.height >= 32 else 18
+
     async def _mount_cover(self) -> None:
         data = getattr(self, "_cover_data", None)
         if not data:
@@ -350,18 +364,22 @@ class DetailScreen(Screen):
         except Exception:
             return
         await container.remove_children()
+        cols = self._cover_cols()
+        # The stylesheet reserves the full-size column; a short terminal gets
+        # a narrower one so the column matches the smaller poster.
+        container.styles.width = cols + (34 - _COVER_COLS)
         # Prefer a true-bitmap render (Sixel/kitty) when the terminal supports
         # it — crisp, unlike the unicode-block fallback. Any failure drops back
         # to the block render so the cover still shows.
         if graphics_protocol_active():
-            widget = graphics_cover_widget(data, _COVER_COLS)
+            widget = graphics_cover_widget(data, cols)
             if widget is not None:
                 try:
                     await container.mount(widget)
                     return
                 except Exception:
                     pass
-        art = render_cover(data, cols=_COVER_COLS)
+        art = render_cover(data, cols=cols)
         if art is None:
             # No Pillow, or an image it could not decode. Nothing will ever be
             # mounted here, so the column is dead weight.
@@ -756,20 +774,15 @@ class DetailScreen(Screen):
     def _focus_grid(self, lv) -> None:
         """Focus the episode grid without throwing away the top of the screen.
 
-        A plain `focus()` scrolls the whole grid into view, which on a 40-row
-        terminal pushed the poster and the start of the synopsis off the top
-        before you had read either. Scroll only as far as the cursor's own
-        episode needs — usually not at all.
+        A plain `focus()` scrolls the grid into view, and on a short terminal
+        that pushed the poster, the title and the synopsis off the top before
+        you had read any of them. The page now opens at the top. The play
+        button already names the episode Enter will start, and moving the
+        cursor scrolls as usual.
         """
         lv.focus(scroll_visible=False)
-
-        def _reveal() -> None:
-            with contextlib.suppress(Exception):
-                cell = lv.highlighted_child
-                if cell is not None:
-                    cell.scroll_visible(animate=False)
-
-        self.call_after_refresh(_reveal)
+        with contextlib.suppress(Exception):
+            self.query_one("#detail-body").scroll_home(animate=False)
 
     def _header_text(self) -> str:
         a = self.anime

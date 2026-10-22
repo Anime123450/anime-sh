@@ -20,27 +20,27 @@ from textual.containers import Center, Middle, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-_HELP = """[b]anime-sh[/b]
+_HELP = """[b $background on $primary] ▶ anime-sh [/]
 
-[b]Move[/b]
-  [cyan]← →[/cyan] [cyan]h[/cyan]          along a shelf
-  [cyan]↑ ↓[/cyan] [cyan]j k[/cyan]        between shelves
-  [cyan]Home[/cyan] [cyan]End[/cyan]       first / last poster on this shelf
-  [cyan]g[/cyan] [cyan]G[/cyan]            first / last shelf
-  [cyan]Tab[/cyan] [cyan]Shift+Tab[/cyan]  next / previous shelf
-  [cyan]1[/cyan] [cyan]2[/cyan] [cyan]3[/cyan] [cyan]4[/cyan]        Continue · Favourites · This Season · Trending
+[$primary]▍[/] [b]Move[/b]
+  [b $accent]← →[/] [b $accent]h[/]          along a shelf
+  [b $accent]↑ ↓[/] [b $accent]j k[/]        between shelves
+  [b $accent]Home[/] [b $accent]End[/]       first / last poster on this shelf
+  [b $accent]g[/] [b $accent]G[/]            first / last shelf
+  [b $accent]Tab[/] [b $accent]Shift+Tab[/]  next / previous shelf
+  [b $accent]1[/] [b $accent]2[/] [b $accent]3[/] [b $accent]4[/]        Continue · Favourites · Season · Trending
 
-[b]Act[/b]
-  [cyan]Enter[/cyan]          play or open whatever is highlighted
-  [cyan]/[/cyan]              search
-  [cyan]Esc[/cyan]            clear the search, or go back
-  [cyan]v[/cyan]              denser view — home shelves, or the episode grid
-  [cyan]n[/cyan]              next season, on a show
-  [cyan]l[/cyan]              my AniList list
-  [cyan],[/cyan]              settings — appearance, playback, sources
-  [cyan]t[/cyan]  [cyan]p[/cyan]           settings at the theme / the sources
-  [cyan]?[/cyan]  [cyan]q[/cyan]           this help, and quit
-  [cyan]Ctrl+P[/cyan]         command palette
+[$primary]▍[/] [b]Act[/b]
+  [b $accent]Enter[/]          play or open whatever is highlighted
+  [b $accent]/[/]              search
+  [b $accent]Esc[/]            clear the search, or go back
+  [b $accent]v[/]              denser view: shelves, or the episode grid
+  [b $accent]n[/]              next season, on a show
+  [b $accent]l[/]              my AniList list
+  [b $accent],[/]              settings — appearance, playback, sources
+  [b $accent]t[/]  [b $accent]p[/]           settings at the theme / the sources
+  [b $accent]?[/]  [b $accent]q[/]           this help, and quit
+  [b $accent]Ctrl+P[/]         command palette
 
 [dim]The large panel at the top always describes the poster under the cursor.
 Dimmed episodes have not aired yet.[/dim]
@@ -58,6 +58,8 @@ class HelpScreen(ModalScreen):
         width: auto; max-width: 70; height: auto; max-height: 100%;
         border: round $panel; background: $surface;
         scrollbar-size-vertical: 1;
+        scrollbar-background: $surface;
+        scrollbar-color: $panel;
     }
     HelpScreen #help-box { width: 1fr; height: auto; padding: 1 3; }
     """

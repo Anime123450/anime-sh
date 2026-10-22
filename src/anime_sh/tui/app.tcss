@@ -68,7 +68,16 @@ Screen {
 
 #body {
     padding: 0 2;
-    width: 1fr;
+    /* Not 1fr: in a vertical layout Textual takes the hero's side margins off
+       a 1fr sibling too, which left the shelves 5 cells short of the hero. */
+    width: 100%;
+    /* One cell, in the page's own tones, so it reads as a position marker
+       and not as a black rail cutting the screen in two. */
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $background;
+    scrollbar-color: $panel;
+    scrollbar-color-hover: $primary 60%;
+    scrollbar-color-active: $primary;
 }
 
 /* Width is set from the screen width in `_size_rail`. It used to be separated
@@ -91,7 +100,9 @@ Screen {
    produced it. */
 #hero {
     padding: 1 2 1 2;
-    margin: 0 2;
+    /* Right margin is one wider than the left: the shelves below lose a cell
+       to the body's scrollbar, and the hero should end where they do. */
+    margin: 0 3 0 2;
     background: $primary 7%;
 }
 
@@ -160,9 +171,11 @@ Shelf {
     background: $surface;
     overflow-y: hidden;
     scrollbar-size-horizontal: 1;
+    /* The sideways bar is the only "more posters this way" cue. In $panel on
+       $surface it read as a stray strip; pink on the plate reads as a track. */
     scrollbar-background: $surface;
-    scrollbar-color: $panel;
-    scrollbar-color-hover: $panel;
+    scrollbar-color: $primary 35%;
+    scrollbar-color-hover: $primary 60%;
     scrollbar-color-active: $accent;
 }
 
