@@ -20,6 +20,22 @@ from ..widgets import SourceItem
 from .detail import DetailScreen
 
 
+def _title_key(title: str) -> str:
+    """A title as a comparison key: case, curly quotes and spacing ignored."""
+    t = title.casefold().replace("\u2019", "'").replace("\u2018", "'")
+    return " ".join(t.split())
+
+
+def _all_alike(sources) -> bool:
+    """Whether every source is the same entry: same title, same episode count.
+
+    A "[Mini]" batch beside the TV run, or a 12- beside a 24-episode entry, is a
+    real choice and still gets the picker.
+    """
+    keys = {(_title_key(s.title), s.episode_count) for s in sources}
+    return len(keys) == 1
+
+
 class SourcesScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
@@ -66,14 +82,18 @@ class SourcesScreen(Screen):
             self.notify(f"Couldn't list sources: {e}", severity="error")
             sources = []
 
-        # 0 or 1 match → skip the picker entirely.
-        if len(sources) <= 1:
+        # 0 or 1 match → skip the picker entirely. So do several matches that
+        # are all the same entry on different providers: that is not a choice,
+        # and asking it on every show made the picker a second click on
+        # everything. No pinned source then, so playback keeps its fan-out and
+        # falls back to the next provider when one is down.
+        if len(sources) <= 1 or _all_alike(sources):
             self.app.pop_screen()
             self.app.push_screen(
                 DetailScreen(
                     self.anime,
                     resume_episode=self.resume_episode,
-                    source=sources[0] if sources else None,
+                    source=sources[0] if len(sources) == 1 else None,
                 )
             )
             return

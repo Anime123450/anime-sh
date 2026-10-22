@@ -589,11 +589,24 @@ class HomeScreen(Screen):
         silent, so the app launched with focus on the search box, where the
         arrow keys did nothing and no card was ever selected.
         """
-        if self._focus_claimed or self._searching():
+        if self._searching():
             return
         shelves = self._shelves()
         if not shelves:
             return
+        if self._focus_claimed:
+            # Shelves arrive in whatever order their data does: This Season,
+            # from cache, often lands seconds before Continue Watching, took
+            # the cursor, and the app opened on a seasonal show with your own
+            # list above it. While the cursor is still where it was put (that
+            # shelf, its first card), it moves up to the first shelf. Once you
+            # have moved anywhere, it is yours and stays.
+            focused = self.app.focused
+            untouched = (isinstance(focused, Shelf)
+                         and focused.id == self._focus_claimed
+                         and focused.index == 0)
+            if not untouched or shelves[0] is focused:
+                return
         self._focus_claimed = shelves[0].id
         shelves[0].focus()
         # After the refresh, not now: focus lands before Textual has laid the
@@ -669,6 +682,14 @@ class HomeScreen(Screen):
             head = self.query_one(sec.head_id, Label)
         except Exception:
             return
+        # The card under the cursor, so a refill keeps it. Continue Watching is
+        # filled up to four times on launch (cached rows, fresh schedules, then
+        # both again after the AniList sync), and each refill used to put the
+        # cursor back on the first card, under whoever had already moved it.
+        keep = None
+        with contextlib.suppress(Exception):
+            if shelf.cards:
+                keep = shelf.cards[max(0, min(len(shelf.cards) - 1, shelf.index))].anime.id.anilist
         await shelf.remove_children()
         if not built:
             head.display = False
@@ -684,8 +705,9 @@ class HomeScreen(Screen):
             for anime, caption, resume, fraction in built
         ]
         await shelf.mount_all(cards)
-        shelf.index = 0
-        cards[0].selected = True
+        start = next((i for i, c in enumerate(cards) if c.anime.id.anilist == keep), 0)
+        shelf.index = start
+        cards[start].selected = True
         self._fill_covers(cards)
         self._set_section(sec.head_id, label or sec.label,
                           count if count is not None else len(built))
