@@ -150,6 +150,6 @@ class WatchOrderScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if not isinstance(event.item, WatchOrderItem):
             return
-        from .sources import SourcesScreen
+        from .detail import DetailScreen
 
-        self.app.push_screen(SourcesScreen(event.item.anime))
+        self.app.push_screen(DetailScreen(event.item.anime))

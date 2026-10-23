@@ -19,7 +19,7 @@ from textual.widgets import Label, ListView, LoadingIndicator
 from ..rows import GAP, Row, columns_for, title_target
 from ..shell import ActionBar, TopBar, spaced
 from ..widgets import AnimeItem
-from .sources import SourcesScreen
+from .detail import DetailScreen
 
 log = logging.getLogger(__name__)
 
@@ -163,4 +163,4 @@ class MyListScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, AnimeItem):
-            self.app.push_screen(SourcesScreen(item.anime))
+            self.app.push_screen(DetailScreen(item.anime))
