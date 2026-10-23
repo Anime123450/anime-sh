@@ -37,7 +37,7 @@ from textual.screen import Screen
 from textual.widgets import Input, Label, Static
 
 from ...domain.models import Season, Status
-from ..cards import PosterCard, Shelf
+from ..cards import CARD_COLS, PosterCard, Shelf
 from ..coverart import (
     cached_cover,
     cover_rows,
@@ -46,7 +46,7 @@ from ..coverart import (
     graphics_protocol_active,
     render_cover,
 )
-from ..format import card_caption
+from ..format import card_caption, search_caption
 from ..preview import render as preview_render
 from ..shell import (
     SECTIONS,
@@ -57,7 +57,7 @@ from ..shell import (
     empty_state,
     spaced,
 )
-from .sources import SourcesScreen
+from .detail import DetailScreen
 
 #: Search results are a shelf like any other for layout purposes, but they are
 #: not a *destination* — there is no numbered key for them, because you get
@@ -211,6 +211,9 @@ class HomeScreen(Screen):
         #: live here.
         self._progress: dict = {}
         self._hero_id: int | None = None
+        #: Label text by heading id: (base, count) — kept so the label can show
+        #: the cursor's position ("3/20") without re-deriving what it counts.
+        self._labels: dict[str, tuple[str, int]] = {}
         self._unavailable: set[str] = set()
         self._focus_claimed: str | None = None
         self.query_one("#search", Input).display = False
@@ -335,7 +338,32 @@ class HomeScreen(Screen):
         """
         return max(2, self._hero_rows() - self._HERO_CHROME)
 
+    #: A card plus its gutter (`PosterCard` in app.tcss), and what the page and
+    #: the shelf's own padding take off the sides.
+    _CARD_CELL = CARD_COLS + 2
+    _GRID_SIDE = 4
+
+    def _grid_columns(self) -> int | None:
+        """Cards per row for the results grid, or None to keep one row.
+
+        Only where there is height for more than one row: at 80x24 the hero is
+        hidden and a single row of posters is already all that fits, so a grid
+        there is a scrolling column of one-card-high rows for no gain.
+        """
+        if (self.size.height or 40) < self._HERO_MIN_HEIGHT:
+            return None
+        cols = ((self.size.width or 100) - self._GRID_SIDE) // self._CARD_CELL
+        return cols if cols > 1 else None
+
+    def _relayout_results(self) -> None:
+        with contextlib.suppress(Exception):
+            shelf = self.query_one("#results", Shelf)
+            if shelf.cards:
+                shelf.set_grid(self._grid_columns())
+                shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
+
     def on_resize(self) -> None:
+        self._relayout_results()
         self._size_hero()
         self._paint_shell()
         self._paint_hero()
@@ -364,13 +392,16 @@ class HomeScreen(Screen):
         """The cursor landed on a card: the hero becomes that show."""
         self._paint_hero(event.card)
         self._paint_shell()
+        self._relabel(event.shelf)
 
     def on_shelf_chosen(self, event: Shelf.Chosen) -> None:
-        # Go through the source picker; it forwards straight to the detail
-        # screen when there is only one match.
+        # Straight to the detail page: no provider is asked anything until the
+        # user asks for a source (`s` there). The picker used to sit in between
+        # and put a provider lookup, sometimes with unrelated shows, ahead of a
+        # page that already knew everything it needed to open.
         card = event.card
         self.app.push_screen(
-            SourcesScreen(card.anime, resume_episode=card.resume_episode)
+            DetailScreen(card.anime, resume_episode=card.resume_episode)
         )
 
     def _paint_hero(self, card: PosterCard | None = None) -> None:
@@ -393,9 +424,18 @@ class HomeScreen(Screen):
                 anime, self._hero_text_width(),
                 resume_episode=card.resume_episode,
                 fraction=card.fraction,
+                completed=self._user_completed(anime),
                 synopsis_lines=self._synopsis_lines(),
             ))
         self._paint_hero_art(anime)
+
+    def _user_completed(self, anime) -> bool:
+        """Whether *this user* has finished the show — the only thing a tick in
+        the hero may claim. A show that has finished airing says so in words."""
+        progress = self._progress.get(anime.id.anilist)
+        total = anime.episode_count
+        return bool(progress is not None and progress.completed and total
+                    and progress.episode >= total)
 
     def _paint_hero_art(self, anime) -> None:
         """Mount the hero's poster at hero size, or leave the space reserved.
@@ -705,6 +745,9 @@ class HomeScreen(Screen):
             for anime, caption, resume, fraction in built
         ]
         await shelf.mount_all(cards)
+        if sec is _RESULTS_SECTION:
+            shelf.set_grid(self._grid_columns())
+        shelf.retitle()
         start = next((i for i, c in enumerate(cards) if c.anime.id.anilist == keep), 0)
         shelf.index = start
         cards[start].selected = True
@@ -726,10 +769,25 @@ class HomeScreen(Screen):
         """
         if sec_id in self._unavailable:
             return  # the shelf could not load; do not relabel it as empty
+        self._labels[sec_id] = (base, count)
+        self._paint_label(sec_id)
+
+    def _paint_label(self, sec_id: str, position: int | None = None) -> None:
+        base, count = self._labels.get(sec_id, ("", 0))
         with contextlib.suppress(Exception):
             label = self.query_one(sec_id, Label)
-            tail = f"[dim]{count}[/dim]" if count else ""
+            if count and position:
+                tail = f"[dim]{min(position, count)}/{count}[/dim]"
+            else:
+                tail = f"[dim]{count}[/dim]" if count else ""
             label.update(f"[b]{spaced(base)}[/b]   {tail}".rstrip())
+
+    def _relabel(self, shelf: Shelf) -> None:
+        """Show the cursor's place in a shelf now that the scrollbar is gone."""
+        head = next((s.head_id for s in (*SECTIONS, _RESULTS_SECTION)
+                     if s.list_id == f"#{shelf.id}"), None)
+        if head and shelf.cards:
+            self._paint_label(head, shelf.index + 1)
 
     def _mark_section_unavailable(self, sec: Section) -> None:
         """Say a shelf could not be loaded, instead of leaving it blank.
@@ -953,7 +1011,8 @@ class HomeScreen(Screen):
         """Re-cut the captions that contain a clock. No network."""
         now = datetime.now(timezone.utc)
         for card in self.query(PosterCard):
-            if card.anime.is_airing:
+            if card.anime.is_airing and card.parent is not None \
+                    and card.parent.id != "results":
                 card.set_caption(card_caption(
                     card.anime, self._progress.get(card.anime.id.anilist), now
                 ))
@@ -1002,7 +1061,7 @@ class HomeScreen(Screen):
         # stale matches over whatever the user is looking at now.
         if self.query_one("#search", Input).value.strip() != query:
             return
-        built = [(r.anime, card_caption(r.anime), None, 0.0) for r in results]
+        built = [(r.anime, search_caption(r.anime), None, 0.0) for r in results]
         self._toggle_results(True)
         await self._fill_shelf(_RESULTS_SECTION, built)
         self._show_no_matches(None if results else query)

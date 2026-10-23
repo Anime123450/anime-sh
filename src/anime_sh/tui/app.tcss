@@ -170,13 +170,18 @@ Shelf {
     margin: 0 0 1 0;
     background: $surface;
     overflow-y: hidden;
-    scrollbar-size-horizontal: 1;
-    /* The sideways bar is the only "more posters this way" cue. In $panel on
-       $surface it read as a stray strip; pink on the plate reads as a track. */
-    scrollbar-background: $surface;
-    scrollbar-color: $primary 35%;
-    scrollbar-color-hover: $primary 60%;
-    scrollbar-color-active: $accent;
+    /* No bar at all. The thick mauve strip under Continue Watching read as a
+       rendering artifact rather than as a position cue; the shelf label says
+       "3/20" instead, and the cursor card is always scrolled into view. */
+    scrollbar-size-horizontal: 0;
+}
+
+/* Search results wrap into rows (the screen sets `grid_size_columns` and the
+   height from the width and the result count). The page scrolls, not the shelf. */
+Shelf.-grid {
+    layout: grid;
+    grid-rows: 13;
+    overflow: hidden hidden;
 }
 
 /* Fourteen cells of art plus a cell of gutter either side. The height must
@@ -204,6 +209,12 @@ PosterCard > .card-meta {
    here", and four shelves claiming that at once means none of them do. */
 Shelf:focus PosterCard.-on {
     background: $primary 14%;
+}
+
+/* The remembered card of a shelf the keyboard has left: kept in place, but
+   only a faint lift and no gold, so a single card on screen is "the" cursor. */
+Shelf:blur PosterCard.-on {
+    background: $surface-lighten-1 40%;
 }
 
 /* Letterspaced caps are the one typographic treatment nothing else on the
