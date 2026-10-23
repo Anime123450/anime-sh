@@ -141,7 +141,10 @@ def _subtitles(tracks) -> tuple[Subtitle, ...]:
         out.append(
             Subtitle(
                 url=url,
-                lang=t.get("lang") or t.get("label") or "und",
+                # The payload's ``lang`` is unreliable: zoko tags every track
+                # "en" (Arabic, French, ... included), so the human label is
+                # the only trustworthy language signal.
+                lang=t.get("label") or t.get("lang") or "und",
                 label=t.get("label"),
                 default=bool(t.get("default")),
             )

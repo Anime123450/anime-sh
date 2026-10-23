@@ -104,7 +104,7 @@ async def test_resolve_returns_the_stream_with_subtitles_and_skips():
     (stream,) = await resolver.resolve(_candidate())
     assert stream.url == CONFIG["src"]
     assert stream.kind is StreamKind.HLS
-    assert [s.lang for s in stream.subtitles] == ["en"]
+    assert [s.lang for s in stream.subtitles] == ["English"]
     assert stream.subtitles[0].default is True
     assert stream.skip_times is not None
     assert (stream.skip_times.op.start_s, stream.skip_times.op.end_s) == (0, 89)
@@ -139,3 +139,18 @@ async def test_resolve_raises_when_the_payload_carries_no_stream():
     resolver = ZokoResolver(http=_Http(_page(encode(config, b"otaku-embed-v1"))))
     with pytest.raises(ResolverError, match="no stream URL"):
         await resolver.resolve(_candidate())
+
+
+async def test_subtitle_language_comes_from_the_label_not_the_mislabelled_lang():
+    """zoko tags every track ``lang: "en"``; Arabic must not rank as English."""
+    from anime_sh.domain.subtitles import prioritize_subtitles
+
+    tracks = [
+        {"lang": "en", "label": "Arabic", "default": False, "src": "https://x/ar.vtt"},
+        {"lang": "en", "label": "English", "default": True, "src": "https://x/en.vtt"},
+        {"lang": "en", "label": "French (- Francais(France))", "src": "https://x/fr.vtt"},
+    ]
+    cfg = {**CONFIG, "subtitles": tracks}
+    resolver = ZokoResolver(http=_Http(_page(encode(cfg, b"otaku-embed-v1"))))
+    (stream,) = await resolver.resolve(_candidate())
+    assert prioritize_subtitles(stream.subtitles, "en")[0].url == "https://x/en.vtt"
