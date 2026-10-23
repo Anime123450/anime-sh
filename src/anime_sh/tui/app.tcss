@@ -181,6 +181,7 @@ Shelf {
 Shelf.-grid {
     layout: grid;
     grid-rows: 13;
+    grid-columns: 16;
     overflow: hidden hidden;
 }
 

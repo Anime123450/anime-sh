@@ -424,6 +424,27 @@ def shelf_titles(titles: Sequence[str], width: int = CARD_WIDTH) -> list[str]:
         alt = build(True)
         counts = Counter(out)
         out = [alt[i] if counts[o] > 1 else o for i, o in enumerate(out)]
+    # A title with no season/part/movie marker gains nothing from head…tail
+    # when its plain cut is unambiguous: season one of a franchise read
+    # "Re:ZERO…World" where "Re:ZERO -Star…" says more. Among titles that would
+    # share one plain cut, only the shortest (the franchise's base title) gets
+    # it back, and only if no other card already prints that string.
+    taken = Counter(out)
+    by_plain: dict[str, list[int]] = {}
+    for i, title in enumerate(titles):
+        if out[i] != plain[i] and not _MARKER_RE.search(title):
+            by_plain.setdefault(plain[i], []).append(i)
+    for cut, idx in by_plain.items():
+        if taken[cut]:
+            continue
+        # The franchise's base title is the one the most siblings extend.
+        best = min(idx, key=lambda i: (
+            -sum(o != titles[i] and o.casefold().startswith(titles[i].casefold().rstrip(_PUNCT))
+                 for o in titles),
+            len(titles[i])))
+        taken[out[best]] -= 1
+        out[best] = cut
+        taken[cut] += 1
     return out
 
 
