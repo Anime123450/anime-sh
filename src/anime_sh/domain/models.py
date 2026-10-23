@@ -25,6 +25,7 @@ class Format(str, Enum):
     MOVIE = "MOVIE"
     OVA = "OVA"
     ONA = "ONA"
+    TV_SHORT = "TV_SHORT"
     SPECIAL = "SPECIAL"
     MUSIC = "MUSIC"
     UNKNOWN = "UNKNOWN"
@@ -127,6 +128,9 @@ class Anime:
     banner_url: str | None = None
     next_airing_episode: int | None = None
     next_airing_at: datetime | None = None
+    # First air date. Optional: rows cached before it existed, and providers
+    # that do not know it, simply leave it None (year is the fallback).
+    start_date: date | None = None
 
     @property
     def is_airing(self) -> bool:

@@ -90,6 +90,12 @@ class Container:
 
         return SearchService(self.metadata)
 
+    @cached_property
+    def franchise(self):
+        from ..app.franchise import FranchiseService
+
+        return FranchiseService(self.metadata, self.library_service)
+
     # -- providers / resolvers ---------------------------------------------- #
     @cached_property
     def providers(self) -> list:

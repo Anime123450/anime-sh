@@ -45,6 +45,9 @@ class TuiServices:
     # A PlayerProvider, when the composition root has one: lets Settings say
     # whether mpv and VLC are actually installed before you pick one.
     players: object | None = None
+    # FranchiseService: the watch-order map and per-episode metadata for a
+    # show's detail page. None when the wiring predates it.
+    franchise: object | None = None
 
 
 # There used to be a map from config theme names onto Textual's built-ins. It
