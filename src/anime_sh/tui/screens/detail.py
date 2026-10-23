@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import textwrap
 
 from textual import work
 from textual.app import ComposeResult
@@ -31,13 +32,16 @@ from ..coverart import (
     render_cover,
 )
 from ..format import (
+    _human_duration,
+    clean_synopsis,
     episode_air_label,
     meta_line,
     next_episode_line,
-    watch_summary,
+    progress_bar,
 )
 from ..shell import ActionBar, TopBar, spaced
 from ..widgets import EpisodeGrid, EpisodeItem
+from .sources import SourceChoice, SourcesScreen
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +49,39 @@ log = logging.getLogger(__name__)
 # beside the metadata, not a wall of pixels — and smaller means denser, so it
 # also reads a touch sharper.
 _COVER_COLS = 32
+
+# At and above this many columns the page is two columns side by side: the show
+# on the left, the episodes on the right, each filling the height it is given.
+# Below it they stack. 150 is where a 100-column left half still leaves the
+# episodes more than forty columns, which is the narrowest a grid reads well.
+_WIDE = 150
+# The left column's ceiling. Beyond this the synopsis is a line of prose longer
+# than anyone reads comfortably, so the surplus goes to the episodes instead.
+_LEFT_MAX = 100
+# The page's own side padding (see `#detail-body`), and the gap between columns.
+_PAD = 2
+_GAP = 2
+
+
+def series_line(watched: int, total: int | None, ep_minutes: int | None = None) -> str:
+    """How far through the *series* you are — and only that.
+
+    This used to read ``0/25 · 0% · 25 left`` directly above a button saying
+    ``1% watched``. Both were true (nothing finished; one episode a percent in)
+    and together they read as a contradiction. The series line counts finished
+    episodes in words, and the button owns the in-episode position.
+    """
+    if not total:
+        n = f"{watched} watched" if watched else "not started"
+        return f"[dim]{n}[/dim]"
+    if watched >= total:
+        return f"{progress_bar(1.0, 10, color='$success')}  [b $success]✓ complete[/]"
+    left = total - watched
+    tail = f"{left} left"
+    if ep_minutes:
+        tail += f" · ~{_human_duration(left * ep_minutes)}"
+    return (f"{progress_bar(watched / total, 10, color='$primary')}  "
+            f"[b]{watched} of {total} watched[/b] [dim]· {tail}[/dim]")
 
 
 class DetailScreen(Screen):
@@ -60,6 +97,10 @@ class DetailScreen(Screen):
         ("escape", "app.pop_screen", "Back"),
         ("n", "next_season", "Next season"),
         ("o", "watch_order", "Seasons & related"),
+        # Choosing a source is something you do on purpose, from here, rather than
+        # a page every show has to pass through on the way in. Playback fans out
+        # across the providers on its own until you pin one.
+        ("s", "pick_source", "Source"),
         Binding("j", "grid_down", "Down", show=False),
         Binding("k", "grid_up", "Up", show=False),
         Binding("right", "grid_next", "Next episode", show=False),
@@ -95,20 +136,33 @@ class DetailScreen(Screen):
     def action_grid_prev(self) -> None:
         self._move_episode(-1)
 
-    DEFAULT_CSS = """
-    DetailScreen #detail-top { height: auto; }
+    # Two arrangements of the same four parts. Wide: the show on the left and
+    # the episodes on the right, each as tall as the screen, so neither scrolls
+    # the other away. Narrow: stacked, with the episodes taking whatever height
+    # the show leaves. The page itself only scrolls when the terminal is too
+    # short to hold the show and a handful of episodes (see `#detail-right`).
+    # This is `CSS`, not `DEFAULT_CSS`: app.tcss gives every ListView a ten-row
+    # cap and every `#episodes` a margin, and default rules always lose to it.
+    CSS = """
+    DetailScreen #detail-body { width: 100%; height: 1fr; padding: 0 2; }
+    DetailScreen #detail-left { width: 100%; height: auto; }
+    DetailScreen #detail-top { width: 100%; height: auto; }
     DetailScreen #detail-cover { width: 34; height: auto; padding: 0 2 0 0; }
-    /* Capped rather than 1fr. The synopsis is the only prose in the app, and at
-       1fr it ran to 112 columns on a 150-column terminal — well past the 45–75
-       characters a line of prose is comfortably read at. The rows next door
-       already cap themselves at a measure for exactly this reason; this was the
-       one place that did not. The width it gives up is the price of the text
-       being readable. */
-    DetailScreen #detail-info { width: 1fr; max-width: 80; height: auto; }
+    DetailScreen #detail-info { width: 1fr; height: auto; }
     DetailScreen #detail-meta { width: 100%; height: auto; padding: 0 0 1 0; }
     DetailScreen #detail-progress { height: auto; }
-    DetailScreen #detail-action { height: auto; padding: 1 0 1 0; }
-    DetailScreen #detail-body { padding: 0 2; }
+    DetailScreen #detail-action { height: auto; padding: 1 0 0 0; }
+    DetailScreen #detail-right { width: 100%; height: 1fr; min-height: 8; }
+    DetailScreen #detail-meta { background: $background; margin: 0; }
+    DetailScreen #episodes { height: 1fr; max-height: 100000; margin: 0;
+                             padding: 0; background: $surface; }
+    DetailScreen #sec-episodes { margin: 0 0 0 0; }
+    DetailScreen #episode-detail { height: auto; padding: 0 0 0 1; }
+    DetailScreen.-wide #detail-body { layout: horizontal; overflow: hidden hidden;
+                                      padding: 1 2 0 2; }
+    DetailScreen.-wide #detail-left { height: 100%; overflow-y: auto; }
+    DetailScreen.-wide #detail-right { width: 1fr; height: 100%; min-height: 0;
+                                       margin: 0 0 0 2; }
     """
 
     #: Episode cells mounted per yield to the event loop. Mounting is what
@@ -196,20 +250,23 @@ class DetailScreen(Screen):
         # the app before the redesign.
         yield TopBar(id="topbar")
         with VerticalScroll(id="detail-body"):
-            with Horizontal(id="detail-top"):
-                yield Container(id="detail-cover")
-                # Poster-first: everything about the show, including how far
-                # you are and what Enter will play, sits beside its poster.
-                with Vertical(id="detail-info"):
-                    yield Static(self._header_text(), id="detail-meta")
-                    yield Static("", id="detail-progress")
-                    yield Static("", id="detail-action")
-            yield Label(spaced("Episodes"), classes="shelf-label",
-                        id="sec-episodes")
-            yield EpisodeGrid(id="episodes")
-            # What the cell cannot say. The grid carries state and number; this
-            # line carries the sentence for whichever episode the cursor is on.
-            yield Static("", id="episode-detail")
+            with Vertical(id="detail-left"):
+                with Horizontal(id="detail-top"):
+                    yield Container(id="detail-cover")
+                    # Poster-first: everything about the show, including how far
+                    # you are and what Enter will play, sits beside its poster.
+                    with Vertical(id="detail-info"):
+                        yield Static(self._header_text(), id="detail-meta")
+                        yield Static("", id="detail-progress")
+                        yield Static("", id="detail-action")
+            with Vertical(id="detail-right"):
+                yield Label(spaced("Episodes"), classes="shelf-label",
+                            id="sec-episodes")
+                yield EpisodeGrid(id="episodes")
+                # What the cell cannot say. The grid carries state and number;
+                # this line carries the sentence for whichever episode the
+                # cursor is on.
+                yield Static("", id="episode-detail")
         yield ActionBar(id="actionbar")
 
     # A cell is glyph + space + number, plus one column of gutter either side.
@@ -243,8 +300,50 @@ class DetailScreen(Screen):
         """
         if self._layout == "list":
             return 1  # one episode per line; the cursor steps one row at a time
-        usable = max(20, (self.size.width or 100) - 6)
+        # The right-hand column's width in wide mode, the page's in narrow —
+        # never the screen's: on a 190-column terminal the grid has 84 of them.
+        usable = max(20, self._geometry()[2] - 3)
         return max(1, usable // self._cell_width())
+
+    def _geometry(self, width: int | None = None) -> tuple[bool, int, int]:
+        """``(wide, left_width, episodes_width)`` for a terminal this wide.
+
+        Pure arithmetic on the terminal's width rather than a read of the
+        widgets: it is needed before the first layout pass has given them a
+        size, and again on every resize.
+        """
+        width = width or self.size.width or 100
+        inner = width - 2 * _PAD
+        if width < _WIDE:
+            return False, inner, inner
+        left = min(_LEFT_MAX, int(width * 0.55))
+        return True, left, inner - left - _GAP
+
+    def _apply_layout(self, width: int, height: int) -> None:
+        """Switch between the two arrangements and size the left column."""
+        wide, left, _ = self._geometry(width)
+        self.set_class(wide, "-wide")
+        with contextlib.suppress(Exception):
+            self.query_one("#detail-left").styles.width = left if wide else "100%"
+        self._layout_size = (width, height)
+        self._refresh_header()
+
+    def _info_width(self) -> int:
+        """Columns the metadata panel has beside the poster."""
+        width, height = getattr(self, "_layout_size", None) or (
+            self.size.width or 100, self.size.height or 40)
+        wide, left, _ = self._geometry(width)
+        cover = 0 if getattr(self, "_cover_hidden", False) else (
+            self._cover_cols(width, height) + 2)
+        return max(24, (left if wide else width - 2 * _PAD) - cover)
+
+    def _synopsis_lines(self) -> int:
+        """How many lines of synopsis the layout can afford."""
+        width, height = getattr(self, "_layout_size", None) or (
+            self.size.width or 100, self.size.height or 40)
+        if width >= _WIDE:
+            return 11
+        return 8 if height >= 40 else 6 if height >= 32 else 3
 
     def _size_episode_grid(self) -> None:
         try:
@@ -252,6 +351,10 @@ class DetailScreen(Screen):
         except Exception:
             return
         columns = self._episode_columns()
+        # The list layout already spells out every episode's state in its own row,
+        # so the sentence under the grid would just say the highlighted row twice.
+        with contextlib.suppress(Exception):
+            self.query_one("#episode-detail", Static).display = self._layout != "list"
         # The class is what narrows the row padding; `_cell_width` narrows the
         # column to match. Setting one without the other clips the numbers.
         lv.set_class(self._layout == "compact", "-compact")
@@ -263,6 +366,9 @@ class DetailScreen(Screen):
             return
         lv.styles.layout = "grid"
         lv.styles.grid_size_columns = columns
+        # One line per row. In a list that fills the column, rows would otherwise
+        # share its whole height between them and drift apart.
+        lv.styles.grid_rows = "1"
         # Fixed, not fractional. Without this the grid shares its whole width
         # out between the columns, so the cells stretch and the numbers drift
         # apart instead of forming a block you can read as one shape.
@@ -285,6 +391,7 @@ class DetailScreen(Screen):
         self.title = self.anime.title.preferred
         if self.anime.episode_count:
             self.sub_title = f"{self.anime.episode_count} episodes planned"
+        self._apply_layout(self.size.width or 100, self.size.height or 40)
         self._paint_shell()
         self._load_cover()
         self._populate_episodes()
@@ -304,8 +411,8 @@ class DetailScreen(Screen):
             self.query_one("#actionbar", ActionBar).render_actions(
                 width, zoom=False,
                 contextual=(("↵", "play"), ("esc", "back"),
-                            ("n", "next season"), ("o", "order"),
-                            ("v", "layout")))
+                            ("s", "source"), ("n", "next season"),
+                            ("o", "order"), ("v", "layout")))
 
     @work(exclusive=True, group="cover")
     async def _load_cover(self) -> None:
@@ -340,20 +447,28 @@ class DetailScreen(Screen):
         Collapsed only once there is definitely nothing to show, so the common
         case still has its space held and still does not jump.
         """
+        self._cover_hidden = True
         try:
             self.query_one("#detail-cover", Container).display = False
         except Exception as e:
             log.debug("could not collapse missing cover container: %s", e)
+        self._refresh_header()
 
-    def _cover_cols(self) -> int:
+    def _cover_cols(self, width: int | None = None, height: int | None = None) -> int:
         """Poster width for this terminal.
 
-        A full-size poster is about 23 rows tall. On a 24-row terminal it
-        filled the screen, so the title scrolled away and the poster was the
-        only thing visible. Below 32 rows it shrinks to roughly half height,
-        leaving room for the title, the play button and some episodes.
+        A full-size poster is about 23 rows tall. Stacked (narrow), that is half
+        of a 49-row window before a single episode, so the poster only goes full
+        size when the window is tall enough to keep a useful list beneath it;
+        side by side (wide) it costs the list nothing, so any window of 32 rows
+        or more gets the full one.
         """
-        return _COVER_COLS if self.size.height >= 32 else 18
+        size = getattr(self, "_layout_size", None) or (self.size.width, self.size.height)
+        width = width or size[0] or 100
+        height = height or size[1] or 40
+        if width >= _WIDE:
+            return _COVER_COLS if height >= 32 else 18
+        return _COVER_COLS if height >= 44 else 18
 
     async def _mount_cover(self) -> None:
         data = getattr(self, "_cover_data", None)
@@ -394,6 +509,7 @@ class DetailScreen(Screen):
         # Grid columns and shell bars depend on the terminal width. Keep both
         # live in the one handler Python actually dispatches. A Sixel image
         # does not reflow, so remount it only when the size itself changes.
+        self._apply_layout(event.size.width, event.size.height)
         self._size_episode_grid()
         self._paint_shell()
         size = (event.size.width, event.size.height)
@@ -509,9 +625,9 @@ class DetailScreen(Screen):
         """Update the overall watch-progress bar under the header."""
         try:
             self.query_one("#detail-progress", Static).update(
-                watch_summary(int(getattr(self, "_watched_through", 0)),
-                              self.anime.episode_count,
-                              ep_minutes=self.anime.duration_min)
+                series_line(int(getattr(self, "_watched_through", 0)),
+                            self.anime.episode_count,
+                            ep_minutes=self.anime.duration_min)
             )
         except Exception:
             pass
@@ -530,10 +646,10 @@ class DetailScreen(Screen):
             return airing
         aired_through = self.anime.aired_through()
         if aired_through is not None and number <= aired_through:
-            return "aired · not on this source — press Esc to switch"
+            return "aired · not on this source — press s to pick another"
         if self.anime.is_airing:
             return "not aired yet"
-        return "not on this source — press Esc to switch"
+        return "not on this source — press s to pick another"
 
     async def _render_episodes(
         self, numbers: list[float], available: set[float] | None = None
@@ -656,7 +772,7 @@ class DetailScreen(Screen):
                 # this source just stops earlier than the show does. Silence
                 # looked like a bug; the fix is one keypress away.
                 text = ("[$warning]This source has no further episodes.[/] "
-                        "[dim]Press Esc to pick another source.[/dim]")
+                        "[dim]Press s to pick another source.[/dim]")
             else:
                 text = ""
         else:
@@ -669,9 +785,11 @@ class DetailScreen(Screen):
             # at the foot now says it, and saying it twice on one screen was the
             # density this redesign is about.
             verb = "resume" if pct else ("start" if watched_through <= 0 else "play")
-            text = f"[b $background on $accent] ▶  {verb} episode {n} [/]"
-            if pct:
-                text += f"  [dim]{pct}% watched[/dim]"
+            # The percentage is *this episode's* position and lives in the
+            # button, where it can only be read as what Enter will resume. The
+            # series line above counts finished episodes and says nothing of it.
+            tail = f" · {pct}%" if pct else ""
+            text = f"[b $background on $accent] ▶  {verb} episode {n}{tail} [/]"
         try:
             self.query_one("#detail-action", Static).update(text)
         except Exception:
@@ -723,8 +841,12 @@ class DetailScreen(Screen):
             # The service distinguishes "this source doesn't list the episode"
             # from "it listed it but nothing would play" — surface that instead
             # of flattening both into a generic miss, which hides the real cause.
-            hint = " Try another source (Esc, then pick a different one)." if self.source else ""
+            hint = " Press s to pick another source." if self.source else ""
             self.notify(f"Episode {number:g}: {e}{hint}", severity="error")
+            if self._effective_audio() is Audio.DUB and self.source is None:
+                # No dub anywhere. The picker is where "Switch to Sub for this
+                # title only" lives, so open it rather than leave a dead end.
+                self.action_pick_source()
         except PlayerUnavailable as e:
             if "vlc" in str(e).lower():
                 # VLC was chosen in Settings and isn't where we looked: the
@@ -761,6 +883,30 @@ class DetailScreen(Screen):
         except Exception:
             pass
 
+    def _effective_audio(self) -> Audio:
+        return self.audio or getattr(self.app, "audio", Audio.SUB)
+
+    def action_pick_source(self) -> None:
+        """Open the source picker for this show.
+
+        Optional and explicit: nothing sends you here on the way in. Choosing a
+        row pins it on *this* screen and refreshes what is available; Esc leaves
+        everything as it was.
+        """
+        self.app.push_screen(
+            SourcesScreen(self.anime, audio=self._effective_audio(), pick=True),
+            self._source_chosen,
+        )
+
+    def _source_chosen(self, choice: SourceChoice | None) -> None:
+        if choice is None:
+            return
+        self.source = choice.source
+        self.audio = choice.audio
+        where = choice.source.provider if choice.source else "any provider"
+        self.notify(f"Source: {where}")
+        self._populate_episodes()  # availability depends on the source
+
     def action_watch_order(self) -> None:
         from .watch_order import WatchOrderScreen
 
@@ -778,10 +924,8 @@ class DetailScreen(Screen):
         if sequel is None:
             self.notify("No next season found.", severity="warning")
             return
-        from .sources import SourcesScreen
-
         self.notify(f"Next season: {sequel.title.preferred}")
-        self.app.push_screen(SourcesScreen(sequel))
+        self.app.push_screen(DetailScreen(sequel))
 
     def _focus_grid(self, lv) -> None:
         """Focus the episode grid without throwing away the top of the screen.
@@ -814,10 +958,28 @@ class DetailScreen(Screen):
             lines.append(f"[b $background on $success] ● next [/] {nxt}")
         if a.genres:
             lines.append(f"[$secondary]{' · '.join(a.genres[:5])}[/]")
-        synopsis = (a.synopsis or "").strip()
+        synopsis = self._synopsis_block(clean_synopsis(a.synopsis))
         if synopsis:
-            if len(synopsis) > 500:
-                synopsis = synopsis[:500].rsplit(" ", 1)[0] + "…"
             lines.append("")
             lines.append(synopsis)
         return "\n".join(lines)
+
+    def _synopsis_block(self, text: str) -> str:
+        """The synopsis wrapped to the column, cut to what the layout can afford.
+
+        Wrapped here rather than left to the widget so the cut lands on a whole
+        word with an ellipsis, and so the number of lines it takes is known.
+        """
+        if not text:
+            return ""
+        width = max(20, self._info_width() - 1)
+        limit = self._synopsis_lines()
+        wrapped = textwrap.wrap(text, width=width)
+        if len(wrapped) <= limit:
+            return "\n".join(wrapped)
+        kept = wrapped[:limit]
+        last = kept[-1]
+        if len(last) >= width:
+            last = last[: width - 1].rsplit(" ", 1)[0]
+        kept[-1] = last.rstrip(" ,.;:") + "…"
+        return "\n".join(kept)

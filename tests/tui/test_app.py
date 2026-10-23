@@ -495,7 +495,7 @@ async def test_synced_progress_marks_all_earlier_episodes():
         assert [it.watched for it in items[:6]] == [True] * 6
         assert [it.watched for it in items[6:]] == [False] * 6
         assert items[6].is_next  # cursor target: first unwatched
-        assert "6/12" in str(detail.query_one("#detail-progress").render())
+        assert "6 of 12 watched" in str(detail.query_one("#detail-progress").render())
 
 
 async def test_detail_refreshes_marks_after_playing():
