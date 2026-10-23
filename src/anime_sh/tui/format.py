@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from ..domain.models import Anime, WatchProgress
@@ -180,3 +181,27 @@ def card_caption(anime: Anime, progress: WatchProgress | None = None,
     if eps:
         return "1 ep" if eps == 1 else f"{eps} eps"
     return str(anime.year) if anime.year else ""
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+# AniList descriptions often end with an attribution and editor notes:
+# "...happened since. (Source: Anime News Network) Notes: - The first...".
+# Neither is part of the story, and both were rendered inline as more synopsis.
+_TAIL_RE = re.compile(
+    r"\s*(?:[\(\[]\s*Source\s*:[^\)\]]*[\)\]]|Source\s*:\s*\S.*$|Notes?\s*:.*$)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def clean_synopsis(text: str | None) -> str:
+    """A synopsis as prose: tags, source attribution and notes stripped,
+    whitespace collapsed to single spaces. Safe for Textual markup (square
+    brackets become parentheses)."""
+    if not text:
+        return ""
+    s = _TAG_RE.sub(" ", text.replace("<br>", "\n"))
+    m = _TAIL_RE.search(s)
+    if m:
+        s = s[: m.start()]
+    s = " ".join(s.split())
+    return s.replace("[", "(").replace("]", ")")
