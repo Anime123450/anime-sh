@@ -80,7 +80,7 @@ class FranchiseItem(ListItem):
 
         # 4. Title
         if e.is_current:
-            title_str = f"[b $primary]{self.entry_title}[/] [dim $primary](current)[/dim]"
+            title_str = f"[b $primary]{self.entry_title}[/] [dim $primary](current)[/]"
         elif not e.main_line:
             title_str = f"[dim]{self.entry_title}[/dim]"
         else:
@@ -143,12 +143,9 @@ class FranchisePanel(Vertical):
     }
     """
 
-    def __init__(self, franchise: Franchise | None = None) -> None:
-        super().__init__(id="detail-franchise")
+    def __init__(self, franchise: Franchise | None = None, *, id: str | None = None, **kwargs) -> None:
+        super().__init__(id=id or "detail-franchise", **kwargs)
         self.franchise: Franchise | None = franchise
-
-    def compose() -> ComposeResult:
-        pass  # will compose header and list
 
     def compose(self) -> ComposeResult:
         count = len(self.franchise.entries) if self.franchise else 0
@@ -172,13 +169,15 @@ class FranchisePanel(Vertical):
             return
 
         # Generate disambiguated titles
-        animes = [e.anime for e in franchise.entries]
-        # shelf_titles requires at least title.preferred
-        titles = shelf_titles(animes, max_len=40)
+        raw_titles = [e.anime.title.preferred for e in franchise.entries]
+        try:
+            titles = shelf_titles(raw_titles, width=40)
+        except Exception:
+            titles = raw_titles
 
         initial_index = 0
         for i, entry in enumerate(franchise.entries):
-            t = titles.get(entry.anime.id, entry.anime.title.preferred)
+            t = titles[i] if i < len(titles) else entry.anime.title.preferred
             is_sugg = (franchise.suggested_index == i)
             item = FranchiseItem(entry, title=t, is_suggested=is_sugg)
             lv.append(item)

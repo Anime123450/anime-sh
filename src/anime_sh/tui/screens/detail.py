@@ -40,7 +40,9 @@ from ..format import (
     progress_bar,
 )
 from ..shell import ActionBar, TopBar, spaced
+from ..franchise_panel import FranchiseItem, FranchisePanel
 from ..widgets import EpisodeGrid, EpisodeItem
+from .confirm import ConfirmScreen
 from .sources import SourceChoice, SourcesScreen
 
 log = logging.getLogger(__name__)
@@ -101,6 +103,8 @@ class DetailScreen(Screen):
         # a page every show has to pass through on the way in. Playback fans out
         # across the providers on its own until you pin one.
         ("s", "pick_source", "Source"),
+        ("w", "mark_watched", "Mark watched"),
+        Binding("tab", "toggle_focus", "Switch list", show=False),
         Binding("j", "grid_down", "Down", show=False),
         Binding("k", "grid_up", "Up", show=False),
         Binding("right", "grid_next", "Next episode", show=False),
@@ -259,6 +263,7 @@ class DetailScreen(Screen):
                         yield Static(self._header_text(), id="detail-meta")
                         yield Static("", id="detail-progress")
                         yield Static("", id="detail-action")
+                yield FranchisePanel(id="detail-franchise")
             with Vertical(id="detail-right"):
                 yield Label(spaced("Episodes"), classes="shelf-label",
                             id="sec-episodes")
@@ -325,6 +330,8 @@ class DetailScreen(Screen):
         self.set_class(wide, "-wide")
         with contextlib.suppress(Exception):
             self.query_one("#detail-left").styles.width = left if wide else "100%"
+        with contextlib.suppress(Exception):
+            self.query_one("#detail-franchise", FranchisePanel).display = wide
         self._layout_size = (width, height)
         self._refresh_header()
 
@@ -395,6 +402,40 @@ class DetailScreen(Screen):
         self._paint_shell()
         self._load_cover()
         self._populate_episodes()
+        self._load_franchise()
+
+    def _load_franchise(self) -> None:
+        self._load_franchise_worker()
+
+    @work(exclusive=True, group="franchise")
+    async def _load_franchise_worker(self) -> None:
+        svc = getattr(self.app.services, "franchise", None)
+        if not svc or not hasattr(svc, "build"):
+            return
+        try:
+            f = await svc.build(self.anime)
+            if not f:
+                return
+            try:
+                fp = self.query_one("#detail-franchise", FranchisePanel)
+                fp.set_franchise(f)
+            except Exception:
+                pass
+        except Exception as e:
+            log.debug("could not load franchise: %s", e)
+
+    def action_toggle_focus(self) -> None:
+        try:
+            ep_lv = self.query_one("#episodes", ListView)
+            fp_lv = self.query_one("#franchise-list", ListView)
+        except Exception:
+            return
+        if not fp_lv.display and not self.has_class("-wide"):
+            return
+        if fp_lv.has_focus:
+            ep_lv.focus()
+        else:
+            fp_lv.focus()
 
     def _paint_shell(self) -> None:
         """Repaint the two bars: where you are, and what you can do from here."""
@@ -411,7 +452,8 @@ class DetailScreen(Screen):
             self.query_one("#actionbar", ActionBar).render_actions(
                 width, zoom=False,
                 contextual=(("↵", "play"), ("esc", "back"),
-                            ("s", "source"), ("n", "next season"),
+                            ("s", "source"), ("w", "mark watched"),
+                            ("n", "next season"),
                             ("o", "order"), ("v", "layout")))
 
     @work(exclusive=True, group="cover")
@@ -823,6 +865,99 @@ class DetailScreen(Screen):
                 )
                 return
             self._play(item.number)
+        elif isinstance(item, FranchiseItem):
+            self.app.push_screen(DetailScreen(item.entry.anime))
+
+    def action_mark_watched(self) -> None:
+        try:
+            fp_lv = self.query_one("#franchise-list", ListView)
+        except Exception:
+            fp_lv = None
+
+        if fp_lv is not None and fp_lv.has_focus:
+            highlighted = fp_lv.highlighted_child
+            if not isinstance(highlighted, FranchiseItem):
+                return
+            entry = highlighted.entry
+            title = entry.anime.title.preferred
+
+            def on_confirm_fr(confirmed: bool) -> None:
+                if confirmed:
+                    self._mark_franchise_entry(entry.anime)
+
+            self.app.push_screen(
+                ConfirmScreen(
+                    f"Mark all of [b]{title}[/] as watched elsewhere?",
+                    title="Mark Watched",
+                ),
+                on_confirm_fr,
+            )
+            return
+
+        try:
+            ep_lv = self.query_one("#episodes", EpisodeGrid)
+        except Exception:
+            try:
+                ep_lv = self.query_one("#episodes", ListView)
+            except Exception:
+                return
+
+        highlighted = ep_lv.highlighted_child
+        if isinstance(highlighted, EpisodeItem):
+            num = float(highlighted.number)
+        elif ep_lv.index is not None and 0 <= ep_lv.index < len(self._numbers):
+            num = float(self._numbers[ep_lv.index])
+        elif ep_lv.index is not None:
+            num = float(ep_lv.index + 1)
+        else:
+            return
+
+        def on_confirm_ep(confirmed: bool) -> None:
+            if confirmed:
+                self._mark_episodes_up_to(num)
+
+        self.app.push_screen(
+            ConfirmScreen(
+                f"Mark up to Episode {num:g} as watched?",
+                title="Mark Watched",
+            ),
+            on_confirm_ep,
+        )
+
+    def _mark_franchise_entry(self, anime: Anime) -> None:
+        self._mark_franchise_entry_worker(anime)
+
+    @work(exclusive=True, group="franchise_mark")
+    async def _mark_franchise_entry_worker(self, anime: Anime) -> None:
+        svc = getattr(self.app.services, "franchise", None)
+        if svc and hasattr(svc, "mark_entry_watched"):
+            try:
+                await svc.mark_entry_watched(anime)
+            except Exception as e:
+                self.notify(f"Could not mark entry watched: {e}", severity="error")
+                return
+        self.notify(f"Marked {anime.title.preferred} as watched")
+        self._load_franchise()
+        if anime.id == self.anime.id:
+            self.refresh_marks()
+
+    def _mark_episodes_up_to(self, num: float) -> None:
+        self._mark_episodes_up_to_worker(num)
+
+    @work(exclusive=True, group="marks")
+    async def _mark_episodes_up_to_worker(self, num: float) -> None:
+        lib = getattr(self.app.services, "library", None)
+        if lib and hasattr(lib, "mark_watched"):
+            try:
+                await lib.mark_watched(self.anime, num)
+            except Exception as e:
+                self.notify(f"Could not mark episode: {e}", severity="error")
+                return
+        self.notify(f"Marked up to Episode {num:g} as watched")
+        await self._load_marks()
+        self._refresh_header()
+        if self._numbers:
+            await self._render_episodes(self._numbers, available=self._available)
 
     @work(exclusive=True, group="play")
     async def _play(self, number: float) -> None:

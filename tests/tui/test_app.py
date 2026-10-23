@@ -74,6 +74,11 @@ class FakeLibrary:
         self.progress = []
         self.favorites_list = []
         self.continue_items = None  # None → the default single-show list
+        self.marks = []
+
+    async def mark_watched(self, anime, up_to, *, single=False):
+        self.marks.append((anime.id, up_to))
+        return [float(i) for i in range(1, int(up_to) + 1)]
     async def continue_watching(self, *, limit=20):
         if self.continue_items is not None:
             return list(self.continue_items)
