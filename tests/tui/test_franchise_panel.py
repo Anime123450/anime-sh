@@ -114,6 +114,32 @@ async def test_franchise_panel_mounted_and_visible_in_wide():
         assert "→ up next" in item1._format_text()
 
 
+async def test_franchise_list_fills_left_column_without_scrolling():
+    """A maximised window has room for every entry: no ten-row cap, no scrollbar.
+
+    app.tcss caps every ListView at ten rows; the franchise list must opt out,
+    or a 12-entry franchise scrolls inside a short box over empty space.
+    """
+    shows = [_anime(i, f"Re:ZERO entry {i}", eps=12) for i in range(1, 13)]
+    entries = tuple(
+        FranchiseEntry(s, "season", True, EntryStatus.NOT_STARTED, 0, 12, is_current=(i == 4))
+        for i, s in enumerate(shows)
+    )
+    f = Franchise(entries=entries, current_index=4, suggested_index=None)
+    app = _make_franchise_app(franchise_svc=FakeFranchiseService(franchise=f))
+
+    async with app.run_test(size=(190, 49)) as pilot:
+        await pilot.pause()
+        d = await _open_detail(app, pilot, shows[4])
+        fp = d.query_one("#detail-franchise", FranchisePanel)
+        lv = fp.query_one("#franchise-list", ListView)
+        assert len(lv.children) == 12
+        assert lv.max_scroll_y == 0
+        assert lv.region.height >= 12
+        # The list reaches the bottom of its panel instead of stopping short.
+        assert lv.region.bottom >= fp.region.bottom - 1
+
+
 async def test_franchise_panel_hidden_in_narrow():
     s1 = _anime(1, "Re:ZERO S1", eps=25)
     svc = FakeFranchiseService()

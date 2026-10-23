@@ -162,6 +162,7 @@ class DetailScreen(Screen):
                              padding: 0; background: $surface; }
     DetailScreen #sec-episodes { margin: 0 0 0 0; }
     DetailScreen #episode-detail { height: auto; padding: 0 0 0 1; }
+    DetailScreen #franchise-list { height: 1fr; max-height: 100000; margin: 0; }
     DetailScreen.-wide #detail-body { layout: horizontal; overflow: hidden hidden;
                                       padding: 1 2 0 2; }
     DetailScreen.-wide #detail-left { height: 100%; overflow-y: auto; }
