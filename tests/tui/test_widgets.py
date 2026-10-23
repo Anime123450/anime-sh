@@ -10,11 +10,20 @@ from __future__ import annotations
 
 from textual.app import App
 from textual.content import Content
-from textual.widgets import Label
+from textual.css.query import NoMatches
+from textual.widgets import Label, Static
 
 from anime_sh.domain.models import Anime, AnimeId, Audio, SourceOption, Title
 from anime_sh.tui.rows import Row, columns_for
-from anime_sh.tui.widgets import AnimeItem, SourceItem, _lit
+from anime_sh.tui.widgets import AnimeItem, EpisodeItem, SourceItem, _lit
+
+
+def test_unmarked_episode_uses_muted_theme_token():
+    markup = EpisodeItem._label(
+        number=2, watched=False, resume_s=0, available=True,
+        progress_pct=0, air_label=None, is_next=False,
+    )
+    assert "[$text-muted]○[/]" in markup
 
 
 def test_lit_keeps_brackets_literal():
@@ -31,8 +40,11 @@ async def _mounted_plain(item) -> str:
             yield item
 
     async with _App().run_test():
-        label = item.query_one(Label)
-        content = label.content  # the raw markup string passed to the Label
+        try:
+            label = item.query_one(Label)
+            content = label.content
+        except NoMatches:
+            content = item.query_one(Static).render()
         if isinstance(content, str):
             content = Content.from_markup(content)
         return content.plain

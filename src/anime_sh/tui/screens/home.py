@@ -1056,8 +1056,8 @@ class HomeScreen(Screen):
             f"  [b]No matches for[/][dim] {shown}[/dim]\n"
             f"\n"
             f"  [dim]Try fewer words, or a different spelling.[/dim]\n"
-            f"  [dim]Partial titles work — [/][cyan]fri[/][dim] finds Frieren.[/dim]\n"
-            f"  [dim]Press [/][cyan]esc[/][dim] to clear the search.[/dim]"
+            f"  [dim]Partial titles work — [/][$accent]fri[/][dim] finds Frieren.[/dim]\n"
+            f"  [dim]Press [/][$accent]esc[/][dim] to clear the search.[/dim]"
         )
         label.display = True
         with contextlib.suppress(Exception):

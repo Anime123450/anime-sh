@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 
 import pytest
 
 from anime_sh.app.sync import SyncService
 from anime_sh.domain.models import Anime, AnimeId, Title, WatchProgress
+from anime_sh.domain.ports import Library as LibraryPort, Tracker as TrackerPort
 from anime_sh.infra.tracker.anilist import (
     AniListTracker,
     authorize_url,
@@ -384,6 +386,44 @@ async def test_sync_push_never_sets_a_show_below_where_you_are():
     # Not "ends on the highest" — never *sends* anything lower at all, so there
     # is no moment during the push at which the account reads low.
     assert [ep for _, ep, _ in tracker.pushed] == [28]
+
+
+async def test_failed_local_progress_remains_retryable_on_a_later_sync_push():
+    now = datetime.now(timezone.utc)
+    progress = WatchProgress(
+        AnimeId(anilist=196187), 7.0, 0, 1400, now, completed=True
+    )
+
+    class Library:
+        async def all_progress_rows(self):
+            return [progress]
+
+        async def get_anime(self, anime_id):
+            return None
+
+    class Tracker:
+        name = "AniList"
+
+        def __init__(self):
+            self.fail = True
+            self.pushed = []
+
+        async def push(self, row, *, total=None):
+            if self.fail:
+                raise RuntimeError("temporary failure")
+            self.pushed.append((row, total))
+
+    tracker = Tracker()
+    service = SyncService(cast(LibraryPort, Library()), cast(TrackerPort, tracker))
+
+    first = await service.push()
+    assert first.failed == 1 and first.pushed == 0
+    assert progress in await Library().all_progress_rows()
+
+    tracker.fail = False
+    second = await service.push()
+    assert second.failed == 0 and second.pushed == 1
+    assert tracker.pushed == [(progress, None)]
 
 
 async def test_sync_push_picks_the_furthest_even_if_rows_arrive_unordered():

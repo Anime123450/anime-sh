@@ -271,6 +271,40 @@ async def test_settings_save_failure_keeps_last_valid_value(cfg_path, monkeypatc
     assert cfg_path.read_bytes() == before
 
 
+async def test_subtitle_language_preference_is_editable(cfg_path):
+    app = _app(SettingsService(cfg_path))
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _settle(app, pilot)
+        await pilot.press("comma")
+        await _settle(app, pilot)
+        await pilot.press("right")
+        await _settle(app, pilot)
+        screen = app.screen
+        row = _row(screen, "playback.subtitle_lang")
+        assert row.info.value == "en"
+        assert "Subtitle language" in row.text
+        await screen.save_text(row, "ja")
+        await _settle(app, pilot)
+        assert row.info.value == "ja"
+    assert load_config(cfg_path).playback.subtitle_lang == "ja"
+
+
+async def test_audio_setting_explains_subdub_vs_subtitle_language(cfg_path):
+    app = _app(SettingsService(cfg_path))
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _settle(app, pilot)
+        await pilot.press("comma")
+        await _settle(app, pilot)
+        await pilot.press("right")
+        await _settle(app, pilot)
+        screen = app.screen
+        row = _row(screen, "playback.audio")
+        assert "Audio (Sub/Dub)" in row.text
+        screen._describe(row)
+        assert "subtitle language" in screen.detail_text.lower()
+        assert "separately" in screen.detail_text.lower()
+
+
 async def test_download_dir_edit_is_saved_and_shown_expanded(cfg_path, tmp_path):
     app = _app(SettingsService(cfg_path))
     async with app.run_test(size=(120, 40)) as pilot:

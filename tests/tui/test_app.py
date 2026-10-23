@@ -8,7 +8,7 @@ playback. This is how the TUI is verified in CI.
 from __future__ import annotations
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -17,11 +17,14 @@ from textual.widgets import Label, ListView, Static
 from anime_sh.domain.models import (
     Anime,
     AnimeId,
+    Audio,
     FavoriteItem,
     Format,
     ListEntry,
     ResumeItem,
     SearchResult,
+    SourceOption,
+    Status,
     Title,
     WatchProgress,
 )
@@ -29,6 +32,9 @@ from anime_sh.app.settings import SettingsService
 from anime_sh.tui import AnimeShApp, TuiServices
 from anime_sh.tui.cards import Shelf
 from anime_sh.tui.screens.detail import DetailScreen
+from anime_sh.tui.screens.sources import SourcesScreen
+from anime_sh.tui.screens.watch_order import WatchOrderItem, WatchOrderScreen
+from anime_sh.tui.widgets import SourceItem
 from anime_sh.tui.screens.help import HelpScreen
 from anime_sh.tui.screens.mylist import MyListScreen
 
@@ -52,6 +58,8 @@ class FakeMetadata:
         return [_anime(20, "New Show", eps=12)]
     async def sequel(self, anime_id):
         return None
+    async def relations(self, anime_id):
+        return []
 
 
 class FakeTracker:
@@ -334,6 +342,85 @@ async def test_selecting_item_opens_detail():
         assert app.screen.anime.title.preferred == "Frieren"
 
 
+async def test_source_picker_keeps_the_provider_selected_by_the_user():
+    app, playback = _make_app()
+    choices = [
+        SourceOption("hianime", "correct-1", "Long Series Title", 12, Audio.SUB, 1.0),
+        SourceOption("anikoto", "mini-1", "Long Series [Mini]", 4, Audio.SUB, 0.82),
+    ]
+
+    async def list_sources(anime, *, audio=None):
+        return choices
+
+    playback.list_sources = list_sources
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await app.push_screen(SourcesScreen(_anime(42, "Long Series Title")))
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert isinstance(app.screen, SourcesScreen)
+        rows = app.screen.query_one("#sources", ListView).children
+        assert len(rows) == 2 and all(isinstance(row, SourceItem) for row in rows)
+        await pilot.press("down", "enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen)
+        assert app.screen.source.provider == "anikoto"
+
+
+async def test_detail_order_key_lists_relations_and_opens_selected_title():
+    from anime_sh.domain.models import Format
+
+    class FranchiseMetadata(FakeMetadata):
+        async def relations(self, anime_id):
+            return [
+                ("SEQUEL", _anime(3, "Third Season")),
+                ("PREQUEL", _anime(1, "First Season")),
+                ("SIDE_STORY", Anime(
+                    id=AnimeId(anilist=4), title=Title(romaji="Franchise Movie"),
+                    format=Format.MOVIE, year=2021,
+                )),
+            ]
+
+    app = AnimeShApp(TuiServices(
+        search=FakeSearch(), metadata=FranchiseMetadata(),
+        library=FakeLibrary(), playback=FakePlayback(), aclose=_noop,
+    ), theme="tokyo-night")
+    current = _anime(2, "Second Season")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        detail = DetailScreen(current)
+        await app.push_screen(detail)
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert isinstance(app.screen, WatchOrderScreen)
+        rows = app.screen.query_one("#watch-order-list", ListView).children
+        assert all(isinstance(row, WatchOrderItem) for row in rows)
+        assert [row.relation for row in rows] == [
+            "Before this", "Current", "After this", "Related · side story",
+        ]
+        assert [row.anime.title.preferred for row in rows] == [
+            "First Season", "Second Season", "Third Season", "Franchise Movie",
+        ]
+        # Choosing a related entry routes through source selection for that title.
+        rows[0].parent.index = 0
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen)
+        assert app.screen.anime.title.preferred == "First Season"
+
+
 async def test_selecting_episode_triggers_playback():
     app, playback = _make_app()
     async with app.run_test() as pilot:
@@ -578,6 +665,22 @@ async def test_home_survives_a_failing_library():
         # Still alive, and the sections that don't depend on it still rendered.
         assert app.is_running
         assert len(app.query_one("#trending", Shelf).cards) == 2
+
+
+def test_aired_episode_is_not_mislabeled_as_future():
+    now = datetime.now(timezone.utc)
+    show = Anime(
+        id=AnimeId(anilist=77),
+        title=Title(romaji="The Exiled Heavy Knight"),
+        status=Status.RELEASING,
+        episode_count=24,
+        next_airing_episode=18,
+        next_airing_at=now + timedelta(days=7),
+    )
+    label = DetailScreen(show)._unavailable_label(17)
+    assert "aired" in label
+    assert "not on this source" in label
+    assert "not aired yet" not in label
 
 
 async def test_source_without_the_pinned_episode_does_not_offer_it():

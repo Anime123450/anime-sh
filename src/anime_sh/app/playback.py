@@ -94,6 +94,7 @@ class PlaybackSettings:
 
     player: Player
     quality: str = "best"
+    subtitle_language: str = "en"
     skip_intro: bool = True
     skip_outro: bool = False
     auto_next: bool = True
@@ -116,6 +117,7 @@ class PlaybackService:
         player: Player,
         library: Library,
         quality: str = "best",
+        subtitle_language: str = "en",
         skip_intro: bool = True,
         skip_outro: bool = False,
         auto_next: bool = True,
@@ -146,9 +148,11 @@ class PlaybackService:
         self._skip_source = skip_source
         # Optional list-sync tracker (AniList): progress is pushed on completion.
         self._tracker = tracker
+        self._tracker_push_warned = False
         # What a session uses when nothing re-reads settings (the CLI, tests).
         self._defaults = PlaybackSettings(
-            player=player, quality=quality, skip_intro=skip_intro,
+            player=player, quality=quality, subtitle_language=subtitle_language,
+            skip_intro=skip_intro,
             skip_outro=skip_outro, auto_next=auto_next, prefer_local=prefer_local,
         )
         # Optional: returns fresh PlaybackSettings at the start of each session
@@ -540,6 +544,10 @@ class PlaybackService:
                 self._stream_proxy.rewrite(stream) if self._stream_proxy else stream
             )
             play_stream = await self._augment_skips(play_stream, anime, episode_number)
+            play_stream = replace(
+                play_stream,
+                preferred_subtitle_language=self._settings().subtitle_language,
+            )
             try:
                 handle = await self._player.play(play_stream, title=title, start_s=resume_s)
             except PlayerUnavailable:
@@ -644,7 +652,15 @@ class PlaybackService:
             )
             self._notify(f"Synced to {self._tracker.name}: episode {episode_number:g}")
         except Exception as e:  # pragma: no cover - network best-effort
-            log.debug("tracker push failed: %s", e)
+            log.warning(
+                "AniList progress sync failed; completed progress remains local: %s", e
+            )
+            if not self._tracker_push_warned:
+                self._tracker_push_warned = True
+                self._notify(
+                    "AniList sync failed; progress is saved locally. Reconnect with "
+                    "`anime auth login` if needed, then retry with `anime sync push`."
+                )
 
     def _has_next(self, anime: Anime, number: float) -> bool:
         # The airing schedule goes first, because it is the better authority and

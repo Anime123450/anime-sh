@@ -7,6 +7,7 @@ source picker as everywhere else, so playing from your list is one keystroke.
 from __future__ import annotations
 
 import contextlib
+import logging
 from dataclasses import replace
 
 from textual import work
@@ -19,6 +20,8 @@ from ..rows import GAP, Row, columns_for, title_target
 from ..shell import ActionBar, TopBar, spaced
 from ..widgets import AnimeItem
 from .sources import SourcesScreen
+
+log = logging.getLogger(__name__)
 
 # Friendly status → display order + label.
 _ORDER = ["CURRENT", "REPEATING", "PAUSED", "PLANNING", "COMPLETED", "DROPPED"]
@@ -85,8 +88,8 @@ class MyListScreen(Screen):
             entries = []
         try:
             self.query_one("#mylist-loading").remove()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("could not remove My List loading indicator: %s", e)
         body = self.query_one("#mylist-body", VerticalScroll)
         if not entries:
             await body.mount(Label("[dim]Your list is empty.[/dim]"))

@@ -31,12 +31,17 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import AsyncIterator, Callable, Mapping
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 from ...domain.errors import PlayerError, PlayerUnavailable
 from ...domain.models import Stream
+from ...domain.subtitles import player_language_tags, prioritize_subtitles
 from .mpv import _DEFAULT_UA
 from .vlc_http import VlcAuthRejected, VlcControlError, VlcHttpClient, VlcUnreachable
 
@@ -142,10 +147,12 @@ class VlcEvent:
 class VlcPlaybackHandle:
     """One VLC process and its control client. Owns exactly that process."""
 
-    def __init__(self, proc, client, *, poll_interval: float = 0.5) -> None:
+    def __init__(self, proc, client, *, poll_interval: float = 0.5,
+                 temporary_files: tuple[str, ...] = ()) -> None:
         self._proc = proc
         self._client = client
         self._poll = poll_interval
+        self._temporary_files = temporary_files
         self._stop_requested = False
         self._pos = 0
         self._dur = 0
@@ -192,6 +199,14 @@ class VlcPlaybackHandle:
             with contextlib.suppress(Exception):
                 await self._client.stop()
         await _close(self._proc)
+        for path in self._temporary_files:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                log.debug("could not remove temporary subtitle file (%s)", type(exc).__name__)
+        self._temporary_files = ()
 
     async def wait(self) -> None:
         async for ev in self.events():
@@ -224,6 +239,45 @@ def _redact(argv: list[str]) -> list[str]:
             for a in argv]
 
 
+_MAX_SUBTITLE_BYTES = 16 * 1024 * 1024
+_SUBTITLE_SUFFIXES = {".ass", ".srt", ".ssa", ".sub", ".vtt"}
+
+
+def _download_remote_subtitle(url: str, headers: Mapping[str, str]) -> str:
+    """Download one external subtitle for VLC's local-only ``--sub-file``.
+
+    Restrict the response size and keep sensitive query parameters out of any
+    exception/log text. VLC owns no temporary-file lifecycle, so the playback
+    handle removes the file when its process is stopped.
+    """
+    request_headers = {
+        "User-Agent": next((v for k, v in headers.items() if k.lower() == "user-agent"), _DEFAULT_UA),
+    }
+    referer = next((v for k, v in headers.items() if k.lower() == "referer"), None)
+    if referer:
+        request_headers["Referer"] = referer
+    suffix = PurePosixPath(urlsplit(url).path).suffix.lower()
+    if suffix not in _SUBTITLE_SUFFIXES:
+        suffix = ".srt"
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="anime-sh-sub-", suffix=suffix, delete=False) as f:
+            path = f.name
+            with urlopen(Request(url, headers=request_headers), timeout=20) as response:
+                data = response.read(_MAX_SUBTITLE_BYTES + 1)
+            if len(data) > _MAX_SUBTITLE_BYTES:
+                raise ValueError("subtitle exceeds size limit")
+            f.write(data)
+        return path
+    except Exception:
+        if path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        raise PlayerError(
+            "VLC could not download the subtitle; try another source or mpv"
+        ) from None
+
+
 class VlcPlayer:
     name = "vlc"
 
@@ -246,7 +300,7 @@ class VlcPlayer:
         return os.path.isfile(self.executable)
 
     def _argv(self, stream: Stream, title: str, start_s: int, port: int,
-              password: str) -> list[str]:
+              password: str, *, default_subtitle_path: str | None = None) -> list[str]:
         headers = {k.lower(): v for k, v in stream.headers.items()}
         argv = [
             self.executable,
@@ -265,9 +319,14 @@ class VlcPlayer:
             argv.append(f"--http-referrer={headers['referer']}")
         if start_s > 0:
             argv.append(f"--start-time={int(start_s)}")
-        subs = sorted(stream.subtitles, key=lambda s: not s.default)
+        preferred = player_language_tags(stream.preferred_subtitle_language)
+        if preferred:
+            argv.append(f"--sub-language={preferred}")
+        subs = prioritize_subtitles(
+            stream.subtitles, stream.preferred_subtitle_language
+        )
         if subs:
-            argv.append(f"--sub-file={subs[0].url}")
+            argv.append(f"--sub-file={default_subtitle_path or subs[0].url}")
             if len(subs) > 1:
                 argv.append("--input-slave=" + "#".join(s.url for s in subs[1:]))
         argv += self.extra_args
@@ -292,30 +351,59 @@ class VlcPlayer:
                 "(`anime config set player.name mpv`), which supports them."
             )
 
-        for attempt in range(1, _PORT_ATTEMPTS + 1):
-            port = self._pick_port()
-            password = secrets.token_urlsafe(32)
-            argv = self._argv(stream, title, start_s, port, password)
-            log.debug("launching VLC (attempt %d): %s", attempt, _redact(argv))
-            try:
-                proc = await asyncio.to_thread(self._spawn, argv)
-            except FileNotFoundError:
-                raise PlayerUnavailable(f"VLC not found at {self.executable}") from None
-            except OSError as e:
-                raise PlayerError(f"couldn't start VLC: {e}") from None
-            client = self._client_factory(port, password)
-            outcome = await self._wait_ready(proc, client)
-            if outcome == "ready":
-                return VlcPlaybackHandle(proc, client, poll_interval=self._poll)
-            await _close(proc)
-            if outcome == "timeout":
-                raise PlayerError(
-                    f"VLC started but its control interface did not answer within "
-                    f"{self._ready_timeout:g}s")
-            log.debug("VLC control port %d was taken; retrying", port)
-        raise PlayerError(
-            f"couldn't get a free loopback port for VLC's control interface after "
-            f"{_PORT_ATTEMPTS} tries")
+        subs = prioritize_subtitles(
+            stream.subtitles, stream.preferred_subtitle_language
+        )
+        temporary_files: tuple[str, ...] = ()
+        default_subtitle_path: str | None = None
+        if subs and urlsplit(subs[0].url).scheme.lower() in {"http", "https"}:
+            default_subtitle_path = await asyncio.to_thread(
+                _download_remote_subtitle, subs[0].url, stream.headers
+            )
+            temporary_files = (default_subtitle_path,)
+
+        transferred = False
+        try:
+            for attempt in range(1, _PORT_ATTEMPTS + 1):
+                port = self._pick_port()
+                password = secrets.token_urlsafe(32)
+                argv = self._argv(
+                    stream, title, start_s, port, password,
+                    default_subtitle_path=default_subtitle_path,
+                )
+                log.debug("launching VLC (attempt %d): %s", attempt, _redact(argv))
+                try:
+                    proc = await asyncio.to_thread(self._spawn, argv)
+                except FileNotFoundError:
+                    raise PlayerUnavailable(f"VLC not found at {self.executable}") from None
+                except OSError as e:
+                    raise PlayerError(f"couldn't start VLC: {e}") from None
+                client = self._client_factory(port, password)
+                try:
+                    outcome = await self._wait_ready(proc, client)
+                except Exception:
+                    await _close(proc)
+                    raise
+                if outcome == "ready":
+                    transferred = True
+                    return VlcPlaybackHandle(
+                        proc, client, poll_interval=self._poll,
+                        temporary_files=temporary_files,
+                    )
+                await _close(proc)
+                if outcome == "timeout":
+                    raise PlayerError(
+                        f"VLC started but its control interface did not answer within "
+                        f"{self._ready_timeout:g}s")
+                log.debug("VLC control port %d was taken; retrying", port)
+            raise PlayerError(
+                f"couldn't get a free loopback port for VLC's control interface after "
+                f"{_PORT_ATTEMPTS} tries")
+        finally:
+            if not transferred:
+                for path in temporary_files:
+                    with contextlib.suppress(OSError):
+                        os.unlink(path)
 
     async def _wait_ready(self, proc, client) -> str:
         """``"ready"``, ``"collision"`` or ``"timeout"``; raises if VLC exits."""

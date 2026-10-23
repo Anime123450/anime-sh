@@ -161,6 +161,55 @@ class FakeHttp:
         raise AssertionError(url)
 
 
+NO_DUB_EPISODES_HTML = (
+    '<ul><li><a href="#" data-id="97908" data-num="1" data-slug="1" '
+    'data-sub="1" data-dub="0" data-ids="SERVERTOKEN1">Ep 1</a></li></ul>'
+)
+
+
+async def test_find_sources_excludes_entries_without_any_dub_episodes():
+    class SubOnlyHttp(FakeHttp):
+        async def get_json(self, url, *, params=None, headers=None):
+            if "/episode/list/" in url:
+                self.calls.append(("GET-json", url, params))
+                return {"status": 200, "result": NO_DUB_EPISODES_HTML}
+            return await super().get_json(url, params=params, headers=headers)
+
+    http = SubOnlyHttp()
+    provider = AnikotoProvider(http=http)  # type: ignore[arg-type]
+    anime = Anime(
+        id=AnimeId(anilist=196187),
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+    )
+
+    sources = await provider.find_sources(anime, Audio.DUB)
+
+    assert sources == []
+    assert len([call for call in http.calls if "/episode/list/" in call[1]]) == 2
+
+
+async def test_find_sources_keeps_only_candidates_with_verified_dub():
+    class MixedAudioHttp(FakeHttp):
+        async def get_json(self, url, *, params=None, headers=None):
+            if "/episode/list/" in url:
+                self.calls.append(("GET-json", url, params))
+                episodes = EPISODES_HTML if url.endswith("/8950") else NO_DUB_EPISODES_HTML
+                return {"status": 200, "result": episodes}
+            return await super().get_json(url, params=params, headers=headers)
+
+    provider = AnikotoProvider(http=MixedAudioHttp())  # type: ignore[arg-type]
+    anime = Anime(
+        id=AnimeId(anilist=196187),
+        title=Title(romaji="Super no Ura de Yani Suu Futari",
+                    english="Smoking Behind the Supermarket with You"),
+    )
+
+    sources = await provider.find_sources(anime, Audio.DUB)
+
+    assert [source.anime_key for source in sources] == ["8950"]
+
+
 async def test_match_and_episodes_and_candidates():
     http = FakeHttp()
     provider = AnikotoProvider(http=http)

@@ -450,8 +450,10 @@ async def fetch_cover(url: str) -> bytes | None:
             if resp.status_code == 200 and resp.content:
                 _store_cover(url, resp.content)
                 return resp.content
-    except Exception:
-        pass
+    except Exception as e:
+        # The URL may contain sensitive query parameters; log the failure class,
+        # not the request URL or the exception's rendered request details.
+        log.debug("cover fetch failed (%s)", type(e).__name__)
     return None
 
 

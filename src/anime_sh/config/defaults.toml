@@ -10,6 +10,7 @@ args = []
 [playback]
 quality = "best"      # best | 1080p | 720p | 480p | worst
 audio = "sub"         # sub | dub
+subtitle_lang = "en"  # preferred subtitle language code; empty = provider default
 auto_next = true
 skip_intro = true
 skip_outro = false

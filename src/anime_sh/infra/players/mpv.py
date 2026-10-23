@@ -25,6 +25,7 @@ from typing import AsyncIterator
 
 from ...domain.errors import PlayerError, PlayerUnavailable
 from ...domain.models import Stream
+from ...domain.subtitles import player_language_tags, prioritize_subtitles
 
 
 @dataclass(slots=True)
@@ -252,22 +253,13 @@ class MpvPlayer:
     def available(self) -> bool:
         return resolve_binary(self._binary) is not None
 
-    async def play(
-        self, stream: Stream, *, title: str, start_s: int = 0
-    ) -> MpvPlaybackHandle:
-        binary = resolve_binary(self._binary)
-        if binary is None:
-            raise PlayerUnavailable(f"{self._binary} not found on PATH")
-
-        path = _ipc_path()
+    def _build_args(self, binary: str, stream: Stream, title: str,
+                    start_s: int, ipc_path: str) -> list[str]:
         args = [
             binary,
-            f"--input-ipc-server={path}",
+            f"--input-ipc-server={ipc_path}",
             f"--force-media-title={title}",
             "--no-terminal",
-            # ani-cli parity: many hosts have mismatched/self-signed certs, and
-            # exit cleanly on a load error instead of spinning a blank window.
-            "--tls-verify=no",
             "--keep-open=no",
             "--idle=no",
             "--user-agent=" + (stream.headers.get("User-Agent") or _DEFAULT_UA),
@@ -278,6 +270,9 @@ class MpvPlayer:
             args.append(f"--referrer={referer}")
         if start_s > 0:
             args.append(f"--start=+{start_s}")
+        language = player_language_tags(stream.preferred_subtitle_language)
+        if language:
+            args.append(f"--slang={language}")
         # Any non-Referer/UA headers still go through the generic field.
         extra_headers = {
             k: v for k, v in stream.headers.items()
@@ -286,10 +281,26 @@ class MpvPlayer:
         if extra_headers:
             fields = ",".join(f"{k}: {v}" for k, v in extra_headers.items())
             args.append(f"--http-header-fields={fields}")
-        for sub in stream.subtitles:
-            args.append(f"--sub-file={sub.url}")
+        subtitles = prioritize_subtitles(
+            stream.subtitles, stream.preferred_subtitle_language
+        )
+        if subtitles:
+            # One explicitly selected external track makes app metadata decisive;
+            # mpv cannot infer the provider's language label from the URL itself.
+            args.append(f"--sub-file={subtitles[0].url}")
         args += self._extra_args
         args.append(stream.url)
+        return args
+
+    async def play(
+        self, stream: Stream, *, title: str, start_s: int = 0
+    ) -> MpvPlaybackHandle:
+        binary = resolve_binary(self._binary)
+        if binary is None:
+            raise PlayerUnavailable(f"{self._binary} not found on PATH")
+
+        path = _ipc_path()
+        args = self._build_args(binary, stream, title, start_s, path)
 
         # Detach stdio so the console build can never block on a shared terminal.
         proc = await asyncio.to_thread(

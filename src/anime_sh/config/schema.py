@@ -38,6 +38,7 @@ class PlayerConfig(BaseModel):
 class PlaybackConfig(BaseModel):
     quality: str = "best"  # best | 1080p | 720p | 480p | worst
     audio: str = "sub"  # sub | dub
+    subtitle_lang: str = "en"  # preferred subtitle language code (empty = provider default)
     auto_next: bool = True
     skip_intro: bool = True
     skip_outro: bool = False

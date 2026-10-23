@@ -36,6 +36,7 @@ _HELP = """[b $background on $primary] ▶ anime-sh [/]
   [b $accent]Esc[/]            clear the search, or go back
   [b $accent]v[/]              denser view: shelves, or the episode grid
   [b $accent]n[/]              next season, on a show
+  [b $accent]o[/]              seasons, prequels, sequels and related titles
   [b $accent]l[/]              my AniList list
   [b $accent],[/]              settings — appearance, playback, sources
   [b $accent]t[/]  [b $accent]p[/]           settings at the theme / the sources

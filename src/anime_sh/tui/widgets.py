@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from textual.widgets import Label, ListItem, ListView
+from textual.widgets import Label, ListItem, ListView, Static
 
 from ..domain.models import Anime
 from .format import progress_bar
@@ -170,7 +170,7 @@ class EpisodeItem(ListItem):
             return f"[b $accent]▸  Episode {n}[/]   {bar}  [$accent]{pct}%[/]"
         if is_next:
             return f"[b $primary]▶  Episode {n}[/]  [$text-muted]· up next[/]"
-        return f"[grey54]○[/grey54]  Episode {n}"
+        return f"[$text-muted]○[/]  Episode {n}"
 
 
 class SourceItem(ListItem):
@@ -180,7 +180,8 @@ class SourceItem(ListItem):
         self.source = source
         eps = f"{source.episode_count} eps" if source.episode_count else "? eps"
         label = (
-            f"{_lit(source.title)}  "
-            f"[cyan]{_lit(source.provider)}[/cyan] [dim]· {eps} · {source.audio.value.lower()}[/dim]"
+            f"{_lit(source.title)}\n"
+            f"[$primary]{_lit(source.provider)}[/] "
+            f"[dim]· {eps} · {source.audio.value.lower()}[/dim]"
         )
-        super().__init__(Label(label))
+        super().__init__(Static(label))

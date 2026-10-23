@@ -12,7 +12,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Label, ListView, LoadingIndicator
+from textual.widgets import Label, ListItem, ListView, LoadingIndicator, Static
 
 from ...domain.models import Anime, Audio
 from ..shell import ActionBar, TopBar, spaced
@@ -36,16 +36,38 @@ def _all_alike(sources) -> bool:
     return len(keys) == 1
 
 
+class SubFallbackItem(ListItem):
+    """An explicit, per-title opt-in when no dub source was found."""
+
+    def __init__(self) -> None:
+        super().__init__(Label("Switch to Sub for this title only"))
+
+
 class SourcesScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
-    def __init__(self, anime: Anime, *, resume_episode: float | None = None) -> None:
+    def __init__(self, anime: Anime, *, resume_episode: float | None = None,
+                 audio: Audio | None = None) -> None:
         super().__init__()
         self.anime = anime
         self.resume_episode = resume_episode
+        self.audio = audio
 
     DEFAULT_CSS = """
-    SourcesScreen #sources-body { padding: 0 2; }
+    SourcesScreen #sources-body {
+        padding: 0 2;
+        align: center top;
+    }
+    SourcesScreen #sources-status {
+        width: 1fr;
+        max-width: 110;
+        color: $text-muted;
+        margin: 0 0 1 0;
+    }
+    SourcesScreen #sources {
+        width: 1fr;
+        max-width: 110;
+    }
     """
 
     def compose(self) -> ComposeResult:
@@ -56,11 +78,15 @@ class SourcesScreen(Screen):
             # unstyled body text — the same size and weight as the rows under it.
             yield Label(spaced("Choose a source"), classes="shelf-label")
             yield LoadingIndicator(id="sources-loading")
+            yield Static("", id="sources-status", markup=False)
             yield ListView(id="sources")
         yield ActionBar(id="actionbar")
 
     def on_mount(self) -> None:
         self.title = self.anime.title.preferred
+        if self.audio is None:
+            self.audio = getattr(self.app, "audio", Audio.SUB)
+        self.query_one("#sources-status", Static).display = False
         with contextlib.suppress(Exception):
             width = self.size.width or 100
             self.query_one("#topbar", TopBar).render_bar(
@@ -72,15 +98,32 @@ class SourcesScreen(Screen):
 
     @work(exclusive=True, group="sources")
     async def _load_sources(self) -> None:
+        failed = False
         try:
-            # Defaulted to SUB, so a dub viewer was offered the sub entries and
-            # then played from one of them.
+            # Honor the app preference unless the user explicitly chose a
+            # per-title audio override from the no-dub fallback.
             sources = await self.app.services.playback.list_sources(
-                self.anime, audio=getattr(self.app, "audio", Audio.SUB)
+                self.anime, audio=self.audio or Audio.SUB
             )
         except Exception as e:
+            failed = True
             self.notify(f"Couldn't list sources: {e}", severity="error")
             sources = []
+
+        self.query_one("#sources-loading").display = False
+        lv = self.query_one("#sources", ListView)
+        lv.display = True
+        if not sources and not failed and self.audio is Audio.DUB:
+            status = self.query_one("#sources-status", Static)
+            status.update(
+                "No English-dub source was found by the enabled providers. "
+                "The app preference remains Dub; you can switch this title to Sub."
+            )
+            status.display = True
+            lv.append(SubFallbackItem())
+            lv.index = 0
+            lv.focus()
+            return
 
         # 0 or 1 match → skip the picker entirely. So do several matches that
         # are all the same entry on different providers: that is not a choice,
@@ -94,13 +137,11 @@ class SourcesScreen(Screen):
                     self.anime,
                     resume_episode=self.resume_episode,
                     source=sources[0] if len(sources) == 1 else None,
+                    audio=self.audio,
                 )
             )
             return
 
-        self.query_one("#sources-loading").display = False
-        lv = self.query_one("#sources", ListView)
-        lv.display = True
         for source in sources:
             lv.append(SourceItem(source))
         lv.index = 0
@@ -108,6 +149,12 @@ class SourcesScreen(Screen):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
+        if isinstance(item, SubFallbackItem):
+            self.app.pop_screen()
+            self.app.push_screen(SourcesScreen(
+                self.anime, resume_episode=self.resume_episode, audio=Audio.SUB,
+            ))
+            return
         if isinstance(item, SourceItem):
             self.app.pop_screen()
             self.app.push_screen(
@@ -115,5 +162,6 @@ class SourcesScreen(Screen):
                     self.anime,
                     resume_episode=self.resume_episode,
                     source=item.source,
+                    audio=item.source.audio,
                 )
             )

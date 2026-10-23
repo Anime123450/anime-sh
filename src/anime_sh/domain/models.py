@@ -251,6 +251,7 @@ class Stream:
     quality: Quality = Quality.UNKNOWN
     headers: Mapping[str, str] = field(default_factory=dict)
     subtitles: tuple[Subtitle, ...] = ()
+    preferred_subtitle_language: str = "en"
     skip_times: SkipTimes | None = None
     # Segments arrive disguised (e.g. a fake PNG header) and need stripping
     # before a player can read them. Set by the resolver, which knows the host

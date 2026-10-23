@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 
 from textual import work
 from textual.app import ComposeResult
@@ -38,6 +39,8 @@ from ..format import (
 from ..shell import ActionBar, TopBar, spaced
 from ..widgets import EpisodeGrid, EpisodeItem
 
+log = logging.getLogger(__name__)
+
 # Cover width in character cells. Kept modest so the poster is a tasteful accent
 # beside the metadata, not a wall of pixels — and smaller means denser, so it
 # also reads a touch sharper.
@@ -56,6 +59,7 @@ class DetailScreen(Screen):
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("n", "next_season", "Next season"),
+        ("o", "watch_order", "Seasons & related"),
         Binding("j", "grid_down", "Down", show=False),
         Binding("k", "grid_up", "Up", show=False),
         Binding("right", "grid_next", "Next episode", show=False),
@@ -114,11 +118,12 @@ class DetailScreen(Screen):
     _RENDER_CHUNK = 120
 
     def __init__(self, anime: Anime, *, resume_episode: float | None = None,
-                 source=None) -> None:
+                 source=None, audio: Audio | None = None) -> None:
         super().__init__()
         self.anime = anime
         self.resume_episode = resume_episode
         self.source = source  # a chosen SourceOption, or None to fan out
+        self.audio = audio  # local fallback; None means app playback preference
         self._numbers: list[float] = []
         self._available: set[float] | None = None
         # _render_episodes is called from several worker groups (episodes, play,
@@ -264,17 +269,14 @@ class DetailScreen(Screen):
         lv.styles.grid_columns = str(self._cell_width())
         lv.columns = columns  # so its cursor steps a whole row, not one cell
 
-    def on_resize(self) -> None:
-        self._size_episode_grid()
-
     def on_list_view_highlighted(self, event) -> None:
         """Describe the highlighted episode underneath the grid."""
         item = event.item
         if isinstance(item, EpisodeItem):
             try:
                 self.query_one("#episode-detail", Static).update(item.detail)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("failed to update highlighted episode detail: %s", e)
 
     def on_mount(self) -> None:
         # Still set, though no `Header` reads them any more: Textual puts them on
@@ -286,9 +288,6 @@ class DetailScreen(Screen):
         self._paint_shell()
         self._load_cover()
         self._populate_episodes()
-
-    def on_resize(self) -> None:
-        self._paint_shell()
 
     def _paint_shell(self) -> None:
         """Repaint the two bars: where you are, and what you can do from here."""
@@ -305,7 +304,8 @@ class DetailScreen(Screen):
             self.query_one("#actionbar", ActionBar).render_actions(
                 width, zoom=False,
                 contextual=(("↵", "play"), ("esc", "back"),
-                            ("n", "next season"), ("v", "layout")))
+                            ("n", "next season"), ("o", "order"),
+                            ("v", "layout")))
 
     @work(exclusive=True, group="cover")
     async def _load_cover(self) -> None:
@@ -342,8 +342,8 @@ class DetailScreen(Screen):
         """
         try:
             self.query_one("#detail-cover", Container).display = False
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("could not collapse missing cover container: %s", e)
 
     def _cover_cols(self) -> int:
         """Poster width for this terminal.
@@ -377,8 +377,8 @@ class DetailScreen(Screen):
                 try:
                     await container.mount(widget)
                     return
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("bitmap cover widget mount failed: %s", e)
         art = render_cover(data, cols=cols)
         if art is None:
             # No Pillow, or an image it could not decode. Nothing will ever be
@@ -391,9 +391,11 @@ class DetailScreen(Screen):
             self._collapse_cover()
 
     def on_resize(self, event) -> None:
-        # A Sixel image doesn't reflow when the terminal is resized, so re-mount
-        # it — but ONLY on an actual size change. Re-mounting on every stray
-        # resize event (and forcing a full repaint) is what made the cover blink.
+        # Grid columns and shell bars depend on the terminal width. Keep both
+        # live in the one handler Python actually dispatches. A Sixel image
+        # does not reflow, so remount it only when the size itself changes.
+        self._size_episode_grid()
+        self._paint_shell()
         size = (event.size.width, event.size.height)
         if size == getattr(self, "_cover_size", None):
             return
@@ -453,7 +455,9 @@ class DetailScreen(Screen):
     async def _available_episodes(self) -> list[float] | None:
         try:
             return await self.app.services.playback.available_episodes(
-                self.anime, source=self.source
+                self.anime,
+                audio=self.audio or getattr(self.app, "audio", Audio.SUB),
+                source=self.source,
             )
         except Exception:
             return None
@@ -498,8 +502,8 @@ class DetailScreen(Screen):
             return  # a refresh that fails leaves the marks as they were
         try:
             self.app.refresh(repaint=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("TUI repaint after marks refresh failed: %s", e)
 
     def _refresh_progress(self) -> None:
         """Update the overall watch-progress bar under the header."""
@@ -524,6 +528,9 @@ class DetailScreen(Screen):
         airing = episode_air_label(self.anime, number)
         if airing:
             return airing
+        aired_through = self.anime.aired_through()
+        if aired_through is not None and number <= aired_through:
+            return "aired · not on this source — press Esc to switch"
         if self.anime.is_airing:
             return "not aired yet"
         return "not on this source — press Esc to switch"
@@ -648,7 +655,7 @@ class DetailScreen(Screen):
                 # Nothing left to play *here*, but the series isn't finished —
                 # this source just stops earlier than the show does. Silence
                 # looked like a bug; the fix is one keypress away.
-                text = ("[yellow]This source has no further episodes.[/yellow] "
+                text = ("[$warning]This source has no further episodes.[/] "
                         "[dim]Press Esc to pick another source.[/dim]")
             else:
                 text = ""
@@ -709,7 +716,7 @@ class DetailScreen(Screen):
                 self.anime, number,
                 # Was hardcoded SUB, which quietly ignored `playback.audio` for
                 # everyone watching from the TUI rather than the CLI.
-                audio=getattr(self.app, "audio", Audio.SUB),
+                audio=self.audio or getattr(self.app, "audio", Audio.SUB),
                 source=self.source,
             )
         except NoStreamsFound as e:
@@ -753,6 +760,11 @@ class DetailScreen(Screen):
             self.app.refresh(repaint=True)
         except Exception:
             pass
+
+    def action_watch_order(self) -> None:
+        from .watch_order import WatchOrderScreen
+
+        self.app.push_screen(WatchOrderScreen(self.anime))
 
     def action_next_season(self) -> None:
         self._open_next_season()

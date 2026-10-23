@@ -179,22 +179,83 @@ async def test_vlc_startup_timeout_cleans_up_owned_process():
         await h.player(ready_timeout=5).play(_stream(), title="t")
 
 
-async def test_vlc_preserves_supported_headers_and_subtitles():
+def test_remote_subtitle_download_uses_stream_headers_and_writes_tempfile(monkeypatch, tmp_path):
+    import tempfile
+
+    from anime_sh.infra.players import vlc
+
+    created = []
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+
+    def named_temporary_file(**kwargs):
+        kwargs["dir"] = tmp_path
+        result = real_named_temporary_file(**kwargs)
+        created.append(result.name)
+        return result
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, limit):
+            assert limit == vlc._MAX_SUBTITLE_BYTES + 1
+            return b"WEBVTT\\n"
+
+    def open_url(request, *, timeout):
+        assert request.full_url == "https://subs.example/en.vtt?token=secret"
+        assert request.get_header("User-agent") == "AniTest/1.0"
+        assert request.get_header("Referer") == "https://site.example/"
+        assert timeout == 20
+        return Response()
+
+    monkeypatch.setattr(vlc.tempfile, "NamedTemporaryFile", named_temporary_file)
+    monkeypatch.setattr(vlc, "urlopen", open_url)
+    path = vlc._download_remote_subtitle(
+        "https://subs.example/en.vtt?token=secret",
+        {"User-Agent": "AniTest/1.0", "Referer": "https://site.example/"},
+    )
+    try:
+        assert path == created[0]
+        assert path.endswith(".vtt")
+        assert __import__("pathlib").Path(path).read_bytes() == b"WEBVTT\\n"
+    finally:
+        __import__("pathlib").Path(path).unlink(missing_ok=True)
+
+
+async def test_vlc_preserves_supported_headers_and_subtitles(monkeypatch, tmp_path):
+    from anime_sh.infra.players import vlc
+
+    local_subtitle = tmp_path / "en.vtt"
+    local_subtitle.write_text("WEBVTT\\n", encoding="utf-8")
+    downloaded = []
+
+    def download(url, headers):
+        downloaded.append((url, headers))
+        return str(local_subtitle)
+
+    monkeypatch.setattr(vlc, "_download_remote_subtitle", download)
     h = Harness([[_playing(1)]])
-    subs = (Subtitle(url="https://subs.example/fr.vtt", lang="fr"),
-            Subtitle(url="https://subs.example/en.vtt", lang="en", default=True))
+    subs = (Subtitle(url="https://subs.example/en.vtt", lang="English", default=False),
+            Subtitle(url="https://subs.example/fr.vtt", lang="fr", default=True))
     stream = _stream(headers={"User-Agent": "UA/1.0", "referer": "https://site.example/"},
                      subtitles=subs)
-    await h.player().play(stream, title="Show - Episode 3", start_s=125)
+    handle = await h.player().play(stream, title="Show - Episode 3", start_s=125)
     argv = h.spawned[0]
+    assert downloaded == [("https://subs.example/en.vtt", stream.headers)]
     assert _input_opt(argv, "http-user-agent") == ["UA/1.0"]
     assert not _flag(argv, "http-user-agent"), "vlc.exe overrides the global form"
     assert _flag(argv, "http-referrer") == ["https://site.example/"]
-    assert _flag(argv, "sub-file") == ["https://subs.example/en.vtt"], "default track first"
+    assert _flag(argv, "sub-file") == [str(local_subtitle)]
     assert _flag(argv, "input-slave") == ["https://subs.example/fr.vtt"]
     assert _flag(argv, "start-time") == ["125"]
     assert _flag(argv, "meta-title") == ["Show - Episode 3"]
     assert argv[-2] == "https://cdn.example/ep1.m3u8"
+    assert local_subtitle.exists(), "VLC must keep the subtitle until playback ends"
+    await handle.stop()
+    assert not local_subtitle.exists(), "temporary subtitle leaked after VLC stopped"
 
     h = Harness([[_playing(1)]])
     await h.player().play(_stream(), title="t")
