@@ -157,7 +157,7 @@ def meta_line(anime: Anime) -> str:
 #: The width a poster card's caption lines must fit. Kept here (and checked
 #: against `cards.CARD_COLS` by a test) so the caption builders can be pure
 #: functions with no widget import.
-CARD_WIDTH = 14
+CARD_WIDTH = 18
 
 
 def short_countdown(target: datetime, now: datetime | None = None, *,
@@ -198,6 +198,20 @@ def _pick(candidates: Sequence[str], width: int) -> str:
             return cand
     last = candidates[-1]
     return set_cell_size(last, max(0, width - 1)).rstrip() + "…" if width > 0 else ""
+
+
+def airing_caption(episode: float, airing_at: datetime,
+                   now: datetime | None = None, width: int = CARD_WIDTH) -> str:
+    """The Airing-today card's line: which episode, and when in local time.
+
+    "ep 5 · 18:30" while it is still to come; "ep 5 aired 09:00" once it has,
+    so a glance along the shelf shows where today has got to.
+    """
+    now = now or datetime.now(timezone.utc)
+    ep = int(episode) if float(episode).is_integer() else episode
+    at = airing_at.astimezone().strftime("%H:%M")
+    text = f"ep {ep} aired {at}" if airing_at <= now else f"ep {ep} · {at}"
+    return text[:width]
 
 
 def card_caption(anime: Anime, progress: WatchProgress | None = None,

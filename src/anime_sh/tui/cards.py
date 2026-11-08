@@ -33,10 +33,10 @@ from .format import shelf_titles, wrap_title
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
-#: the aspect itself — 14 cells comes back 10 rows tall — but the card has to
+#: the aspect itself — 18 cells comes back 13 rows tall — but the card has to
 #: reserve the space *before* the image arrives or every shelf jumps downward
 #: as covers land one by one.
-CARD_COLS = 14
+CARD_COLS = 18
 CARD_ART_ROWS = cover_rows(CARD_COLS)
 #: Art, the selection rule, the title (two lines) and one line of state — the whole card,
 #: so a shelf knows its height without measuring a child. `app.tcss` sets the

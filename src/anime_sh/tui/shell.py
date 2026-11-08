@@ -52,6 +52,7 @@ class Section:
 #: you land when the library is empty.
 SECTIONS: tuple[Section, ...] = (
     Section("Continue", "#continue", "#sec-continue"),
+    Section("Airing today", "#airing", "#sec-airing"),
     Section("Favourites", "#favorites", "#sec-favorites"),
     Section("This Season", "#seasonal", "#sec-seasonal"),
     Section("Trending", "#trending", "#sec-trending"),
