@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import ListItem, ListView, Static
 
 from ..app.franchise import EntryStatus, Franchise, FranchiseEntry
@@ -25,7 +25,7 @@ class FranchiseItem(ListItem):
 
     DEFAULT_CSS = """
     FranchiseItem {
-        height: auto;
+        height: 1;
         padding: 0 1;
         margin: 0;
         background: transparent;
@@ -38,6 +38,24 @@ class FranchiseItem(ListItem):
     }
     FranchiseItem.-subdued {
         color: $text-muted;
+    }
+    /* One row per entry: the title gives way (ellipsis), never the
+       format/year/eps/progress on the right, which used to wrap alone. */
+    FranchiseItem > Horizontal {
+        height: 1;
+        width: 100%;
+    }
+    FranchiseItem .fi-main {
+        width: 1fr;
+        height: 1;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
+    FranchiseItem .fi-side {
+        width: auto;
+        height: 1;
+        padding: 0 0 0 2;
+        text-wrap: nowrap;
     }
     """
 
@@ -52,9 +70,17 @@ class FranchiseItem(ListItem):
             self.add_class("-subdued")
 
     def compose(self) -> ComposeResult:
-        yield Static(self._format_text(), markup=True)
+        main, side = self._parts()
+        with Horizontal():
+            yield Static(main, markup=True, classes="fi-main")
+            yield Static(side, markup=True, classes="fi-side")
 
     def _format_text(self) -> str:
+        main, side = self._parts()
+        return f"{main}  {side}" if side else main
+
+    def _parts(self) -> tuple[str, str]:
+        """(glyph · kind · title · up-next, format · year · eps · progress)."""
         e = self.entry
         # 1. Status glyph
         if e.status == EntryStatus.COMPLETED:
@@ -109,7 +135,11 @@ class FranchiseItem(ListItem):
         # 7. Suggested indicator
         sugg_str = " [b $accent]→ up next[/] " if self.is_suggested and not e.is_current else ""
 
-        return f"{indent}{glyph} {kind_lbl} {title_str}{sugg_str}  {meta_str}  {prog_str}"
+        # "→ up next" rides in the side column: in the title column a long
+        # title's ellipsis would cut it off, and it's the cue that matters.
+        main = f"{indent}{glyph} {kind_lbl} {title_str}"
+        side = "  ".join(x for x in (sugg_str.strip(), meta_str, prog_str) if x)
+        return main, side
 
 
 class FranchisePanel(Vertical):
