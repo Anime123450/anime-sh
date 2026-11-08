@@ -319,7 +319,7 @@ class Shelf(HorizontalScroll):
         columns = columns if columns and columns > 1 else None
         self.columns = columns
         self.set_class(columns is not None, "-grid")
-        self._fit_whole_cards()
+        self.set_card_gap(self.card_gap)
         if columns:
             self.styles.grid_size_columns = columns
             self._size_grid()
@@ -339,28 +339,40 @@ class Shelf(HorizontalScroll):
     #: (`PosterCard` in app.tcss).
     CARD_STRIDE = CARD_COLS + 2
 
-    def _fit_whole_cards(self, avail: int | None = None) -> None:
-        """Size the strip to a whole number of cards.
+    #: The most extra space spread between neighbouring cards. Beyond this the
+    #: row reads as scattered rather than spaced, so the rest goes to the edge.
+    MAX_CARD_GAP = 3
 
-        A full-width strip showed a sliver of the next poster at the right edge
-        (Ani's half-drawn "Pokémon" card), which read as clipping. Textual does
-        not clip a scroll container's children at its padding, so the strip
-        itself is made exactly ``n`` cards wide; the few leftover cells sit
-        outside it. ``avail`` is the width the parent offers; the home screen
-        passes it on resize, because a strip with a fixed width never receives
-        a resize of its own when the window grows.
+    @classmethod
+    def row_fit(cls, avail: int) -> tuple[int, int, int]:
+        """(cards, extra gap per card, cells left over) for a strip ``avail`` wide.
+
+        The leftover is always fewer cells than there are cards; the home screen
+        turns it into page margin so the strip itself has none.
         """
-        if self.columns:
-            self.styles.width = None
-            return
-        if avail is None:
-            parent = self.parent
-            avail = getattr(parent, "scrollable_content_region", None)
-            avail = avail.width if avail is not None else 0
-        if not avail:
-            return
-        fit = max(1, (avail - 2) // self.CARD_STRIDE)
-        self.styles.width = fit * self.CARD_STRIDE + 2
+        inner = max(0, avail - 2)
+        fit = max(1, inner // cls.CARD_STRIDE)
+        gap = min(cls.MAX_CARD_GAP, max(0, inner - fit * cls.CARD_STRIDE) // fit)
+        return fit, gap, max(0, inner - fit * (cls.CARD_STRIDE + gap))
+
+    #: Extra cells after each card, decided by the screen from `row_fit`.
+    card_gap: int = 0
+
+    def set_card_gap(self, gap: int) -> None:
+        """Space the cards ``gap`` extra cells apart (search grids: none).
+
+        The screen decides the gap from the page width (`row_fit`) and moves the
+        leftover into its own margins, so a strip is always exactly a whole
+        number of cards wide. Two of Ani's bugs meet here: a fixed-stride strip
+        showed a sliver of the next poster at its right edge (the half-drawn
+        "Pokémon"), and sizing the strip down instead ended every shelf's tint
+        short of the hero, with the leftover as a dead gap. Textual does not
+        clip a scroll container's children at its padding, so the leftover
+        cannot simply be padding.
+        """
+        self.card_gap = 0 if self.columns else gap
+        for card in self.all_cards:
+            card.styles.margin = (0, self.card_gap, 0, 0)
 
     def on_mount(self) -> None:
         # Not `on_focus`/`on_blur`: those can run before `has_focus` has

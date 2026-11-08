@@ -339,6 +339,70 @@ def _terminal_questions_all_answered() -> bool:
     )
 
 
+#: What an opaque cover reports as its background to textual-image's Sixel cache.
+_PINNED_BACKGROUND = (0, 0, 0, 255)
+
+
+def pin_sixel_background() -> bool:
+    """Stop textual-image re-encoding an opaque poster when its tint changes.
+
+    The Sixel widget caches its encoded bitmap keyed on, among other things,
+    the background colour behind it, but that colour is only ever used to
+    composite *transparent* pixels. Covers are converted to RGB, so they have
+    none. Selecting a card or focusing a shelf changes the tint behind its
+    posters, which threw away every cached bitmap on that shelf: about 45 ms of
+    re-encoding per poster, over a second per shelf change on a real library.
+    Pinning the colour for opaque images keeps the cache valid; images with an
+    alpha channel still get the real one. Returns whether the pin is in place.
+    """
+    try:
+        from textual_image.widget import sixel as sx
+    except Exception:
+        return False
+    impl = getattr(sx, "_ImageSixelImpl", None)
+    original = getattr(impl, "_get_background_rgba", None)
+    if impl is None or original is None:
+        return False
+    if getattr(impl, "_anime_sh_pinned", False):
+        return True
+
+    def _background(self):
+        image = getattr(self, "image", None)
+        if getattr(image, "mode", None) == "RGB":
+            return _PINNED_BACKGROUND
+        return original(self)
+
+    impl._get_background_rgba = _background
+
+    # textual-image keeps one encoding per widget, so a hero poster revisited
+    # by moving back along a shelf was re-encoded (~150 ms) every time. Keep
+    # recent encodings keyed by the exact pixels being encoded, so a hit is
+    # always byte-for-byte what a fresh encode would produce.
+    encode = impl._image_to_sixels
+    done: dict = {}
+
+    def _image_to_sixels(self, image, sixel_options=None, background=None):
+        try:
+            key = (image.mode, image.size, hash(image.tobytes()), repr(sixel_options), background)
+        except Exception:
+            return encode(self, image, sixel_options, background)
+        hit = done.get(key)
+        if hit is None:
+            hit = encode(self, image, sixel_options, background)
+            if len(done) >= _SIXEL_CACHE_MAX:
+                done.pop(next(iter(done)))
+            done[key] = hit
+        return hit
+
+    impl._image_to_sixels = _image_to_sixels
+    impl._anime_sh_pinned = True
+    return True
+
+
+#: Encoded Sixel bitmaps kept for reuse: a full screen of posters plus heroes.
+_SIXEL_CACHE_MAX = 160
+
+
 def graphics_cover_widget(data: bytes, width_cells: int):
     """A textual-image widget that renders the cover as a real bitmap at
     ``width_cells`` wide, or None if that isn't possible (caller falls back to
@@ -356,6 +420,7 @@ def graphics_cover_widget(data: bytes, width_cells: int):
         from PIL import Image as PILImage
         from textual_image.widget import Image
 
+        pin_sixel_background()
         img = PILImage.open(io.BytesIO(data)).convert("RGB")
         widget = Image(img)
         widget.styles.width = width_cells
@@ -493,29 +558,80 @@ def _sqerr(pixels: list[tuple[int, int, int]], c: tuple[int, int, int]) -> int:
                for p in pixels)
 
 
+#: For each of the 64 sextant masks, which of the six pixels are foreground.
+_MASK_FG = tuple(tuple(i for i in range(6) if m & (1 << i)) for m in range(64))
+_MASK_BG = tuple(tuple(i for i in range(6) if not m & (1 << i)) for m in range(64))
+
+
+def _group(idx, r, g, b, q):
+    """Mean colour (floored, as `_mean`) and squared error of the pixels ``idx``.
+
+    Uses sum(x^2) - 2*m*sum(x) + n*m^2 per channel, which is exactly
+    `_sqerr(pixels, _mean(pixels))` without walking the pixels twice."""
+    n = len(idx)
+    sr = sg = sb = sq = 0
+    for i in idx:
+        sr += r[i]; sg += g[i]; sb += b[i]; sq += q[i]
+    mr, mg, mb = sr // n, sg // n, sb // n
+    err = sq - 2 * (mr * sr + mg * sg + mb * sb) + n * (mr * mr + mg * mg + mb * mb)
+    return (mr, mg, mb), err
+
+
 def _best_cell(cell: list[tuple[int, int, int]]) -> tuple[str, tuple, tuple]:
     """Pick the sextant glyph + foreground/background pair that best matches a
     2×3 pixel block. Trying every two-colour split (rather than a fixed
-    brightness threshold) keeps smooth areas smooth and snaps real edges sharp."""
+    brightness threshold) keeps smooth areas smooth and snaps real edges sharp.
+
+    Same answer as the original per-mask `_mean`/`_sqerr` scan, about 5x
+    faster: the hero cover is re-rendered whenever the cursor moves."""
+    r = [p[0] for p in cell]
+    g = [p[1] for p in cell]
+    b = [p[2] for p in cell]
+    q = [p[0] * p[0] + p[1] * p[1] + p[2] * p[2] for p in cell]
     best_err = None
     best = (" ", cell[0], cell[0])
     for mask in range(64):
-        fg_px = [cell[i] for i in range(6) if mask & (1 << i)]
-        bg_px = [cell[i] for i in range(6) if not mask & (1 << i)]
-        fg = _mean(fg_px) if fg_px else None
-        bg = _mean(bg_px) if bg_px else None
-        err = (_sqerr(fg_px, fg) if fg else 0) + (_sqerr(bg_px, bg) if bg else 0)
+        fgi = _MASK_FG[mask]
+        bgi = _MASK_BG[mask]
+        if fgi:
+            fg, e1 = _group(fgi, r, g, b, q)
+        else:
+            fg, e1 = None, 0
+        if bgi:
+            bg, e2 = _group(bgi, r, g, b, q)
+        else:
+            bg, e2 = None, 0
+        err = e1 + e2
         if best_err is None or err < best_err:
             best_err = err
             best = (_SEXTANTS[mask], fg or bg, bg or fg)
     return best
 
 
+#: Rendered covers by (bytes hash, cols). Moving along a shelf repaints the hero
+#: with covers it has already drawn; rendering is pure, so reuse is safe.
+_COVER_CACHE: "dict[tuple[int, int], Text | None]" = {}
+_COVER_CACHE_MAX = 128
+
+
 def render_cover(data: bytes, cols: int = 48) -> Text | None:
     """Render image bytes to a sextant-block :class:`rich.text.Text`, ``cols``
     wide, aspect-preserved. Each character cell is a 2×3 pixel block coloured by
     the least-error two-colour split of its six pixels. None if unrenderable
-    (missing Pillow / bad image)."""
+    (missing Pillow / bad image). Results are cached; the returned Text is
+    copied so a caller that styles it can't change the cached one."""
+    key = (hash(data), cols)
+    if key in _COVER_CACHE:
+        hit = _COVER_CACHE[key]
+        return hit.copy() if hit is not None else None
+    art = _render_cover(data, cols)
+    if len(_COVER_CACHE) >= _COVER_CACHE_MAX:
+        _COVER_CACHE.pop(next(iter(_COVER_CACHE)))
+    _COVER_CACHE[key] = art
+    return art.copy() if art is not None else None
+
+
+def _render_cover(data: bytes, cols: int) -> Text | None:
     try:
         import io
 
