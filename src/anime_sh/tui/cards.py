@@ -29,6 +29,7 @@ from textual.widgets import Static
 
 from .coverart import (cover_rows, graphics_cover_widget,
                        graphics_protocol_active, render_cover)
+from .format import shelf_titles
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
@@ -90,6 +91,10 @@ class PosterCard(Widget):
         self.caption = caption
         self.resume_episode = resume_episode
         self.fraction = fraction
+        #: What the card prints as its title when that differs from the show's
+        #: own — `format.shelf_titles` cuts siblings head…tail so a franchise
+        #: stays distinguishable. None means "the title, plainly".
+        self.display_title: str | None = None
         self._art: Text | None = None
         self._cover: bytes | None = None
         self._bitmap = False
@@ -111,6 +116,12 @@ class PosterCard(Widget):
         """Re-cut the state line. Used by the minute tick for countdowns."""
         if caption != self.caption:
             self.caption = caption
+            self._paint_meta()
+
+    def set_display_title(self, title: str | None) -> None:
+        """Replace the printed title (see `display_title`)."""
+        if title != self.display_title:
+            self.display_title = title
             self._paint_meta()
 
     def set_cover(self, data: bytes | None) -> None:
@@ -173,17 +184,33 @@ class PosterCard(Widget):
             return
         meta.update(self._meta())
 
+    @property
+    def _shelf_focused(self) -> bool:
+        parent = self.parent
+        return bool(getattr(parent, "has_focus", True))
+
     def _meta(self):
-        title = fit(self.anime.title.preferred, CARD_COLS).rstrip()
+        title = fit(self.display_title or self.anime.title.preferred, CARD_COLS).rstrip()
         accent = self._colour("accent", "yellow")
-        if self.selected:
+        if self.selected and not self._shelf_focused:
+            # The remembered card of a shelf the keyboard has left: the place
+            # is kept, but nothing gold — two gold cards at once meant nobody
+            # could tell which row Enter would act on.
+            rule = Text("─" * CARD_COLS, style=f"dim {self._colour('primary', 'magenta')}")
+            name = Text(title)
+            caption = Text(fit(self.caption, CARD_COLS).rstrip(),
+                           style=self._colour("primary", "magenta"))
+        elif self.selected:
             # The poster sits on a gold bar and its caption becomes a chip: the
             # one card on the shelf that Enter will open is unmistakable.
             rule = Text("━" * CARD_COLS, style=accent)
             name = Text(title, style="bold")
-            cap = fit(self.caption, CARD_COLS - 2).rstrip()
+            cap = fit(self.caption, CARD_COLS).rstrip()
             bg = self._colour("background", "black")
-            caption = Text(f" {cap} " if cap else "", style=f"bold {bg} on {accent}")
+            # Padded into a chip only when the padding fits: a 13-cell
+            # countdown must stay whole, and a chip is decoration.
+            caption = Text(f" {cap} " if cap and len(cap) <= CARD_COLS - 2 else cap,
+                           style=f"bold {bg} on {accent}")
         else:
             rule = Text(" " * CARD_COLS)
             name = Text(title, style="dim")
@@ -211,10 +238,10 @@ class Shelf(HorizontalScroll):
         # inherits bindings for them from `ScrollableContainer` and would
         # consume both to scroll vertically — in a container exactly one card
         # tall, so the key did nothing at all and never reached the screen.
-        Binding("up", "leave(-1)", "Previous shelf", show=False),
-        Binding("down", "leave(1)", "Next shelf", show=False),
-        Binding("k", "leave(-1)", "Previous shelf", show=False),
-        Binding("j", "leave(1)", "Next shelf", show=False),
+        Binding("up", "vertical(-1)", "Previous shelf", show=False),
+        Binding("down", "vertical(1)", "Next shelf", show=False),
+        Binding("k", "vertical(-1)", "Previous shelf", show=False),
+        Binding("j", "vertical(1)", "Next shelf", show=False),
         # `h` only. `l` opens My List app-wide, and a shelf that stole it would
         # make one key mean two things depending on where the cursor was.
         Binding("h", "cursor_left", "Previous", show=False),
@@ -222,6 +249,10 @@ class Shelf(HorizontalScroll):
 
     can_focus = True
     index: reactive[int] = reactive(0)
+    #: Cards per row when the shelf wraps into a grid (search results), or None
+    #: for the ordinary single sideways-scrolling row. Set by the screen from
+    #: the width it has; the shelf itself only does the cursor arithmetic.
+    columns: int | None = None
 
     class Chosen(Message):
         """Enter, or a click, on a card."""
@@ -272,6 +303,51 @@ class Shelf(HorizontalScroll):
         while the hero changed to a show that was not on screen.
         """
         return [c for c in self.all_cards if c.display]
+
+    def set_grid(self, columns: int | None) -> None:
+        """Wrap the shelf into ``columns`` cards per row, or back to one row.
+
+        A grid rather than a row for search results because a franchise search
+        returns a dozen siblings you want to compare side by side, and a single
+        sideways row both hides most of them off-screen and leaves the rest of
+        the terminal empty. The cursor still walks the cards in data order —
+        left/right step one card through row ends — and up/down move a row.
+        """
+        columns = columns if columns and columns > 1 else None
+        self.columns = columns
+        self.set_class(columns is not None, "-grid")
+        if columns:
+            self.styles.grid_size_columns = columns
+            self._size_grid()
+        else:
+            self.styles.height = None
+
+    def _size_grid(self) -> None:
+        if not self.columns:
+            return
+        n = len(self.all_cards)
+        rows = max(1, -(-n // self.columns))
+        # +1 for the shelf's top padding (app.tcss); explicit because a grid
+        # container with `height: auto` is measured before its cards are.
+        self.styles.height = rows * CARD_ROWS + 1
+
+    def on_mount(self) -> None:
+        # Not `on_focus`/`on_blur`: those can run before `has_focus` has
+        # flipped, and the selected card then paints for the wrong state.
+        self.watch(self, "has_focus", lambda _: self._repaint_selected(),
+                   init=False)
+
+    def _repaint_selected(self) -> None:
+        for card in self.cards:
+            if card.selected:
+                card._paint_meta()
+
+    def retitle(self) -> None:
+        """Cut every card's printed title against its siblings on this shelf."""
+        cards = self.all_cards
+        cut = shelf_titles([c.anime.title.preferred for c in cards], CARD_COLS)
+        for card, title in zip(cards, cut):
+            card.set_display_title(title)
 
     def reselect(self) -> None:
         """Re-run the selection pass after cards have been shown or hidden.
@@ -324,6 +400,22 @@ class Shelf(HorizontalScroll):
 
     def action_leave(self, delta: int) -> None:
         self.post_message(self.Exited(self, delta))
+
+    def action_vertical(self, delta: int) -> None:
+        """Up/down: a row within a grid, otherwise to the neighbouring shelf."""
+        cols = self.columns
+        cards = self.cards
+        if not cols or not cards:
+            self.action_leave(delta)
+            return
+        target = self.index + delta * cols
+        if 0 <= target < len(cards):
+            self.index = target
+        elif delta > 0 and self.index // cols < (len(cards) - 1) // cols:
+            # A short last row: land on its last card rather than leaving.
+            self.index = len(cards) - 1
+        else:
+            self.action_leave(delta)
 
     def action_choose(self) -> None:
         cards = self.cards

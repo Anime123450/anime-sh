@@ -87,7 +87,7 @@ async def test_airing_schedule_survives_the_cache(library):
         cached, _progress(194829, 4.0, 0, completed=True),
         now=datetime(2026, 7, 30, tzinfo=timezone.utc),
     )
-    assert caption.startswith("ep 5 in "), caption
+    assert caption.startswith("ep 5 · "), caption
     assert "ready" not in caption
 
     # A later bare save (e.g. on playback) must not wipe the cached schedule.

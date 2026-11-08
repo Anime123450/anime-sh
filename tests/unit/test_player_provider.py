@@ -12,12 +12,21 @@ from anime_sh.infra.players import MpvPlayer, PlayerFactory, VlcPlayer
 from anime_sh.infra.players.vlc import find_vlc
 
 
+def _exists(path):
+    """Apply simulated Windows joins to real temp paths on any host."""
+    return os.path.isfile(path.replace("\\", os.sep))
+
+
+def _native(path):
+    return path.replace("\\", os.sep)
+
+
 def _factory(tmp_path, *, on_path=(), platform="win32"):
     found = {name: str(tmp_path / f"{name}.exe") for name in on_path}
     for p in found.values():
         open(p, "w").close()
     return PlayerFactory(which=found.get, platform=platform,
-                         env={"ProgramFiles": str(tmp_path / "nowhere")})
+                         env={"ProgramFiles": str(tmp_path / "nowhere")}, exists=_exists)
 
 
 def test_player_provider_defaults_to_mpv(tmp_path):
@@ -36,7 +45,7 @@ def test_player_provider_prefers_configured_vlc_path(tmp_path):
     info = f.status("vlc", path_override=str(custom))
     assert info.available and info.path == str(custom)
     # A folder works too: people paste the install directory.
-    assert f.status("vlc", path_override=str(custom.parent)).path == str(custom)
+    assert _native(f.status("vlc", path_override=str(custom.parent)).path) == str(custom)
     player = f.create("vlc", path_override=str(custom), args=["--mpv-only-flag"])
     assert isinstance(player, VlcPlayer) and player.executable == str(custom)
     assert player.extra_args == [], "mpv's player.args were handed to VLC"
@@ -64,7 +73,8 @@ def test_vlc_discovery_order(tmp_path):
     std.parent.mkdir(parents=True)
     std.write_text("")
     env = {"ProgramFiles": str(pf)}
-    assert find_vlc("", which=lambda n: None, platform="win32", env=env)[0] == str(std)
+    path, detail = find_vlc("", which=lambda n: None, platform="win32", env=env, exists=_exists)
+    assert _native(path) == str(std)
     on_path = str(tmp_path / "bin-vlc.exe")
     open(on_path, "w").close()
     assert find_vlc("", which=lambda n: on_path, platform="win32", env=env)[0] == on_path

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from rich.cells import cell_len
 
-from .format import countdown, progress_bar
+from .format import clean_synopsis, countdown, progress_bar
 from .rows import fit
 
 #: How wide the progress bar is allowed to get. Past this it stops reading as a
@@ -84,18 +84,27 @@ def facts(anime) -> str:
     return line
 
 
-def status_chip(anime) -> str:
+def status_chip(anime, *, completed: bool = False) -> str:
     """A shape plus a word for where the show is in its life.
 
     Both, never one: on a monochrome terminal a coloured dot alone says nothing,
     and the colour was doing all the work in the version before this.
+
+    The tick belongs to the *viewer*: ``✓ completed`` means you finished it. A
+    show that has simply stopped airing used to say "✓ complete" beside a 1%
+    progress bar, which reads as a claim about you; it says "finished airing".
     """
+    if completed:
+        return "[b $success]✓ completed[/]"
     if anime.is_airing:
         return "[b $background on $success] ● airing [/]"
-    name = anime.status.value.replace("_", " ").lower()
-    if name in ("finished", "unknown"):
-        return "[dim]✓ complete[/dim]" if name == "finished" else ""
-    return f"[dim]○ {name}[/dim]"
+    name = anime.status.value
+    return {
+        "FINISHED": "[dim]○ finished airing[/dim]",
+        "NOT_YET_RELEASED": "[dim]○ not yet aired[/dim]",
+        "HIATUS": "[dim]○ on hiatus[/dim]",
+        "CANCELLED": "[dim]○ cancelled[/dim]",
+    }.get(name, "")
 
 
 def action(anime, resume_episode: float | None, *, in_progress: bool) -> str:
@@ -113,7 +122,8 @@ def action(anime, resume_episode: float | None, *, in_progress: bool) -> str:
 
 
 def lines(anime, width: int, *, resume_episode: float | None = None,
-          fraction: float = 0.0, synopsis_lines: int = 4) -> list[str]:
+          fraction: float = 0.0, synopsis_lines: int = 4,
+          completed: bool = False) -> list[str]:
     """The hero block, as markup lines at most ``width`` cells wide."""
     width = max(12, width)
     out: list[str] = [title_block(anime, width), facts(anime)]
@@ -137,7 +147,7 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
     # Where the show is, and when the next one lands, on one line. These were
     # two separate stanzas with a blank between them, which spent three rows of
     # a panel that then had none left for the synopsis.
-    chip = status_chip(anime)
+    chip = status_chip(anime, completed=completed)
     when = ""
     if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
         when = (f"[dim]Ep {anime.next_airing_episode} "
@@ -150,13 +160,10 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
         bar = progress_bar(fraction, max(8, min(_BAR_MAX, width - 7)), color="$primary")
         out += ["", f"{bar}  [b]{pct}%[/b]"]
 
-    if anime.synopsis:
-        # Tags leak through AniList descriptions; they are markup to Textual and
-        # would either style the panel or swallow the text after them.
-        clean = (anime.synopsis.replace("<br>", " ").replace("<i>", "")
-                 .replace("</i>", "").replace("<b>", "").replace("</b>", "")
-                 .replace("[", "(").replace("]", ")"))
-        body = _wrap(" ".join(clean.split()), width, synopsis_lines)
+    # Prose only: tags, "(Source: …)" and "Notes:" tails stripped, brackets made
+    # safe for markup (see `clean_synopsis`).
+    if clean := clean_synopsis(anime.synopsis):
+        body = _wrap(clean, width, synopsis_lines)
         if body:
             out += [""] + [f"[dim]{line}[/dim]" for line in body]
 

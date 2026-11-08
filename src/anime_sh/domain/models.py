@@ -25,6 +25,7 @@ class Format(str, Enum):
     MOVIE = "MOVIE"
     OVA = "OVA"
     ONA = "ONA"
+    TV_SHORT = "TV_SHORT"
     SPECIAL = "SPECIAL"
     MUSIC = "MUSIC"
     UNKNOWN = "UNKNOWN"
@@ -127,6 +128,9 @@ class Anime:
     banner_url: str | None = None
     next_airing_episode: int | None = None
     next_airing_at: datetime | None = None
+    # First air date. Optional: rows cached before it existed, and providers
+    # that do not know it, simply leave it None (year is the fallback).
+    start_date: date | None = None
 
     @property
     def is_airing(self) -> bool:
@@ -251,6 +255,7 @@ class Stream:
     quality: Quality = Quality.UNKNOWN
     headers: Mapping[str, str] = field(default_factory=dict)
     subtitles: tuple[Subtitle, ...] = ()
+    preferred_subtitle_language: str = "en"
     skip_times: SkipTimes | None = None
     # Segments arrive disguised (e.g. a fake PNG header) and need stripping
     # before a player can read them. Set by the resolver, which knows the host

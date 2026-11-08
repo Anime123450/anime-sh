@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from textual.widgets import Label, ListItem, ListView
+from textual.widgets import Label, ListItem, ListView, Static
 
 from ..domain.models import Anime
 from .format import progress_bar
-from .rows import Columns, Row, _lit, render
+from .rows import Columns, Row, _lit, fit, render
 
 
 class AnimeItem(ListItem):
@@ -170,17 +170,48 @@ class EpisodeItem(ListItem):
             return f"[b $accent]▸  Episode {n}[/]   {bar}  [$accent]{pct}%[/]"
         if is_next:
             return f"[b $primary]▶  Episode {n}[/]  [$text-muted]· up next[/]"
-        return f"[grey54]○[/grey54]  Episode {n}"
+        return f"[$text-muted]○[/]  Episode {n}"
+
+
+# Fixed columns after the title: provider, episode count, audio. Fixed so the eye
+# travels down a column instead of across rows of different lengths.
+_SRC_PROVIDER_W = 12
+_SRC_EPS_W = 8
+_SRC_AUDIO_W = 4
+_SRC_GAP = 2
+_SRC_FIXED = _SRC_PROVIDER_W + _SRC_EPS_W + _SRC_AUDIO_W + 3 * _SRC_GAP
+
+
+def source_columns(width: int) -> int:
+    """Cells left for the title when a source row is ``width`` cells wide."""
+    return max(16, width - _SRC_FIXED - 3)  # 3: the row's marker gutter
+
+
+def source_header(title_w: int) -> str:
+    """The column headings, aligned with `SourceItem`'s cells."""
+    gap = " " * _SRC_GAP
+    return (f"[dim]{fit('title', title_w)}{gap}{fit('provider', _SRC_PROVIDER_W)}"
+            f"{gap}{fit('eps', _SRC_EPS_W)}{gap}{fit('audio', _SRC_AUDIO_W)}[/dim]")
 
 
 class SourceItem(ListItem):
-    """A ListItem for one provider entry in the source picker."""
+    """A ListItem for one provider entry in the source picker: one line, four
+    fixed-width columns — title | provider | eps | sub/dub."""
 
-    def __init__(self, source) -> None:
+    def __init__(self, source, title_w: int = 50) -> None:
         self.source = source
-        eps = f"{source.episode_count} eps" if source.episode_count else "? eps"
-        label = (
-            f"{_lit(source.title)}  "
-            f"[cyan]{_lit(source.provider)}[/cyan] [dim]· {eps} · {source.audio.value.lower()}[/dim]"
+        self._static = Static(self._text(title_w))
+        super().__init__(self._static)
+
+    def _text(self, title_w: int) -> str:
+        s = self.source
+        gap = " " * _SRC_GAP
+        eps = f"{s.episode_count} eps" if s.episode_count else "? eps"
+        return (
+            f"{_lit(fit(s.title, title_w))}{gap}"
+            f"[$primary]{_lit(fit(s.provider, _SRC_PROVIDER_W))}[/]{gap}"
+            f"[dim]{fit(eps, _SRC_EPS_W)}{gap}{fit(s.audio.value.lower(), _SRC_AUDIO_W)}[/dim]"
         )
-        super().__init__(Label(label))
+
+    def relayout(self, title_w: int) -> None:
+        self._static.update(self._text(title_w))

@@ -65,16 +65,47 @@ async def test_source_picker_only_lists_this_season():
     assert [o.anime_key for o in opts] == ["s2"]
 
 
-async def test_falls_back_rather_than_leaving_a_show_unplayable():
-    """If nothing matches the season, an imperfect source still beats none."""
+async def test_does_not_fall_back_to_a_different_entry_when_no_source_matches():
+    """A wrong season or subtitle can corrupt AniList progress; never auto-pick it."""
 
-    class OnlyOtherSeason(SeasonySearchProvider):
+    class OnlyOtherEntry(SeasonySearchProvider):
         async def find_sources(self, anime, audio):
-            return [SourceOption("fake", "s3", "Bumpkin to Swordsman III", 6, audio, 0.9)]
+            return [SourceOption(
+                "fake", "wrong", "Hidamari Sketch x 365 Specials", 3, audio, 0.92
+            )]
 
-    mgr = ProviderManager([OnlyOtherSeason()], match_timeout_s=5)
-    opts = await mgr.list_sources(_show("Bumpkin to Swordsman"), Audio.SUB)
-    assert [o.anime_key for o in opts] == ["s3"]
+    anime = _show("Hidamari Sketch")
+    mgr = ProviderManager([OnlyOtherEntry()], match_timeout_s=5)
+
+    assert await mgr.list_sources(anime, Audio.SUB) == []
+    assert await mgr.resolve_sources(anime, Audio.SUB) == []
+
+
+async def test_picker_drops_unrelated_same_season_results_when_a_real_match_exists():
+    """Broad site search can return unrelated shows with `season_number == 1`.
+
+    They must not appear as selectable sources when the same provider also
+    returned a strong match for the requested AniList title.
+    """
+
+    class BroadSearch(SeasonySearchProvider):
+        async def find_sources(self, anime, audio):
+            return [
+                SourceOption("fake", "right", "Re:ZERO -Starting Life in Another World-", 25, audio, 1.0),
+                SourceOption("fake", "spin-off", "Re:ZERO PETIT", 14, audio, 0.892),
+                SourceOption("fake", "wrong", "Death March to the Parallel World Rhapsody", 12, audio, 0.441),
+            ]
+
+    anime = Anime(
+        id=AnimeId(anilist=1),
+        title=Title(romaji="Re:Zero kara Hajimeru Isekai Seikatsu",
+                    english="Re:ZERO -Starting Life in Another World-"),
+    )
+    mgr = ProviderManager([BroadSearch()], match_timeout_s=5)
+
+    opts = await mgr.list_sources(anime, Audio.SUB)
+
+    assert [o.anime_key for o in opts] == ["right"]
 
 
 class SubtitledSequelProvider(SeasonySearchProvider):

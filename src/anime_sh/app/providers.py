@@ -137,11 +137,26 @@ class ProviderManager:
         for group in results:
             out.extend(group)
         # Keep only sources for *this* season. A provider search returns sequels
-        # too, and offering "… Season 2" as a source for season 1 is how you end
-        # up watching season 2 while progress is written against season 1's
-        # AniList id. Never filter down to nothing: if the titles don't line up,
-        # an imperfect source beats no source at all.
-        return self._this_season(anime, out) or out
+        # too, and a sequel's title is nearly identical to its prequel's. If no
+        # candidate matches, return none rather than playing a different entry
+        # while recording progress against the selected AniList id.
+        candidates = self._this_season(anime, out)
+        if not candidates:
+            return []
+        # Similarity scores are comparable (0–1). A 0.10 margin is tighter
+        # than provider-internal ranking: live Re:ZERO data showed the related
+        # PETIT spin-off at 0.892 beside the exact title at 1.0, close enough to
+        # pass 0.15 but not the threshold for a selectable source.
+        scored = [o.confidence for o in candidates if o.confidence > 0]
+        if scored:
+            best = max(scored)
+            plausible = [
+                o for o in candidates
+                if o.confidence > 0 and o.confidence >= best - 0.10
+            ]
+            if plausible:
+                return plausible
+        return candidates
 
     async def _sources_guarded(
         self, provider: Provider, anime: Anime, audio: Audio
@@ -250,10 +265,10 @@ class ProviderManager:
             if season_number(o.title) == wanted
             # A sequel marked by subtitle instead of a number — "…: Final
             # Season", "…: Stone Ocean" — carries its prequel's season number,
-            # so the number alone lets it straight through. Conflicting with any
-            # known title variant rules an option out; `_best_ref` falls back to
-            # the unfiltered list when that leaves nothing, so tightening here
-            # cannot cost us a match.
+            # so the number alone lets it through. Conflicting with any known
+            # title variant rules an option out. If every provider hit conflicts,
+            # failing closed is safer than recording progress against another
+            # AniList entry.
             and not any(subtitle_conflict(t, o.title) for t in titles)
         ]
 
@@ -272,7 +287,8 @@ class ProviderManager:
         options = await finder(anime, audio)
         if not options:
             return None
-        return (self._this_season(anime, options) or options)[0].ref()
+        seasonal = self._this_season(anime, options)
+        return seasonal[0].ref() if seasonal else None
 
     async def _match_outcome(
         self, provider: Provider, anime: Anime, audio: Audio

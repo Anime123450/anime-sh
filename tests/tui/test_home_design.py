@@ -365,4 +365,4 @@ async def test_every_card_has_its_title_not_only_the_selected_one():
         for c in cards:
             meta = c.query_one(".card-meta")
             text = "".join(line.text for line in meta.render_lines(meta.region.reset_offset))
-            assert c.anime.title.preferred[:6] in text, f"card {c.anime.title.preferred!r} has no title"
+            assert c.anime.title.preferred[:4] in text, f"card {c.anime.title.preferred!r} has no title"

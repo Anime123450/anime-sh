@@ -46,6 +46,25 @@ async def test_a_fetched_cover_is_served_from_disk_next_time(covers, monkeypatch
     assert calls == [url], "second call went to the network instead of disk"
 
 
+async def test_fetch_exception_is_debug_logged_without_logging_the_url(
+    covers, monkeypatch, caplog
+):
+    class _Client:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url): raise RuntimeError("offline")
+
+    monkeypatch.setitem(__import__("sys").modules, "httpx",
+                        type("m", (), {"AsyncClient": _Client}))
+    url = "https://example.invalid/private-cover.jpg"
+    caplog.set_level("DEBUG", logger=coverart.__name__)
+
+    assert await coverart.fetch_cover(url) is None
+    assert any("cover fetch failed" in record.message for record in caplog.records)
+    assert url not in caplog.text
+
+
 async def test_a_failed_fetch_caches_nothing(covers, monkeypatch):
     class _Resp:
         status_code = 404

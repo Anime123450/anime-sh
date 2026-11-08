@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from anime_sh.app.playback import PlaybackService, PlaybackSettings
 from anime_sh.app.providers import ProviderManager
-from anime_sh.domain.models import Anime, AnimeId, Title
+from anime_sh.domain.models import Anime, AnimeId, Stream, Title
+from anime_sh.domain.ports import Player
 
 from .fakes import FakeLibrary, FakeProvider, FakeResolver, make_anime, resume_at
 from .test_skip_autonext import _Ev, _ScriptedPlayer, _SkipResolver
@@ -66,6 +69,63 @@ async def test_unreadable_settings_fall_back_to_launch_settings():
     await svc.play_and_track(_anime(3), 1.0)
     assert len(launch.handles) == 1
     assert any("settings" in n for n in notes)
+
+
+async def test_session_subtitle_language_reaches_the_player():
+    class CapturePlayer:
+        name = "capture"
+
+        def __init__(self):
+            self.streams: list[Stream] = []
+
+        def available(self) -> bool:
+            return True
+
+        async def play(
+            self, stream: Stream, *, title: str, start_s: float = 0
+        ):
+            self.streams.append(stream)
+            return await _ScriptedPlayer([DONE]).play(
+                stream, title=title, start_s=int(start_s)
+            )
+
+    player = CapturePlayer()
+    svc = _service(cast(Player, player), auto_next=False)
+    svc.set_session_source(lambda: PlaybackSettings(
+        player=cast(Player, player), auto_next=False, subtitle_language="ja"
+    ))
+    await svc.play_and_track(_anime(1), 1.0)
+    assert player.streams[0].preferred_subtitle_language == "ja"
+
+
+async def test_tracker_failure_warns_once_and_preserves_completed_local_progress():
+    class FailingTracker:
+        name = "AniList"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def push(self, *args, **kwargs):
+            self.calls += 1
+            raise RuntimeError("401 expired token")
+
+    player = _ScriptedPlayer([DONE, DONE])
+    library = FakeLibrary()
+    tracker = FailingTracker()
+    notes = []
+    svc = _service(player, library=library, tracker=tracker, auto_next=False)
+    svc.set_on_event(notes.append)
+
+    await svc.play_and_track(_anime(2), 1.0)
+    await svc.play_and_track(_anime(2), 2.0)
+
+    failures = [n for n in notes if "AniList sync failed" in n]
+    assert len(failures) == 1
+    assert "anime auth login" in failures[0]
+    assert "anime sync push" in failures[0]
+    assert tracker.calls == 2
+    assert {row.episode for row in library.saved} == {1.0, 2.0}
+    assert all(row.completed for row in library.saved)
 
 
 async def test_vlc_progress_resume_and_skip_use_shared_playback_flow():

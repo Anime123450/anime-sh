@@ -19,6 +19,7 @@ import asyncio
 import re
 import sys
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -178,6 +179,30 @@ _TRENDING = [
     _anime(210, "The Fragrant Flower Blooms with Dignity", eps=12, score=86),
 ]
 
+_REZERO = "Re:ZERO -Starting Life in Another World-"
+_REZERO_SERIES = [
+    _anime(301, _REZERO, eps=25, year=2016,
+           synopsis="Natsuki Subaru, an ordinary high school student, is on his "
+                    "way home from the convenience store when he finds himself "
+                    "transported to another world. (Source: Anime News Network) "
+                    "Notes: - Based on the light novel series."),
+    _anime(302, f"{_REZERO} Season 2", eps=25, year=2020),
+    _anime(303, f"{_REZERO} Season 3", eps=16, year=2024),
+    _anime(304, f"{_REZERO} Season 2 Part 2", eps=12, year=2021),
+]
+_REZERO_OTHER = [
+    _anime(305, f"{_REZERO}: Memory Snow", eps=1, year=2018),
+    _anime(306, f"{_REZERO}: The Frozen Bond", eps=1, year=2019),
+    _anime(307, f"{_REZERO} Break Time", eps=13, year=2016),
+    _anime(308, f"{_REZERO} Director's Cut", eps=14, year=2016),
+    _anime(309, "Re:ZERO kara Hajimeru Isekai Seikatsu: PETIT", eps=1, year=2017),
+]
+_REZERO_ALL = _REZERO_SERIES + [
+    replace(a, format=Format.MOVIE if "Memory" in a.title.preferred or "Frozen" in a.title.preferred
+            else Format.OVA if "Break" in a.title.preferred or "PETIT" in a.title.preferred
+            else Format.TV) for a in _REZERO_OTHER
+]
+
 _FAVORITES = [_anime(204, "Frieren: Beyond Journey's End", eps=28, score=92),
               _anime(3, "BOCCHI THE ROCK!", eps=12, score=89)]
 
@@ -188,7 +213,7 @@ class FakeSearch:
         # the pool. The fallback meant the no-matches state could not be
         # rendered at all, so the one screen with an explicit empty state was
         # the one screen this harness could never photograph.
-        pool = _TRENDING + _SEASONAL
+        pool = _TRENDING + _SEASONAL + _REZERO_ALL
         hits = [a for a in pool if query.lower() in a.title.preferred.lower()]
         return [SearchResult(anime=a) for a in hits]
 

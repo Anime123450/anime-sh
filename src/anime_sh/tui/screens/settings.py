@@ -18,6 +18,7 @@ built once at start-up). The labels say so.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,8 @@ from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from ...app.settings import SettingInfo, SettingsService
 from ..themes import available
+
+log = logging.getLogger(__name__)
 
 CATEGORIES: tuple[str, ...] = ("appearance", "playback", "sources", "downloads")
 _TITLES = {
@@ -47,7 +50,8 @@ _FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
     "playback": (
         ("player.name", "Player"),
         ("player.vlc_path", "VLC path"),
-        ("playback.audio", "Audio"),
+        ("playback.audio", "Audio (Sub/Dub)"),
+        ("playback.subtitle_lang", "Subtitle language"),
         ("playback.quality", "Quality"),
         ("playback.auto_next", "Auto-next"),
         ("playback.skip_intro", "Skip intros"),
@@ -58,14 +62,15 @@ _FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 #: Free-text fields; everything else is a toggle or a fixed list of choices.
-_TEXT_KEYS = frozenset({"player.vlc_path", "downloads.dir"})
+_TEXT_KEYS = frozenset({"playback.subtitle_lang", "player.vlc_path", "downloads.dir"})
 
 _ABOUT = {
     "ui.density": "How tightly the home shelves pack. Same as `v` on the home screen.",
     "ui.episodes": "How a show's episodes are laid out. Same as `v` on a show.",
     "player.name": "Which player opens episodes. Applies to the next episode you start.",
     "player.vlc_path": "Where vlc(.exe) is. Leave empty to find it automatically.",
-    "playback.audio": "Subbed or dubbed, where a source has both.",
+    "playback.audio": "Sub uses the source's original audio; Dub requests an English-dub source where available. Subtitle language below controls captions separately and does not change audio.",
+    "playback.subtitle_lang": "Subtitle language code to prefer automatically (default: en). Leave blank for the source's default.",
     "playback.quality": "Preferred stream quality; `best` takes the highest offered.",
     "playback.auto_next": "Start the next episode when one finishes.",
     "playback.skip_intro": "Jump past the opening when its timing is known.",
@@ -420,16 +425,16 @@ class SettingsScreen(Screen):
         if self._saved_theme and self.app.theme != self._saved_theme:
             try:
                 self.app.theme = self._saved_theme
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("could not revert theme preview: %s", e)
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         item = event.item
         if isinstance(item, ThemeRow) and not item.disabled:
             try:
                 self.app.theme = item.theme_name
-            except Exception:
-                pass  # a theme that will not apply must not trap you here
+            except Exception as e:
+                log.debug("theme preview failed for %s: %s", item.theme_name, e)
         else:
             self._revert_preview()
         self._describe(item)
@@ -505,8 +510,8 @@ class SettingsScreen(Screen):
             if hook is not None and screen is not self:
                 try:
                     hook(key, value)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("setting %s runtime hook failed: %s", key, e)
 
     def _toggle(self, item: ToggleRow) -> None:
         group = [r for r in self.query(ToggleRow) if r.group == item.group]

@@ -8,8 +8,9 @@ the full-screen app, the default way in, playing subs.
 
 from __future__ import annotations
 
-from anime_sh.domain.models import Anime, AnimeId, Audio, Title
+from anime_sh.domain.models import Anime, AnimeId, Audio, SourceOption, Title
 from anime_sh.tui import AnimeShApp, TuiServices
+from anime_sh.tui.screens.sources import SourcesScreen
 from anime_sh.tui.screens.detail import DetailScreen
 
 from .test_app import FakeLibrary, FakeMetadata, FakePlayback, FakeSearch, _noop
@@ -52,6 +53,49 @@ def test_the_app_defaults_to_sub():
 def test_the_app_carries_the_configured_audio():
     app, _ = _app(Audio.DUB)
     assert app.audio is Audio.DUB
+
+
+async def test_dubless_title_offers_explicit_sub_switch_without_changing_global_audio():
+    class DublessPlayback(_RecordingPlayback):
+        async def list_sources(self, anime, *, audio=None):
+            self.list_audio.append(audio)
+            if audio is Audio.DUB:
+                return []
+            return [SourceOption(
+                "test", "show-sub", anime.title.preferred, 12, Audio.SUB, 1.0,
+            )]
+
+    playback = DublessPlayback()
+    services = TuiServices(
+        search=FakeSearch(), metadata=FakeMetadata(),
+        library=FakeLibrary(), playback=playback, aclose=_noop, tracker=None,
+    )
+    app = AnimeShApp(services, theme="tokyo-night", audio=Audio.DUB)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = SourcesScreen(SHOW)
+        await app.push_screen(screen)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert isinstance(app.screen, SourcesScreen)
+        assert "No English-dub source" in str(screen.query_one("#sources-status").render())
+        fallback = screen.query_one("#sources").children[0]
+        assert "Sub for this title only" in str(fallback.children[0].render())
+        assert app.audio is Audio.DUB  # no silent/global preference change
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert isinstance(app.screen, DetailScreen)
+        assert app.screen.audio is Audio.SUB
+        assert app.audio is Audio.DUB
+
+        app.screen._play(1.0)
+        await app.workers.wait_for_complete()
+        assert playback.play_audio[-1] is Audio.SUB
 
 
 async def test_playing_from_the_detail_screen_uses_the_configured_audio():

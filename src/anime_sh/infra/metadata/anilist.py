@@ -53,6 +53,7 @@ id idMal
 title { romaji english native }
 synonyms
 format status episodes season seasonYear genres
+startDate { year month day }
 description(asHtml: false)
 coverImage { large }
 bannerImage
@@ -102,6 +103,17 @@ query ($id: Int) {{
   }}
 }}
 """
+
+_STREAMING_Q = """
+query ($id: Int) {
+  Media(id: $id, type: ANIME) { streamingEpisodes { title } }
+}
+"""
+
+JIKAN_API = "https://api.jikan.moe/v4"
+_JIKAN_MAX_PAGES = 4  # 100 episodes a page
+_JIKAN_PAGE_GAP_S = 0.4  # Jikan allows ~3 requests/second
+_TTL_EPISODES = timedelta(days=7)
 
 _TRENDING_Q = f"""
 query ($perPage: Int) {{
@@ -190,11 +202,24 @@ def _to_anime(m: dict) -> Anime:
         popularity=m.get("popularity"),
         studio=_main_studio(m.get("studios")),
         banner_url=m.get("bannerImage"),
+        start_date=_start_date(m.get("startDate")),
         next_airing_episode=next_ep.get("episode"),
         next_airing_at=datetime.fromtimestamp(airing_at, tz=timezone.utc)
         if airing_at
         else None,
     )
+
+
+def _start_date(raw) -> date | None:
+    """AniList's ``startDate { year month day }`` as a date. Any part may be
+    null (an announced show often has only a year); a missing month or day
+    becomes 1 so it still orders sensibly. No year means no date."""
+    if not isinstance(raw, dict) or not raw.get("year"):
+        return None
+    try:
+        return date(raw["year"], raw.get("month") or 1, raw.get("day") or 1)
+    except (ValueError, TypeError):
+        return None
 
 
 def _anime_list(items) -> list[Anime]:
@@ -424,6 +449,60 @@ class AniListMetadata:
 
         raw = await self._cached(f"relations:{id.key}", _TTL_SEQUEL, produce)
         return [(r["relation"], _to_anime(r["media"])) for r in raw]
+
+    async def streaming_episode_titles(self, id: AnimeId) -> list[str]:
+        """Raw ``streamingEpisodes`` titles ("Episode 3 - Title") for a show.
+        Empty when AniList has none; parsing lives with the franchise service."""
+        if id.anilist is None:
+            return []
+
+        async def produce():
+            data = await self._query(_STREAMING_Q, {"id": id.anilist})
+            eps = (data.get("Media") or {}).get("streamingEpisodes") or []
+            return [e["title"] for e in eps if e and e.get("title")]
+
+        # An empty list is a fine answer to remember: it is JSON-native and not
+        # None, so it is cached and spares a refetch for shows that have none.
+        return await self._cached(f"streameps:{id.key}", _TTL_EPISODES, produce) or []
+
+    async def jikan_episodes(self, mal_id: int | None) -> list[dict]:
+        """Per-episode rows (``mal_id`` = episode number, title, aired, filler,
+        recap) from Jikan v4, up to 400 episodes. Best effort: a failure on a
+        later page keeps the pages already fetched, and a failure on the first
+        returns ``[]`` without being cached."""
+        if mal_id is None:
+            return []
+        complete = True
+
+        async def produce():
+            nonlocal complete
+            rows: list[dict] = []
+            for page in range(1, _JIKAN_MAX_PAGES + 1):
+                if page > 1:
+                    await asyncio.sleep(_JIKAN_PAGE_GAP_S)
+                try:
+                    body = await self._http.get_json(
+                        f"{JIKAN_API}/anime/{mal_id}/episodes",
+                        params={"page": page},
+                    )
+                except (HttpError, RateLimited):
+                    if page == 1:
+                        raise
+                    complete = False
+                    break
+                rows.extend(body.get("data") or [])
+                if not (body.get("pagination") or {}).get("has_next_page"):
+                    break
+            return rows
+
+        try:
+            return await self._cached(
+                f"jikan-eps:{mal_id}", _TTL_EPISODES, produce,
+                cache_if=lambda _rows: complete,
+            ) or []
+        except Exception as e:
+            log.debug("jikan_episodes(%s) failed: %s", mal_id, e)
+            return []
 
     async def recommendations(self, id: AnimeId, *, limit: int = 15) -> list[Anime]:
         """Shows AniList users recommend for people who liked this one, best

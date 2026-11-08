@@ -90,6 +90,12 @@ class Container:
 
         return SearchService(self.metadata)
 
+    @cached_property
+    def franchise(self):
+        from ..app.franchise import FranchiseService
+
+        return FranchiseService(self.metadata, self.library_service)
+
     # -- providers / resolvers ---------------------------------------------- #
     @cached_property
     def providers(self) -> list:
@@ -193,6 +199,7 @@ class Container:
             player=self.player,
             library=self.library,
             quality=self.config.playback.quality,
+            subtitle_language=self.config.playback.subtitle_lang,
             skip_intro=self.config.playback.skip_intro,
             skip_outro=self.config.playback.skip_outro,
             auto_next=self.config.playback.auto_next,
@@ -238,7 +245,9 @@ class Container:
                 player = UnavailablePlayer(name, e)
         pb = cfg.playback
         return PlaybackSettings(
-            player=player, quality=pb.quality, skip_intro=pb.skip_intro,
+            player=player, quality=pb.quality,
+            subtitle_language=pb.subtitle_lang,
+            skip_intro=pb.skip_intro,
             skip_outro=pb.skip_outro, auto_next=pb.auto_next,
             prefer_local=pb.prefer_downloads,
         )

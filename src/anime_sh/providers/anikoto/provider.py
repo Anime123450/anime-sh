@@ -17,6 +17,7 @@ lets one source cover the shows another lacks.
 
 from __future__ import annotations
 
+import asyncio
 import html as html_lib
 import logging
 import re
@@ -101,12 +102,40 @@ class AnikotoProvider:
                 seen.setdefault(item["id"], item)  # dedupe across query terms
             if seen:
                 break
+
+        ranked = rank_items(anime, list(seen.values()))
+        if audio is Audio.DUB and ranked:
+            # Search cards advertise sub episode counts only. Do not label a
+            # result DUB merely because that was requested: verify the episode
+            # endpoint for close title matches before exposing them in the UI.
+            best_score = max(item["_score"] for item in ranked)
+            plausible = [item for item in ranked if item["_score"] >= best_score - 0.15]
+            semaphore = asyncio.Semaphore(4)
+
+            async def dub_available(item: dict) -> bool | None:
+                async with semaphore:
+                    try:
+                        data = await self._get_json(f"/ajax/episode/list/{item['id']}")
+                    except ProviderError:
+                        # Unknown is not evidence of DUB; omit this candidate so
+                        # the picker never promises an audio track it has not verified.
+                        return None
+                    return any(ep["dub"] for ep in parse_episodes(data.get("result", "")))
+
+            availability = await asyncio.gather(*(dub_available(item) for item in plausible))
+            # Only expose entries we positively verified to contain at least
+            # one DUB episode. A failed check is unknown, not a safe DUB claim.
+            ranked = [
+                item for item, available in zip(plausible, availability)
+                if available is True
+            ]
+
         return [
             SourceOption(
                 provider=self.name, anime_key=it["id"], title=it["title"],
                 episode_count=it.get("sub_eps"), audio=audio, confidence=it["_score"],
             )
-            for it in rank_items(anime, list(seen.values()))
+            for it in ranked
         ]
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:

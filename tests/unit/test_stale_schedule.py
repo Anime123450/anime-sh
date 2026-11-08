@@ -191,7 +191,7 @@ def test_a_past_due_schedule_does_not_claim_you_are_caught_up():
     out = card_caption(PAST, finished_11, NOW)
     not_yet = card_caption(FUTURE, finished_11, NOW)
     assert out == "ep 12 ready", out
-    assert not_yet == "ep 12 in 2d 0h", not_yet
+    assert not_yet == "ep 12 · 2d 0h", not_yet
     assert _readiness((PAST, out, 12.0, 0.0)) < _readiness((FUTURE, not_yet, 12.0, 0.0)), (
         "a released episode must not sort below one that has not aired"
     )
