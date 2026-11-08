@@ -363,6 +363,10 @@ class HomeScreen(Screen):
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
     def on_resize(self) -> None:
+        with contextlib.suppress(Exception):
+            body = self.query_one("#body")
+            for shelf in self.query(Shelf):
+                shelf._fit_whole_cards(body.scrollable_content_region.width)
         self._relayout_results()
         self._size_hero()
         self._paint_shell()

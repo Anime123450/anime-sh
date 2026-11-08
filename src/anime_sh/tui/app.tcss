@@ -165,7 +165,7 @@ HomeScreen.-dense Shelf {
    of furniture advertising nothing. The horizontal one is one cell: it is the
    only thing saying there are more posters off to the right. */
 Shelf {
-    height: 15;
+    height: 16;
     padding: 1 1 0 1;
     margin: 0 0 1 0;
     background: $surface;
@@ -180,7 +180,7 @@ Shelf {
    height from the width and the result count). The page scrolls, not the shelf. */
 Shelf.-grid {
     layout: grid;
-    grid-rows: 13;
+    grid-rows: 14;
     grid-columns: 16;
     overflow: hidden hidden;
 }
@@ -190,7 +190,7 @@ Shelf.-grid {
    caption, silently, because the overflow is simply not drawn. */
 PosterCard {
     width: 16;
-    height: 13;
+    height: 14;
     padding: 0 1;
 }
 
@@ -201,7 +201,7 @@ PosterCard > .card-art {
 }
 PosterCard > .card-meta {
     width: 14;
-    height: 3;
+    height: 4;
 }
 
 /* The selected card lifts a tier, exactly as the highlighted row does. Only

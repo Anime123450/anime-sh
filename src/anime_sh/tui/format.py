@@ -84,7 +84,9 @@ def progress_bar(
     fraction = 0.0 if fraction < 0 else 1.0 if fraction > 1 else fraction
     exact = fraction * width
     full = int(exact)
-    tip = "╸" if full < width and exact - full >= 0.5 else ""
+    # Any progress at all gets at least the tip: 1% of a 22-cell bar is a fifth
+    # of a cell, and a bar that drew nothing beside "1%" read as broken.
+    tip = "╸" if full < width and (exact - full >= 0.5 or 0 < exact < 1) else ""
     rest = width - full - len(tip)
     # Closed with [/] so a theme token ($accent) works as well as a name.
     return f"[{color}]{'━' * full}{tip}[/][{track}]{'─' * rest}[/]"
@@ -384,6 +386,43 @@ def _franchise_prefix(title: str, others: Sequence[str]) -> str:
         best -= 1
     prefix = title[:best].rstrip(_PUNCT)
     return prefix if len(prefix) >= _MIN_FRANCHISE else ""
+
+
+def wrap_title(title: str, width: int = CARD_WIDTH, lines: int = 2) -> list[str]:
+    """``title`` word-wrapped into exactly ``lines`` lines of ``width`` cells.
+
+    Cards used to print one 14-cell line, so most titles came out as
+    "A R…Special S2". Breaks between words; a word longer than a line is
+    hard-cut; whatever does not fit in the last line is end-cut with an
+    ellipsis. Short titles are padded with empty lines so every card's caption
+    sits on the same row.
+    """
+    out: list[str] = []
+    rest = title.strip()
+    while rest and len(out) < lines - 1:
+        if cell_len(rest) <= width:
+            out.append(rest)
+            rest = ""
+            break
+        words = rest.split(" ")
+        line = ""
+        used = 0
+        for word in words:
+            cand = f"{line} {word}" if line else word
+            if cell_len(cand) > width:
+                break
+            line = cand
+            used += 1
+        if not line:  # one word wider than the line
+            line = set_cell_size(rest, width)
+            rest = rest[len(line):]
+        else:
+            rest = " ".join(words[used:])
+        out.append(line)
+        rest = rest.strip()
+    if rest:
+        out.append(_end_cut(rest, width))
+    return out + [""] * (lines - len(out))
 
 
 def shelf_titles(titles: Sequence[str], width: int = CARD_WIDTH) -> list[str]:
