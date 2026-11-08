@@ -64,7 +64,12 @@ class ProvidersConfig(BaseModel):
     # install still trying it first. This knob is the user's; the built-in
     # priorities, maintained next to the provider code, are the default.
     preferred: list[str] = Field(default_factory=list)
-    disabled: list[str] = Field(default_factory=list)
+    # anikoto off by default (2026-11-08): every server it lists is a megaplay
+    # embed, and megaplay's getSources now returns only an encrypted `enc`
+    # playlist (see resolvers/vidtube). Trying it only delays the fallback and
+    # puts unplayable entries in the source picker. `anime providers enable
+    # anikoto` turns it back on if megaplay ever serves in the clear again.
+    disabled: list[str] = Field(default_factory=lambda: ["anikoto"])
     #: How long one provider gets to list an episode's stream candidates.
     #: Separate from the match budget below because the two sit at different
     #: points: matching runs on every search, across providers in parallel,

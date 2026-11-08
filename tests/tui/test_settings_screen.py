@@ -29,7 +29,7 @@ def _isolated(monkeypatch):
             monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(
         SettingsScreen, "_installed_providers",
-        staticmethod(lambda: [("anizone", 90), ("anikoto", 85)]),
+        staticmethod(lambda: [("anizone", 90), ("hianime", 85)]),
     )
     monkeypatch.setattr(
         SettingsScreen, "_installed_resolvers",
