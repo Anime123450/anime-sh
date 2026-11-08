@@ -47,3 +47,28 @@ def test_banner_is_cropped_to_exactly_the_cells_it_is_given():
 
 def test_unreadable_banner_is_none():
     assert coverart.faded_banner(b"not an image", 40, 10, (0, 0, 0)) is None
+
+
+def _anime(**kw):
+    from anime_sh.domain.models import Anime, AnimeId, Season, Title
+    base = dict(id=AnimeId(anilist=1), title=Title(romaji="X"), average_score=66,
+                popularity=54321, studio="Aura Studio", season=Season.SUMMER, year=2026,
+                episode_count=12, duration_min=24)
+    base.update(kw)
+    return Anime(**base)
+
+
+def test_hero_facts_rows_fit_and_read_naturally():
+    from anime_sh.domain.models import AnimeId, WatchProgress
+    from anime_sh.tui.format import FACTS_WIDTH, hero_facts
+    from datetime import datetime, timezone
+    prog = WatchProgress(anime_id=AnimeId(anilist=1), episode=8.0, position_s=0,
+                         duration_s=0, updated_at=datetime.now(timezone.utc))
+    rows = dict(hero_facts(_anime(studio="A Very Long Studio Name Indeed Ltd"), prog))
+    assert rows["Score"] == "★ 66%" and rows["Members"] == "54k"
+    assert rows["Season"] == "Summer 2026" and rows["Episodes"] == "12 × 24 min"
+    assert rows["Watched"] == "8 / 12"
+    assert all(9 + len(v) <= FACTS_WIDTH for v in rows.values())
+    assert hero_facts(_anime(average_score=None, popularity=None, studio=None,
+                             season=None, year=None, episode_count=None,
+                             duration_min=None)) == []

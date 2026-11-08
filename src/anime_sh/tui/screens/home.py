@@ -47,7 +47,14 @@ from ..coverart import (
     graphics_protocol_active,
     render_cover,
 )
-from ..format import airing_caption, card_caption, search_caption
+from ..format import (
+    FACTS_WIDTH,
+    airing_caption,
+    card_caption,
+    hero_facts,
+    hero_facts_markup,
+    search_caption,
+)
 from ..preview import render as preview_render
 from ..shell import (
     SECTIONS,
@@ -187,6 +194,7 @@ class HomeScreen(Screen):
         with Horizontal(id="hero"):
             yield Container(id="hero-art")
             yield Static("", id="hero-text")
+            yield Static("", id="hero-facts")
             yield Container(id="hero-banner")
         with VerticalScroll(id="body"):
             for sec in (*SECTIONS, _RESULTS_SECTION):
@@ -367,31 +375,45 @@ class HomeScreen(Screen):
                 shelf.set_card_gap(self._card_gap)
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
-    #: The prose keeps at least this many cells; the banner gets the rest.
+    #: The prose keeps at least this many cells; facts, then banner, get the rest.
     HERO_TEXT_MIN = 64
     #: Narrower than this, a banner is a smear rather than a picture.
     HERO_BANNER_MIN = 36
-    #: The prose's share of a very wide hero; past it, lines get too long to read.
-    HERO_TEXT_MAX = 96
+    #: Wider than this the banner stops being an accent and starts competing
+    #: with the shelves; the room it would take goes to the facts and prose.
+    HERO_BANNER_MAX = 72
 
-    def _banner_cols(self) -> int:
-        """Cells the hero banner gets at this width (0: none)."""
+    def _hero_columns(self) -> tuple[int, int]:
+        """(facts, banner) cells for the hero at this width; 0 = not shown.
+
+        Prose first (it carries the title and the resume button), then the
+        facts table, then the banner with whatever is left, capped.
+        """
         cols = self._hero_cols()
         if not cols:
-            return 0
+            return 0, 0
         # hero = screen - body chrome (5) - hero padding (4) - art - gutter (3)
         inner = (self.size.width or 0) - 5 - 4 - cols - 3
-        text = max(self.HERO_TEXT_MIN, min(self.HERO_TEXT_MAX, inner // 2))
-        banner = inner - text
-        return banner if banner >= self.HERO_BANNER_MIN else 0
+        facts = FACTS_WIDTH + 3
+        if inner - facts < self.HERO_TEXT_MIN:
+            facts = 0
+        banner = min(self.HERO_BANNER_MAX, inner - facts - self.HERO_TEXT_MIN)
+        return facts, banner if banner >= self.HERO_BANNER_MIN else 0
+
+    def _banner_cols(self) -> int:
+        return self._hero_columns()[1]
 
     def _size_banner(self) -> None:
+        facts, banner = self._hero_columns()
+        with contextlib.suppress(Exception):
+            box = self.query_one("#hero-facts", Static)
+            box.styles.width = facts
+            box.display = facts > 0
         with contextlib.suppress(Exception):
             box = self.query_one("#hero-banner", Container)
-            cols = self._banner_cols()
-            box.styles.width = cols
-            box.display = cols > 0
-            if not cols:
+            box.styles.width = banner
+            box.display = banner > 0
+            if not banner:
                 box.remove_children()
                 self._banner_key = None
 
@@ -486,7 +508,19 @@ class HomeScreen(Screen):
                 completed=self._user_completed(anime),
                 synopsis_lines=self._synopsis_lines(),
             ))
+        self._paint_facts(anime)
         self._paint_hero_art(anime)
+
+    def _paint_facts(self, anime) -> None:
+        """Fill the facts column, from the fullest record we have of the show.
+
+        Library rows lack score, studio and members; the record fetched for
+        the banner has them, and repaints this when it lands.
+        """
+        full = self.__dict__.setdefault("_full", {}).get(anime.id.anilist, anime)
+        with contextlib.suppress(Exception):
+            self.query_one("#hero-facts", Static).update(hero_facts_markup(
+                hero_facts(full, self._progress.get(anime.id.anilist))))
 
     def _user_completed(self, anime) -> bool:
         """Whether *this user* has finished the show — the only thing a tick in
@@ -586,7 +620,7 @@ class HomeScreen(Screen):
         Until it lands, or if a show has no banner, its poster cropped wide
         stands in, so the space never sits empty.
         """
-        if not self._banner_cols():
+        if self._hero_columns() == (0, 0):
             return
         banners = self.__dict__.setdefault("_banners", {})
         aid = anime.id.anilist
@@ -595,7 +629,7 @@ class HomeScreen(Screen):
             return
         url = getattr(anime, "banner_url", None)
         data = cached_cover(url) if url else None
-        if data:
+        if data and anime.average_score:
             banners[aid] = data
             self._show_banner(aid, data)
             return
@@ -606,11 +640,15 @@ class HomeScreen(Screen):
         banners = self.__dict__.setdefault("_banners", {})
         aid = anime.id.anilist
         url = getattr(anime, "banner_url", None)
-        if not url:
+        if not url or not anime.average_score:
             get = getattr(self.app.services.metadata, "get", None)
             if get is not None:
                 with contextlib.suppress(Exception):
-                    url = (await get(anime.id)).banner_url
+                    full = await get(anime.id)
+                    self.__dict__.setdefault("_full", {})[aid] = full
+                    url = url or full.banner_url
+                    if self._hero_id == aid:
+                        self._paint_facts(anime)
         data = await fetch_cover(url) if url else None
         banners[aid] = data or b""
         if self._hero_id == aid:
