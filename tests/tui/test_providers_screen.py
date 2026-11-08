@@ -62,18 +62,18 @@ async def _providers(app, pilot):
 
 async def test_it_lists_what_is_installed_with_its_state(installed, tmp_path):
     """Priority order, because that is the order they are actually tried in."""
-    installed([("anizone", 90), ("anikoto", 85)])
+    installed([("anizone", 90), ("hianime", 85)])
     config = tmp_path / "config.toml"
     config.write_text('[providers]\ndisabled = ["anizone"]\n', encoding="utf-8")
     app = _app(config)
     async with app.run_test(size=(120, 40)) as pilot:
         rows = await _providers(app, pilot)
-        assert [r.name_ for r in rows] == ["anizone", "anikoto"]
+        assert [r.name_ for r in rows] == ["anizone", "hianime"]
         assert [r.enabled for r in rows] == [False, True]
 
 
 async def test_turning_one_off_is_written_to_the_config(installed, tmp_path):
-    installed([("anizone", 90), ("anikoto", 85)])
+    installed([("anizone", 90), ("hianime", 85)])
     config = tmp_path / "config.toml"
     app = _app(config)
     async with app.run_test(size=(120, 40)) as pilot:
@@ -87,7 +87,7 @@ async def test_turning_one_off_is_written_to_the_config(installed, tmp_path):
 async def test_the_last_provider_cannot_be_turned_off(installed, tmp_path):
     """A configuration with every provider off cannot find a single episode.
     Refused here, as a choice, rather than surfacing later as "no sources"."""
-    installed([("anikoto", 85)])
+    installed([("hianime", 85)])
     config = tmp_path / "config.toml"
     app = _app(config)
     async with app.run_test(size=(120, 40)) as pilot:
