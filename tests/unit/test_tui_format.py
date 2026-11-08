@@ -172,3 +172,26 @@ def test_sextant_table_maps_known_patterns():
 def test_render_cover_returns_none_on_garbage():
     assert render_cover(b"not an image", cols=10) is None
     assert render_cover(b"", cols=10) is None
+
+
+def test_any_progress_at_all_draws_something():
+    """Ani's hero showed `────── 1%`: 1% of a 22-cell bar is a fifth of a cell,
+    so the bar drew nothing and read as broken next to its own percentage."""
+    from anime_sh.tui.format import progress_bar
+
+    assert "╸" in progress_bar(0.01, 22) or "━" in progress_bar(0.01, 22)
+    assert "━" not in progress_bar(0.0, 22) and "╸" not in progress_bar(0.0, 22)
+
+
+def test_card_title_wraps_onto_two_lines_at_word_boundaries():
+    from anime_sh.tui.format import wrap_title
+
+    assert wrap_title("Skeleton Knight in Another World", 14) == [
+        "Skeleton", "Knight in Ano…"]
+    assert wrap_title("BOCCHI THE ROCK!", 14) == ["BOCCHI THE", "ROCK!"]
+    assert wrap_title("Pokémon", 14) == ["Pokémon", ""]
+    # A single word longer than a line is hard-cut, not dropped.
+    assert wrap_title("Supercalifragilisticexpialidocious", 14) == [
+        "Supercalifragi", "listicexpiali…"]
+    for line in wrap_title("Chitose Is in the Ramune Bottle 2nd Cour", 14):
+        assert len(line) <= 14

@@ -29,7 +29,7 @@ from textual.widgets import Static
 
 from .coverart import (cover_rows, graphics_cover_widget,
                        graphics_protocol_active, render_cover)
-from .format import shelf_titles
+from .format import shelf_titles, wrap_title
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
@@ -38,11 +38,13 @@ from .rows import fit
 #: as covers land one by one.
 CARD_COLS = 14
 CARD_ART_ROWS = cover_rows(CARD_COLS)
-#: Art, the selection rule, the title and one line of state — the whole card,
+#: Art, the selection rule, the title (two lines) and one line of state — the whole card,
 #: so a shelf knows its height without measuring a child. `app.tcss` sets the
 #: same number on `PosterCard`; `test_cards` fails if the two disagree, because
 #: a card one row taller than its box silently loses its caption.
-CARD_ROWS = CARD_ART_ROWS + 3
+CARD_ROWS = CARD_ART_ROWS + 4
+#: Lines a card gives its title. One line cut most titles to "A R…Special S2".
+TITLE_LINES = 2
 
 
 def placeholder(cols: int = CARD_COLS, rows: int = CARD_ART_ROWS) -> Text:
@@ -190,7 +192,8 @@ class PosterCard(Widget):
         return bool(getattr(parent, "has_focus", True))
 
     def _meta(self):
-        title = fit(self.display_title or self.anime.title.preferred, CARD_COLS).rstrip()
+        title = "\n".join(wrap_title(self.display_title or self.anime.title.preferred,
+                                      CARD_COLS, TITLE_LINES))
         accent = self._colour("accent", "yellow")
         if self.selected and not self._shelf_focused:
             # The remembered card of a shelf the keyboard has left: the place
@@ -316,6 +319,7 @@ class Shelf(HorizontalScroll):
         columns = columns if columns and columns > 1 else None
         self.columns = columns
         self.set_class(columns is not None, "-grid")
+        self._fit_whole_cards()
         if columns:
             self.styles.grid_size_columns = columns
             self._size_grid()
@@ -331,6 +335,33 @@ class Shelf(HorizontalScroll):
         # container with `height: auto` is measured before its cards are.
         self.styles.height = rows * CARD_ROWS + 1
 
+    #: A card's full width: 14 cells of art plus a gutter cell either side
+    #: (`PosterCard` in app.tcss).
+    CARD_STRIDE = CARD_COLS + 2
+
+    def _fit_whole_cards(self, avail: int | None = None) -> None:
+        """Size the strip to a whole number of cards.
+
+        A full-width strip showed a sliver of the next poster at the right edge
+        (Ani's half-drawn "Pokémon" card), which read as clipping. Textual does
+        not clip a scroll container's children at its padding, so the strip
+        itself is made exactly ``n`` cards wide; the few leftover cells sit
+        outside it. ``avail`` is the width the parent offers; the home screen
+        passes it on resize, because a strip with a fixed width never receives
+        a resize of its own when the window grows.
+        """
+        if self.columns:
+            self.styles.width = None
+            return
+        if avail is None:
+            parent = self.parent
+            avail = getattr(parent, "scrollable_content_region", None)
+            avail = avail.width if avail is not None else 0
+        if not avail:
+            return
+        fit = max(1, (avail - 2) // self.CARD_STRIDE)
+        self.styles.width = fit * self.CARD_STRIDE + 2
+
     def on_mount(self) -> None:
         # Not `on_focus`/`on_blur`: those can run before `has_focus` has
         # flipped, and the selected card then paints for the wrong state.
@@ -345,7 +376,9 @@ class Shelf(HorizontalScroll):
     def retitle(self) -> None:
         """Cut every card's printed title against its siblings on this shelf."""
         cards = self.all_cards
-        cut = shelf_titles([c.anime.title.preferred for c in cards], CARD_COLS)
+        # Cut against the two-line budget, less a little slack for word wrap.
+        cut = shelf_titles([c.anime.title.preferred for c in cards],
+                           CARD_COLS * TITLE_LINES - 2)
         for card, title in zip(cards, cut):
             card.set_display_title(title)
 
