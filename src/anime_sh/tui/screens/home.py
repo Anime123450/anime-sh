@@ -360,14 +360,36 @@ class HomeScreen(Screen):
             shelf = self.query_one("#results", Shelf)
             if shelf.cards:
                 shelf.set_grid(self._grid_columns())
+                shelf.set_card_gap(self._card_gap)
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
     def on_resize(self) -> None:
-        with contextlib.suppress(Exception):
-            body = self.query_one("#body")
-            for shelf in self.query(Shelf):
-                shelf._fit_whole_cards(body.scrollable_content_region.width)
+        self._centre_page()
         self._relayout_results()
+
+    _card_gap = 0
+
+    def _centre_page(self) -> None:
+        """Split the cells a row of whole cards can't use between both sides.
+
+        The shelves space their cards out to fill the row (`Shelf.row_fit`);
+        what still doesn't divide evenly, always fewer cells than cards, becomes
+        an equal margin either side of the hero and the shelves, so every band
+        on the page starts and ends on the same columns as the others.
+        """
+        width = self.size.width
+        if not width:
+            return
+        # Shelf width = screen - body padding (2+2) - body scrollbar (1).
+        _fit, gap, rest = Shelf.row_fit(width - 5)
+        left, right = rest // 2, rest - rest // 2
+        self._card_gap = gap
+        for shelf in self.query(Shelf):
+            shelf.set_card_gap(gap)
+        with contextlib.suppress(Exception):
+            self.query_one("#body").styles.padding = (0, 2 + right, 0, 2 + left)
+        with contextlib.suppress(Exception):
+            self.query_one("#hero").styles.margin = (0, 3 + right, 0, 2 + left)
         self._size_hero()
         self._paint_shell()
         self._paint_hero()
@@ -441,33 +463,92 @@ class HomeScreen(Screen):
         return bool(progress is not None and progress.completed and total
                     and progress.episode >= total)
 
+    #: How long the cursor must rest before the hero's poster follows it.
+    #: The text follows at once; the art, the expensive half, is skipped for
+    #: every card a held arrow key only passes over.
+    HERO_ART_DELAY = 0.06
+
     def _paint_hero_art(self, anime) -> None:
-        """Mount the hero's poster at hero size, or leave the space reserved.
+        """Show the hero's poster at hero size, or leave the space reserved.
 
         Decoration only: every failure here leaves a textual hero rather than
         costing the screen. Rendered from the same bytes the card is drawn from,
-        at the larger width — a 14-cell poster scaled up to 24 is a 14-cell
-        poster with bigger squares.
+        at the larger width.
+
+        This used to remove and re-mount the art widget on every cursor move,
+        which forced a full-screen reflow plus a fresh render each time
+        (~300-500 ms per arrow press on a real library). Now the art is
+        deferred briefly, skipped when it would be identical, and updated in
+        place inside one long-lived widget.
         """
+        timer = getattr(self, "_hero_art_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._hero_art_timer = self.set_timer(
+            self.HERO_ART_DELAY, lambda: self._mount_hero_art(anime))
+
+    def _clear_hero_art(self) -> None:
+        self._hero_art_key = None
+        with contextlib.suppress(Exception):
+            self.query_one("#hero-art", Container).remove_children()
+
+    def _mount_hero_art(self, anime) -> None:
+        self._hero_art_timer = None
         try:
             container = self.query_one("#hero-art", Container)
         except Exception:
             return
-        container.remove_children()
         cols = self._hero_cols()
         data = self._cover_bytes(anime)
-        if not data or cols <= 0:
+        key = (anime.id.anilist, cols, hash(data) if data else None)
+        if key == getattr(self, "_hero_art_key", None) and container.children:
             return
+        if not data or cols <= 0:
+            self._clear_hero_art()
+            return
+        current = container.children[0] if len(container.children) == 1 else None
         if graphics_protocol_active():
+            pil = self._decoded_cover(data)
+            if pil is not None and current is not None and hasattr(current, "image")                     and current.styles.width is not None                     and current.styles.width.value == cols:
+                with contextlib.suppress(Exception):
+                    current.image = pil
+                    self._hero_art_key = key
+                    return
             widget = graphics_cover_widget(data, cols)
             if widget is not None:
                 with contextlib.suppress(Exception):
+                    container.remove_children()
                     container.mount(widget)
+                    self._hero_art_key = key
                     return
         art = render_cover(data, cols=cols)
-        if art is not None:
-            with contextlib.suppress(Exception):
+        if art is None:
+            self._clear_hero_art()
+            return
+        with contextlib.suppress(Exception):
+            if isinstance(current, Static):
+                current.update(art)
+            else:
+                container.remove_children()
                 container.mount(Static(art))
+            self._hero_art_key = key
+
+    def _decoded_cover(self, data: bytes):
+        """The cover decoded once per show; re-decoding a JPEG on each cursor
+        move was half of what the bitmap hero cost."""
+        cache = self.__dict__.setdefault("_pil_cache", {})
+        k = hash(data)
+        if k not in cache:
+            try:
+                import io
+
+                from PIL import Image as PILImage
+                cache[k] = PILImage.open(io.BytesIO(data)).convert("RGB")
+            except Exception:
+                cache[k] = None
+            if len(cache) > 48:
+                cache.pop(next(iter(cache)))
+        return cache[k]
 
     # ------------------------------------------------------------------ #
     # covers
@@ -565,10 +646,10 @@ class HomeScreen(Screen):
             return
         current = self._focused_shelf()
         if current not in shelves:
-            shelves[0].focus()
+            shelves[0].focus(scroll_visible=False)
             return
         i = (shelves.index(current) + step) % len(shelves)
-        shelves[i].focus()
+        shelves[i].focus(scroll_visible=False)
 
     def action_next_section(self) -> None:
         self._cycle_section(1)
@@ -578,11 +659,11 @@ class HomeScreen(Screen):
 
     def action_first_section(self) -> None:
         if shelves := self._shelves():
-            shelves[0].focus()
+            shelves[0].focus(scroll_visible=False)
 
     def action_last_section(self) -> None:
         if shelves := self._shelves():
-            shelves[-1].focus()
+            shelves[-1].focus(scroll_visible=False)
 
     def action_jump(self, list_id: str) -> None:
         """Go straight to a shelf by its number key.
@@ -593,7 +674,7 @@ class HomeScreen(Screen):
         with contextlib.suppress(Exception):
             shelf = self.query_one(list_id, Shelf)
             if shelf.display and shelf.cards:
-                shelf.focus()
+                shelf.focus(scroll_visible=False)
 
     def on_shelf_exited(self, event: Shelf.Exited) -> None:
         """Up and down leave a shelf for its neighbour."""
@@ -652,7 +733,7 @@ class HomeScreen(Screen):
             if not untouched or shelves[0] is focused:
                 return
         self._focus_claimed = shelves[0].id
-        shelves[0].focus()
+        shelves[0].focus(scroll_visible=False)
         # After the refresh, not now: focus lands before Textual has laid the
         # cards out, so the hero would be drawn from a shelf that does not yet
         # report a cursor.
@@ -751,6 +832,7 @@ class HomeScreen(Screen):
         await shelf.mount_all(cards)
         if sec is _RESULTS_SECTION:
             shelf.set_grid(self._grid_columns())
+        shelf.set_card_gap(self._card_gap)
         shelf.retitle()
         start = next((i for i, c in enumerate(cards) if c.anime.id.anilist == keep), 0)
         shelf.index = start
@@ -1034,7 +1116,7 @@ class HomeScreen(Screen):
         self._toggle_results(False)
         self._paint_shell()
         if shelves := self._shelves():
-            shelves[0].focus()
+            shelves[0].focus(scroll_visible=False)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if self._debounce is not None:
@@ -1070,7 +1152,7 @@ class HomeScreen(Screen):
         await self._fill_shelf(_RESULTS_SECTION, built)
         self._show_no_matches(None if results else query)
         if results:
-            self.query_one("#results", Shelf).focus()
+            self.query_one("#results", Shelf).focus(scroll_visible=False)
 
     def _toggle_results(self, on: bool) -> None:
         """Swap the browse shelves for the results shelf, or back.
@@ -1133,8 +1215,8 @@ class HomeScreen(Screen):
         # the search — a show that is, by definition, not among the results. A
         # hero confidently detailing something the shelves do not contain is
         # worse than an empty one.
+        self._clear_hero_art()
         with contextlib.suppress(Exception):
-            self.query_one("#hero-art", Container).remove_children()
             self.query_one("#hero-text", Static).update(
                 empty_state("Nothing to show",
                             "Pick a result to see it here.",
