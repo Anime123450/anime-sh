@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from textual import work
 from textual.app import ComposeResult
@@ -41,12 +41,13 @@ from ..cards import CARD_COLS, PosterCard, Shelf
 from ..coverart import (
     cached_cover,
     cover_rows,
+    faded_banner,
     fetch_cover,
     graphics_cover_widget,
     graphics_protocol_active,
     render_cover,
 )
-from ..format import card_caption, search_caption
+from ..format import airing_caption, card_caption, search_caption
 from ..preview import render as preview_render
 from ..shell import (
     SECTIONS,
@@ -134,9 +135,10 @@ class HomeScreen(Screen):
         Binding("g", "first_section", "First shelf", show=False),
         Binding("G", "last_section", "Last shelf", show=False),
         Binding("1", "jump('#continue')", "Continue", show=False),
-        Binding("2", "jump('#favorites')", "Favourites", show=False),
-        Binding("3", "jump('#seasonal')", "This season", show=False),
-        Binding("4", "jump('#trending')", "Trending", show=False),
+        Binding("2", "jump('#airing')", "Airing today", show=False),
+        Binding("3", "jump('#favorites')", "Favourites", show=False),
+        Binding("4", "jump('#seasonal')", "This season", show=False),
+        Binding("5", "jump('#trending')", "Trending", show=False),
     ]
 
     #: A poster's width in the hero, by band. The hero's art is the one image on
@@ -185,6 +187,7 @@ class HomeScreen(Screen):
         with Horizontal(id="hero"):
             yield Container(id="hero-art")
             yield Static("", id="hero-text")
+            yield Container(id="hero-banner")
         with VerticalScroll(id="body"):
             for sec in (*SECTIONS, _RESULTS_SECTION):
                 yield Label(spaced(sec.label), classes="shelf-label",
@@ -222,6 +225,7 @@ class HomeScreen(Screen):
         self._paint_shell()
         self._load_continue()
         self._load_favorites()
+        self._load_airing()
         self._load_seasonal()
         self._load_trending()
         # If AniList is linked, pull remote progress so Continue Watching
@@ -363,7 +367,36 @@ class HomeScreen(Screen):
                 shelf.set_card_gap(self._card_gap)
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
+    #: The prose keeps at least this many cells; the banner gets the rest.
+    HERO_TEXT_MIN = 64
+    #: Narrower than this, a banner is a smear rather than a picture.
+    HERO_BANNER_MIN = 36
+    #: The prose's share of a very wide hero; past it, lines get too long to read.
+    HERO_TEXT_MAX = 96
+
+    def _banner_cols(self) -> int:
+        """Cells the hero banner gets at this width (0: none)."""
+        cols = self._hero_cols()
+        if not cols:
+            return 0
+        # hero = screen - body chrome (5) - hero padding (4) - art - gutter (3)
+        inner = (self.size.width or 0) - 5 - 4 - cols - 3
+        text = max(self.HERO_TEXT_MIN, min(self.HERO_TEXT_MAX, inner // 2))
+        banner = inner - text
+        return banner if banner >= self.HERO_BANNER_MIN else 0
+
+    def _size_banner(self) -> None:
+        with contextlib.suppress(Exception):
+            box = self.query_one("#hero-banner", Container)
+            cols = self._banner_cols()
+            box.styles.width = cols
+            box.display = cols > 0
+            if not cols:
+                box.remove_children()
+                self._banner_key = None
+
     def on_resize(self) -> None:
+        self._size_banner()
         self._centre_page()
         self._relayout_results()
 
@@ -489,11 +522,23 @@ class HomeScreen(Screen):
 
     def _clear_hero_art(self) -> None:
         self._hero_art_key = None
+        self._banner_key = None
+        with contextlib.suppress(Exception):
+            self.query_one("#hero-banner", Container).remove_children()
         with contextlib.suppress(Exception):
             self.query_one("#hero-art", Container).remove_children()
 
+    #: The banner is the costliest thing on the page (100+ columns of art), so
+    #: it waits until the cursor has properly settled, and builds off-thread.
+    HERO_BANNER_DELAY = 0.25
+
     def _mount_hero_art(self, anime) -> None:
         self._hero_art_timer = None
+        timer = getattr(self, "_banner_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._banner_timer = self.set_timer(
+            self.HERO_BANNER_DELAY, lambda: self._paint_banner(anime))
         try:
             container = self.query_one("#hero-art", Container)
         except Exception:
@@ -532,6 +577,90 @@ class HomeScreen(Screen):
                 container.remove_children()
                 container.mount(Static(art))
             self._hero_art_key = key
+
+    def _paint_banner(self, anime) -> None:
+        """Fill the hero's right side with the show's banner, faded in.
+
+        Library rows don't store a banner URL, so a show without one is looked
+        up once (AniList answers from the metadata cache after the first time).
+        Until it lands, or if a show has no banner, its poster cropped wide
+        stands in, so the space never sits empty.
+        """
+        if not self._banner_cols():
+            return
+        banners = self.__dict__.setdefault("_banners", {})
+        aid = anime.id.anilist
+        if aid in banners:
+            self._show_banner(aid, banners[aid] or self._cover_bytes(anime))
+            return
+        url = getattr(anime, "banner_url", None)
+        data = cached_cover(url) if url else None
+        if data:
+            banners[aid] = data
+            self._show_banner(aid, data)
+            return
+        self._fetch_banner(anime)
+
+    @work(group="banner", exclusive=True)
+    async def _fetch_banner(self, anime) -> None:
+        banners = self.__dict__.setdefault("_banners", {})
+        aid = anime.id.anilist
+        url = getattr(anime, "banner_url", None)
+        if not url:
+            get = getattr(self.app.services.metadata, "get", None)
+            if get is not None:
+                with contextlib.suppress(Exception):
+                    url = (await get(anime.id)).banner_url
+        data = await fetch_cover(url) if url else None
+        banners[aid] = data or b""
+        if self._hero_id == aid:
+            self._show_banner(aid, data or self._cover_bytes(anime))
+
+    @work(group="banner-draw", exclusive=True)
+    async def _show_banner(self, aid: int, data: bytes | None) -> None:
+        """Draw the banner for show ``aid`` if it is still the one in the hero.
+
+        The crop, fade and (text mode) cell render run in a thread; only the
+        swap into the widget tree happens on the UI thread.
+        """
+        try:
+            box = self.query_one("#hero-banner", Container)
+            hero = self.query_one("#hero")
+        except Exception:
+            return
+        cols, rows = self._banner_cols(), self._hero_rows()
+        if not data or not cols:
+            box.remove_children()
+            self._banner_key = None
+            return
+        bg = hero.background_colors[1].rgb
+        key = (hash(data), cols, rows, bg)
+        if key == getattr(self, "_banner_key", None) and box.children:
+            return
+        bitmap = graphics_protocol_active()
+
+        def build():
+            png = faded_banner(data, cols, rows, bg)
+            if png is None or bitmap:
+                return png, None
+            return png, render_cover(png, cols=cols)
+
+        png, art = await asyncio.to_thread(build)
+        if png is None or self._hero_id != aid:
+            return
+        widget = graphics_cover_widget(png, cols) if bitmap else None
+        if widget is None:
+            if art is None:
+                return
+            current = box.children[0] if len(box.children) == 1 else None
+            if isinstance(current, Static):
+                current.update(art)
+                self._banner_key = key
+                return
+            widget = Static(art)
+        box.remove_children()
+        box.mount(widget)
+        self._banner_key = key
 
     def _decoded_cover(self, data: bytes):
         """The cover decoded once per show; re-decoding a JPEG on each cursor
@@ -1059,12 +1188,52 @@ class HomeScreen(Screen):
         except Exception:
             items = []
         built = [(fav.anime, card_caption(fav.anime), None, 0.0) for fav in items]
-        await self._fill_shelf(SECTIONS[1], built)
+        await self._fill_shelf(SECTIONS[2], built)
+
+    @work(exclusive=True, group="airing")
+    async def _load_airing(self) -> None:
+        """Every episode airing on the user's calendar day, in air-time order.
+
+        One AniList query (cached), so it costs nothing on a relaunch. A show
+        airing twice today appears once, at its first slot. Adult titles are
+        left to AniList's own filter, as on the other browse shelves.
+        """
+        sec = SECTIONS[1]
+        get = getattr(self.app.services.metadata, "airing_schedule", None)
+        if get is None:
+            return
+        today = date.today()
+        try:
+            events = await get(today, today + timedelta(days=1))
+        except Exception:
+            self._mark_section_unavailable(sec)
+            return
+        self._clear_section_unavailable(sec)
+        seen: set[int] = set()
+        built = []
+        for ev in sorted(events, key=lambda e: e.airing_at):
+            if ev.anime.id.anilist in seen:
+                continue
+            seen.add(ev.anime.id.anilist)
+            built.append((ev.anime, airing_caption(ev.episode, ev.airing_at), None, 0.0))
+        self._airing = {ev.anime.id.anilist: ev for ev in events}
+        await self._fill_shelf(sec, built)
+        # Start on the next episode still to come, not on this morning's.
+        now = datetime.now(timezone.utc)
+        upcoming = next((i for i, (a, *_r) in enumerate(built)
+                         if self._airing[a.id.anilist].airing_at > now), None)
+        with contextlib.suppress(Exception):
+            shelf = self.query_one(sec.list_id, Shelf)
+            if upcoming is not None and shelf.cards and not shelf.has_focus_within:
+                shelf.cards[shelf.index].selected = False
+                shelf.index = upcoming
+                shelf.cards[upcoming].selected = True
+                shelf.scroll_to_widget(shelf.cards[upcoming], animate=False)
 
     @work(exclusive=True, group="seasonal")
     async def _load_seasonal(self) -> None:
         season, year = _current_season()
-        sec = SECTIONS[2]
+        sec = SECTIONS[3]
         try:
             animes = await self.app.services.metadata.seasonal(season, year)
         except Exception as e:
@@ -1082,7 +1251,7 @@ class HomeScreen(Screen):
 
     @work(exclusive=True, group="trending")
     async def _load_trending(self) -> None:
-        sec = SECTIONS[3]
+        sec = SECTIONS[4]
         try:
             animes = await self.app.services.metadata.trending(limit=20)
         except Exception as e:

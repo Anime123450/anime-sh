@@ -434,6 +434,63 @@ def graphics_cover_widget(data: bytes, width_cells: int):
         return None
 
 
+_BANNER_CACHE: dict = {}
+
+
+def faded_banner(data: bytes, cols: int, rows: int,
+                 bg: tuple[int, int, int]) -> bytes | None:
+    """A wide image cropped to exactly ``cols`` x ``rows`` cells, faded into ``bg``.
+
+    Fills the hero's right side. The crop keeps the middle of the picture at the
+    cell grid's aspect (a terminal cell is about twice as tall as wide), so
+    `render_cover` and the bitmap widget both come back exactly ``rows`` tall.
+    The left edge eases from the panel colour into the picture so the prose
+    beside it doesn't sit against a hard edge, and the whole image is dimmed a
+    little so it stays a backdrop. Returns PNG bytes, or None if unreadable.
+    """
+    if cols <= 0 or rows <= 0:
+        return None
+    key = (hash(data), cols, rows, bg)
+    if key in _BANNER_CACHE:
+        return _BANNER_CACHE[key]
+    out = None
+    try:
+        import io
+
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        w, h = img.size
+        want = 2 * rows / cols  # height / width of the cell grid, in pixels
+        if h / w > want:  # too tall: keep a band a little above the middle
+            ch = max(1, round(w * want))
+            top = max(0, min(h - ch, round((h - ch) * 0.4)))
+            img = img.crop((0, top, w, top + ch))
+        else:
+            cw = max(1, round(h / want))
+            left = (w - cw) // 2
+            img = img.crop((left, 0, left + cw, h))
+        pw, ph = cols * 8, rows * 16
+        lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+        img = img.resize((pw, ph), lanczos)
+        panel = Image.new("RGB", (pw, ph), bg)
+        mask = Image.new("L", (pw, 1))
+        edge = max(1, round(pw * 0.42))
+        for x in range(pw):
+            t = min(1.0, x / edge)
+            mask.putpixel((x, 0), round(255 * 0.82 * t * t * (3 - 2 * t)))
+        img = Image.composite(img, panel, mask.resize((pw, ph)))
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        out = buf.getvalue()
+    except Exception as e:
+        log.debug("banner render failed: %r", e)
+    if len(_BANNER_CACHE) >= 32:
+        _BANNER_CACHE.pop(next(iter(_BANNER_CACHE)))
+    _BANNER_CACHE[key] = out
+    return out
+
+
 #: An AniList cover is 460x650, and every other source's is close enough.
 #: `render_cover` keeps the aspect itself, so this is only needed to work out
 #: how many rows an image *will* come back as before it has arrived — which is

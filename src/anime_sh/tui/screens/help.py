@@ -28,7 +28,7 @@ _HELP = """[b $background on $primary] ▶ anime-sh [/]
   [b $accent]Home[/] [b $accent]End[/]       first / last poster on this shelf
   [b $accent]g[/] [b $accent]G[/]            first / last shelf
   [b $accent]Tab[/] [b $accent]Shift+Tab[/]  next / previous shelf
-  [b $accent]1[/] [b $accent]2[/] [b $accent]3[/] [b $accent]4[/]        Continue · Favourites · Season · Trending
+  [b $accent]1[/] [b $accent]2[/] [b $accent]3[/] [b $accent]4[/] [b $accent]5[/]  Continue · Airing today · Favourites · Season · Trending
 
 [$primary]▍[/] [b]Act[/b]
   [b $accent]Enter[/]          play or open whatever is highlighted
