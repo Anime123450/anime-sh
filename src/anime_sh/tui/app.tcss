@@ -130,6 +130,15 @@ Screen {
     color: $text;
 }
 
+/* Facts table between the prose and the banner. Width set in `_size_banner`
+   (format.FACTS_WIDTH plus a three-cell gutter, as between art and prose). */
+#hero-facts {
+    width: 0;
+    height: 1fr;
+    padding: 0 0 0 3;
+    display: none;
+}
+
 /* The show's banner, faded in from the left, fills what the prose doesn't
    need. Width set in `_size_banner`; hidden when the text would get fewer
    than `HomeScreen.HERO_TEXT_MIN` cells. */

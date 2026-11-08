@@ -154,6 +154,69 @@ def meta_line(anime: Anime) -> str:
     return f"{line}\n{badge}" if badge else line
 
 
+#: Width of the hero's facts column (label + value).
+FACTS_WIDTH = 30
+_FACT_LABEL = 9
+
+
+def _members(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def hero_facts(anime: Anime, progress: WatchProgress | None = None,
+               now: datetime | None = None, width: int = FACTS_WIDTH) -> list[tuple[str, str]]:
+    """The hero's facts column as (label, value) rows, only the ones known.
+
+    Values are cut to fit ``width`` so a row never wraps: the column is a
+    table, and a wrapped row reads as two facts.
+    """
+    rows: list[tuple[str, str]] = []
+    if anime.average_score:
+        rows.append(("Score", f"★ {anime.average_score}%"))
+    if anime.popularity:
+        rows.append(("Members", _members(anime.popularity)))
+    if anime.studio:
+        rows.append(("Studio", anime.studio))
+    when = None
+    if anime.season and anime.year:
+        when = f"{anime.season.value.title()} {anime.year}"
+    elif anime.year:
+        when = str(anime.year)
+    if when:
+        rows.append(("Season", when))
+    if anime.episode_count and anime.duration_min:
+        rows.append(("Episodes", f"{anime.episode_count} × {anime.duration_min} min"))
+    elif anime.episode_count:
+        rows.append(("Episodes", str(anime.episode_count)))
+    elif anime.duration_min:
+        rows.append(("Length", f"{anime.duration_min} min"))
+    if anime.next_airing_episode and anime.next_airing_at:
+        rows.append(("Next", f"ep {anime.next_airing_episode} "
+                             f"{countdown(anime.next_airing_at, now)}"))
+    if progress is not None and progress.episode:
+        total = f" / {anime.episode_count}" if anime.episode_count else ""
+        ep = progress.episode
+        ep = int(ep) if float(ep).is_integer() else ep
+        rows.append(("Watched", f"{ep}{total}"))
+    room = max(1, width - _FACT_LABEL)
+    return [(k, v if cell_len(v) <= room else _end_cut(v, room)) for k, v in rows]
+
+
+def hero_facts_markup(rows: list[tuple[str, str]]) -> str:
+    """Rich markup for `hero_facts`: dim labels in a column, values beside."""
+    from rich.markup import escape
+
+    lines = []
+    for label, value in rows:
+        style = "b $warning" if label == "Score" else "b $text"
+        lines.append(f"[dim]{label:<{_FACT_LABEL}}[/dim][{style}]{escape(value)}[/]")
+    return "\n".join(lines)
+
+
 #: The width a poster card's caption lines must fit. Kept here (and checked
 #: against `cards.CARD_COLS` by a test) so the caption builders can be pure
 #: functions with no widget import.
