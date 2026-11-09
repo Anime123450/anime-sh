@@ -220,7 +220,7 @@ def hero_facts_markup(rows: list[tuple[str, str]]) -> str:
 #: The width a poster card's caption lines must fit. Kept here (and checked
 #: against `cards.CARD_COLS` by a test) so the caption builders can be pure
 #: functions with no widget import.
-CARD_WIDTH = 18
+CARD_WIDTH = 13
 
 
 def short_countdown(target: datetime, now: datetime | None = None, *,
@@ -268,13 +268,18 @@ def airing_caption(episode: float, airing_at: datetime,
     """The Airing-today card's line: which episode, and when in local time.
 
     "ep 5 · 18:30" while it is still to come; "ep 5 aired 09:00" once it has,
-    so a glance along the shelf shows where today has got to.
+    so a glance along the shelf shows where today has got to. Where that
+    doesn't fit ("ep 166 aired 07:30" is 18 cells) the words shorten, never
+    the time: a cut takes the end, and the time is the point of the line.
     """
     now = now or datetime.now(timezone.utc)
     ep = int(episode) if float(episode).is_integer() else episode
     at = airing_at.astimezone().strftime("%H:%M")
-    text = f"ep {ep} aired {at}" if airing_at <= now else f"ep {ep} · {at}"
-    return text[:width]
+    if airing_at > now:
+        forms = [f"ep {ep} · {at}", f"ep {ep} {at}", f"#{ep} {at}"]
+    else:
+        forms = [f"ep {ep} aired {at}", f"ep {ep} ✓ {at}", f"ep {ep} ✓{at}", f"#{ep} ✓{at}"]
+    return next((f for f in forms if len(f) <= width), forms[-1][:width])
 
 
 def card_caption(anime: Anime, progress: WatchProgress | None = None,

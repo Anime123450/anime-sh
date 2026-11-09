@@ -500,8 +500,8 @@ async def test_top_and_action_bars_line_up_with_the_page(size):
 async def test_a_maximised_window_shows_two_whole_shelves(size, dense):
     """A maximised 1080p terminal (209x51) showed one shelf and a half: the
     hero took eighteen rows and the second shelf's posters ran under the
-    action bar. Where the hero can keep its floor and still leave two whole
-    shelves, it does."""
+    action bar. Shrinking the hero to fit them read as cramped; the cards are
+    smaller instead, so the hero keeps its full height beside two shelves."""
     from anime_sh.tui.cards import PosterCard, Shelf
 
     app = _app()
@@ -517,7 +517,12 @@ async def test_a_maximised_window_shows_two_whole_shelves(size, dense):
         for shelf in shelves:
             card = next(c for c in shelf.query(PosterCard) if c.display)
             assert card.region.bottom <= body.region.bottom, (size, shelf.id, card.region, body.region)
-        assert home.query_one("#hero").display
+        hero = home.query_one("#hero")
+        assert hero.display
+        if size == (209, 51):
+            # The full-size hero in compact; comfortable spends two of its
+            # rows on the blank lines between shelves.
+            assert hero.region.height >= (18 if dense else 16), hero.region
 
 
 async def test_a_show_without_a_banner_gets_no_stand_in():
@@ -535,3 +540,68 @@ async def test_a_show_without_a_banner_gets_no_stand_in():
         assert not home.query_one("#hero-banner").display
         hero, facts = home.query_one("#hero"), home.query_one("#hero-facts")
         assert facts.region.right == hero.content_region.right
+
+
+async def test_the_launch_cursor_stays_on_the_first_card_when_a_refill_reorders():
+    """Continue watching fills twice at launch: from the local library, then
+    again after the AniList sync, in a new order. The refill followed the
+    show under the cursor to its new place, so the app opened on the eighth
+    card. A cursor nobody has moved stays on the first card; one that has
+    been moved still follows its show."""
+    from anime_sh.tui.cards import Shelf
+    from anime_sh.tui.shell import SECTIONS
+
+    app = _app()
+    async with app.run_test(size=(209, 51)) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        sec = next(s for s in SECTIONS if s.list_id == "#continue")
+        shelf = home.query_one(sec.list_id, Shelf)
+        built = [(c.anime, "x", None, 0.0) for c in shelf.cards]
+        assert len(built) >= 3
+        await home._fill_shelf(sec, built[1:] + built[:1])
+        await _settle(app, pilot)
+        assert shelf.index == 0
+        shelf.index = 1
+        moved = shelf.cards[1].anime.id.anilist
+        await home._fill_shelf(sec, built[::-1])
+        await _settle(app, pilot)
+        assert shelf.cards[shelf.index].anime.id.anilist == moved
+
+
+@pytest.mark.parametrize("size", [(209, 51), (190, 50), (150, 42), (120, 34)],
+                         ids=["209x51", "190x50", "150x42", "120x34"])
+async def test_the_page_has_even_margins(size):
+    """At 209 columns 13 cards left seven cells over, which went into the
+    page's margins: six empty columns on the left and eight on the right. The
+    leftover is spread between the cards instead, one cell at a time, so both
+    margins are the body's own."""
+    from anime_sh.tui.cards import PosterCard, Shelf
+    from anime_sh.tui.shell import SECTIONS
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        sec = next(s for s in SECTIONS if s.list_id == "#continue")
+        shelf = home.query_one(sec.list_id, Shelf)
+        # More cards than a row holds, so the row is full.
+        built = [(c.anime, "x", None, 0.0) for c in shelf.cards] * 8
+        await home._fill_shelf(sec, built)
+        await _settle(app, pilot)
+        cards = [c for c in shelf.query(PosterCard) if c.display]
+        left = cards[0].region.x
+        right = size[0] - max(c.region.right for c in cards
+                              if c.region.right <= shelf.region.right)
+        # Left: the body's padding and the strip's gutter. The right adds the
+        # body's scrollbar and the last card's gap.
+        assert left <= 3, (size, left, right)
+        assert right - left <= 3, (size, left, right)
+        hero = home.query_one("#hero")
+        assert hero.region.x <= left
+        # Any run of a row's worth of cards is the same width, so a scrolled
+        # shelf never shows a sliver of the next poster.
+        fit = sum(1 for c in cards if c.region.right <= shelf.region.right)
+        stride = [c.region.width + c.styles.margin.right for c in shelf.cards]
+        runs = {sum(stride[i:i + fit]) for i in range(len(stride) - fit + 1)}
+        assert len(runs) == 1, (size, runs)

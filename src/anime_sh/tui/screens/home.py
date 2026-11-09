@@ -457,7 +457,7 @@ class HomeScreen(Screen):
             shelf = self.query_one("#results", Shelf)
             if shelf.cards:
                 shelf.set_grid(self._grid_columns())
-                shelf.set_card_gap(self._card_gap)
+                shelf.set_card_gap(self._card_gap, getattr(self, "_card_spread", None))
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
     #: The prose wraps at this many cells when the facts or banner share the
@@ -540,23 +540,25 @@ class HomeScreen(Screen):
     _card_gap = 0
 
     def _centre_page(self) -> None:
-        """Split the cells a row of whole cards can't use between both sides.
+        """Lay the page's bands on the same columns.
 
-        The shelves space their cards out to fill the row (`Shelf.row_fit`);
-        what still doesn't divide evenly, always fewer cells than cards, becomes
-        an equal margin either side of the hero and the shelves, so every band
-        on the page starts and ends on the same columns as the others.
+        The shelves space their cards out to fill the row (`Shelf.row_fit`),
+        what doesn't divide evenly included, so the hero, the bars and the
+        shelves all span the body's full width and start and end together.
         """
         width = self.size.width
         if not width:
             return
         # Shelf width = screen - body padding (2+2) - body scrollbar (1).
-        _fit, gap, rest = Shelf.row_fit(width - 5)
-        left, right = rest // 2, rest - rest // 2
+        fit, gap, rest = Shelf.row_fit(width - 5)
+        # The leftover goes between the cards (`Shelf.set_card_gap`), so the
+        # page keeps no margin of its own.
+        left = right = 0
         self._card_gap = gap
-        self._page_rest = rest
+        self._card_spread = (rest, fit)
+        self._page_rest = 0
         for shelf in self.query(Shelf):
-            shelf.set_card_gap(gap)
+            shelf.set_card_gap(gap, self._card_spread)
         with contextlib.suppress(Exception):
             self.query_one("#body").styles.padding = (0, 2 + right, 0, 2 + left)
         with contextlib.suppress(Exception):
@@ -1109,9 +1111,12 @@ class HomeScreen(Screen):
         # filled up to four times on launch (cached rows, fresh schedules, then
         # both again after the AniList sync), and each refill used to put the
         # cursor back on the first card, under whoever had already moved it.
+        # Only a cursor someone has moved follows its show. At launch the
+        # AniList sync refills Continue watching in a new order, and following
+        # the untouched first card opened the app on the eighth.
         keep = None
         with contextlib.suppress(Exception):
-            if shelf.cards:
+            if shelf.cards and shelf.index > 0:
                 keep = shelf.cards[max(0, min(len(shelf.cards) - 1, shelf.index))].anime.id.anilist
         await shelf.remove_children()
         if not built:
@@ -1130,7 +1135,7 @@ class HomeScreen(Screen):
         await shelf.mount_all(cards)
         if sec is _RESULTS_SECTION:
             shelf.set_grid(self._grid_columns())
-        shelf.set_card_gap(self._card_gap)
+        shelf.set_card_gap(self._card_gap, getattr(self, "_card_spread", None))
         shelf.retitle()
         start = next((i for i, c in enumerate(cards) if c.anime.id.anilist == keep), 0)
         shelf.index = start
