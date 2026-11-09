@@ -437,3 +437,48 @@ async def test_opening_search_on_a_short_window_keeps_the_shelf_whole():
         await pilot.press("escape")
         await _settle(app, pilot)
         assert app.screen.query_one("#hero").region.height == before
+
+
+def _cells(markup: str) -> int:
+    from textual.content import Content
+    return max((Content.from_markup(line).cell_length
+                for line in markup.splitlines()), default=0)
+
+
+@pytest.mark.parametrize("size", [(180, 46), (209, 51), (250, 60)],
+                         ids=["180x46", "209x51", "250x60"])
+async def test_hero_columns_end_where_their_text_does(size):
+    """No dead band between the hero's prose, its facts and its backdrop.
+
+    At 209 columns the prose column was 68 cells for 53 cells of text and the
+    facts column 30 for 19, and the backdrop stopped at a 72-cell cap: two
+    empty strips across the top of the screen. Each text column is now as
+    wide as what it prints, and the backdrop takes everything else.
+    """
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        await pilot.press("right", "left")
+        await _settle(app, pilot)
+        home = app.screen
+        hero, text = home.query_one("#hero"), home.query_one("#hero-text")
+        facts, banner = home.query_one("#hero-facts"), home.query_one("#hero-banner")
+        assert banner.display and facts.display, size
+        assert text.content_region.width == _cells(str(text.content)), size
+        assert facts.content_region.width == _cells(str(facts.content)), size
+        assert banner.region.right == hero.content_region.right, (banner.region, hero.content_region)
+        assert facts.region.right <= banner.region.x
+
+
+@pytest.mark.parametrize("size", [(110, 32), (150, 42), (209, 51)],
+                         ids=["110x32", "150x42", "209x51"])
+async def test_top_and_action_bars_line_up_with_the_page(size):
+    """The bars start and end on the same columns as the hero and shelves."""
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        hero = home.query_one("#hero")
+        for bar in ("#topbar", "#actionbar"):
+            r = home.query_one(bar).region
+            assert (r.x, r.right) == (hero.region.x, hero.region.right), (bar, r, hero.region)
