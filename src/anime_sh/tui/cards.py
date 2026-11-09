@@ -33,10 +33,12 @@ from .format import shelf_titles, wrap_title
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
-#: the aspect itself — 18 cells comes back 13 rows tall — but the card has to
+#: the aspect itself — 13 cells comes back 9 rows tall — but the card has to
 #: reserve the space *before* the image arrives or every shelf jumps downward
 #: as covers land one by one.
-CARD_COLS = 18
+#: 13, not 18: at 18 x 13 two shelves and a full-height hero did not fit a
+#: maximised 1080p terminal (209x51), so one of them was always cut.
+CARD_COLS = 13
 CARD_ART_ROWS = cover_rows(CARD_COLS)
 #: Art, the selection rule, the title (two lines) and one line of state — the whole card,
 #: so a shelf knows its height without measuring a child. `app.tcss` sets the
@@ -357,8 +359,11 @@ class Shelf(HorizontalScroll):
 
     #: Extra cells after each card, decided by the screen from `row_fit`.
     card_gap: int = 0
+    #: (leftover cells, cards per row) from `row_fit`, spread one cell at a
+    #: time between the cards.
+    card_spread: tuple[int, int] = (0, 1)
 
-    def set_card_gap(self, gap: int) -> None:
+    def set_card_gap(self, gap: int, spread: tuple[int, int] | None = None) -> None:
         """Space the cards ``gap`` extra cells apart (search grids: none).
 
         The screen decides the gap from the page width (`row_fit`) and moves the
@@ -369,10 +374,25 @@ class Shelf(HorizontalScroll):
         short of the hero, with the leftover as a dead gap. Textual does not
         clip a scroll container's children at its padding, so the leftover
         cannot simply be padding.
+
+        The leftover also stopped being margin: thirteen cards at 209 columns
+        left seven cells, six empty columns one side of the page and eight the
+        other. ``spread`` hands them out one each to evenly spaced cards in
+        every run of a row's worth, so any row's worth of cards is the same
+        width wherever the shelf is scrolled to.
         """
+        if spread is not None:
+            self.card_spread = spread
         self.card_gap = 0 if self.columns else gap
+        rest, fit = (0, 1) if self.columns else self.card_spread
+        fit = max(1, fit)
+        shown = iter(range(len(self.all_cards)))
         for card in self.all_cards:
-            card.styles.margin = (0, self.card_gap, 0, 0)
+            extra = 0
+            if card.display and rest:
+                p = next(shown) % fit
+                extra = (p + 1) * rest // fit - p * rest // fit
+            card.styles.margin = (0, self.card_gap + extra, 0, 0)
 
     def on_mount(self) -> None:
         # Not `on_focus`/`on_blur`: those can run before `has_focus` has

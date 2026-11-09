@@ -37,7 +37,7 @@ from textual.screen import Screen
 from textual.widgets import Input, Label, Static
 
 from ...domain.models import Season, Status
-from ..cards import CARD_COLS, PosterCard, Shelf
+from ..cards import CARD_COLS, CARD_ROWS, PosterCard, Shelf
 from ..coverart import (
     cached_cover,
     cover_rows,
@@ -122,6 +122,14 @@ def _readiness(built) -> int:
     return 1 if "ready" in caption else 2
 
 
+def _cells(markup: str) -> int:
+    """Widest line of ``markup``, in cells, as Textual will draw it."""
+    from textual.content import Content
+
+    return max((Content.from_markup(line).cell_length
+                for line in markup.splitlines()), default=0)
+
+
 class HomeScreen(Screen):
     BINDINGS = [
         # Escape is bound app-wide to "go back", which on the base screen has
@@ -164,11 +172,22 @@ class HomeScreen(Screen):
     #: hero and nothing else, which is a detail screen with extra steps.
     _HERO_MIN_HEIGHT = 30
 
-    #: The least the hero may be, whatever the poster measures. Its text block
-    #: needs ten rows before a word of synopsis, and a hero showing none of the
-    #: synopsis has spent the top of the screen saying less than the caption
-    #: under the poster did.
+    #: The least the hero may be, whatever the poster measures, where the
+    #: window is tall enough not to care. Its text block needs ten rows before
+    #: a word of synopsis.
     _HERO_MIN_ROWS = 12
+
+    #: The rows one whole shelf needs below the hero: the label's top margin
+    #: (gone in compact), the label, the shelf's top padding and a card. The
+    #: shelf's last row is spare, so it is not counted. Anything the hero takes
+    #: beyond what this leaves pushes the first shelf's captions under the
+    #: action bar, which is what 110x32 used to do.
+    _SHELF_NEED = 1 + 1 + 1 + CARD_ROWS
+
+    #: The fewest rows the hero is worth drawing in: its padding, the title,
+    #: facts, status and the action. Less than that and the shelves get the
+    #: screen to themselves.
+    _HERO_FLOOR = 7
 
     #: How many covers to have in flight at once. AniList's CDN is not the
     #: rate-limited part, but a shelf is a dozen images and four shelves is
@@ -266,6 +285,7 @@ class HomeScreen(Screen):
         if key == "ui.density":
             self._density = str(value)
             self._apply_density()
+            self.relayout_hero()
 
     def action_cycle_density(self) -> None:
         """Swap the home screen between comfortable and compact, and remember it.
@@ -282,6 +302,7 @@ class HomeScreen(Screen):
             (DENSITIES.index(self._density) + 1) % len(DENSITIES)
         ]
         self._apply_density()
+        self.relayout_hero()
         try:
             from ...config import set_config_value
 
@@ -290,18 +311,75 @@ class HomeScreen(Screen):
             self.notify(f"Couldn't save the density: {e}", severity="warning")
         self.notify(f"Density: {self._density}")
 
-    def _hero_cols(self) -> int:
+    def _band_cols(self) -> int:
         return self._HERO_COLS[band(self.size.width or 100)]
 
+    def _hero_room(self) -> int:
+        """Rows the hero may take, all of it, padding included: the screen less
+        the bars, the search box when it is open, and one whole shelf."""
+        bars = 2  # top bar and action bar, one row each in app.tcss
+        with contextlib.suppress(Exception):
+            box = self.query_one("#search", Input)
+            if box.display:
+                # Read off its style, not its region: this runs the moment the
+                # box is shown, before a layout has measured it. Its top margin
+                # is a row too.
+                margin = box.styles.margin
+                bars += int(box.styles.height.value) + margin.top + margin.bottom
+        dense = self._density == "compact" if hasattr(self, "_density") else False
+        return (self.size.height or 40) - bars - self._SHELF_NEED + (1 if dense else 0)
+
+    def _shelf_stride(self) -> int:
+        """Rows from one shelf's label to the next one's: the label with its
+        margins, then the shelf with its own. Read off the styles, which
+        density changes, rather than kept as a second copy of app.tcss."""
+        try:
+            label = next(w for w in self.query(".shelf-label"))
+            shelf = next(w for w in self.query(Shelf))
+        except StopIteration:
+            return 22
+        lm, sm = label.styles.margin, shelf.styles.margin
+        height = shelf.styles.height
+        rows = int(height.value) if height is not None and height.unit.name == "CELLS" else 19
+        # Textual collapses the shelf's bottom margin into the next label's top
+        # one, so the gap between them is the larger of the two, not the sum.
+        return 1 + max(lm.top, sm.bottom) + lm.bottom + rows + sm.top
+
+    def _hero_budget(self) -> int:
+        """All the rows the hero may take, padding included.
+
+        Two whole shelves where the hero can keep its floor beside them, one
+        where it can't. A maximised 1080p terminal is 51 rows: the hero took
+        eighteen and the second shelf's posters ran under the action bar.
+        """
+        room = self._hero_room()
+        two = room - self._shelf_stride()
+        return two if two >= self._HERO_FLOOR else room
+
     def _hero_rows(self) -> int:
-        """Rows the hero occupies: whatever its poster comes back as.
+        """Rows the hero's poster gets: what it measures, unless the window is
+        too short to give it that and still show the shelves.
 
         Derived rather than fixed. Pinned to the widest band's seventeen rows,
         a 120-column terminal reserved seventeen for a fourteen-row poster and
         left three blank between the hero and the first shelf — three rows is a
         quarter of a card, taken off the shelves to pad a gap.
         """
-        return max(self._HERO_MIN_ROWS, cover_rows(self._hero_cols()))
+        natural = max(self._HERO_MIN_ROWS, cover_rows(self._band_cols()))
+        # -1: the hero is its poster plus one row of padding (`_size_hero`).
+        return max(1, min(natural, self._hero_budget() - 1))
+
+    def _hero_cols(self) -> int:
+        """The poster's width: the band's, or narrower to fit a shrunk hero.
+        Narrowed, not cropped, so it stays the whole cover at a smaller size."""
+        cols, rows = self._band_cols(), self._hero_rows()
+        while cols > 1 and cover_rows(cols) > rows:
+            cols -= 1
+        return cols if self._band_cols() else 0
+
+    def _hero_text_rows(self) -> int:
+        """Lines the hero's text block may print: its height less its padding."""
+        return self._hero_rows() - 1
 
     def _hero_showing(self) -> bool:
         """Whether there is room for the hero at all.
@@ -312,7 +390,14 @@ class HomeScreen(Screen):
         about to have one.
         """
         return ((self.size.height or 40) >= self._HERO_MIN_HEIGHT
-                and self._hero_cols() > 0)
+                and self._band_cols() > 0
+                and self._hero_room() >= self._HERO_FLOOR)
+
+    def relayout_hero(self) -> None:
+        """Re-fit the hero after something took or gave back rows: the search
+        box opening or closing, or the density changing."""
+        self._size_hero()
+        self._paint_hero()
 
     def _size_hero(self) -> None:
         with contextlib.suppress(Exception):
@@ -331,15 +416,15 @@ class HomeScreen(Screen):
     def _hero_text_width(self) -> int:
         """Cells the hero's prose gets: the screen, less the poster and padding.
 
-        Measured off the widget where it can be. The hero's padding lives in
-        `app.tcss` and the poster's width is set above, so computing it a second
-        time here is how the two drift apart.
+        A fixed measure where the facts or banner share the row, so the prose
+        wraps the same way for every card; the column is then cut to what it
+        printed (`_size_banner`).
         """
-        with contextlib.suppress(Exception):
-            text = self.query_one("#hero-text", Static)
-            if text.content_region.width > 0:
-                return text.content_region.width
-        return max(24, (self.size.width or 100) - self._hero_cols() - 8)
+        facts_on, banner_on = self._hero_shows()
+        if banner_on:
+            return self.HERO_TEXT_MIN
+        facts = ((self._facts_cells or FACTS_WIDTH) + self._GUTTER) if facts_on else 0
+        return max(24, self._hero_avail() - self._GUTTER - facts)
 
     def _synopsis_lines(self) -> int:
         """How much of the description the hero has room for.
@@ -372,39 +457,69 @@ class HomeScreen(Screen):
             shelf = self.query_one("#results", Shelf)
             if shelf.cards:
                 shelf.set_grid(self._grid_columns())
-                shelf.set_card_gap(self._card_gap)
+                shelf.set_card_gap(self._card_gap, getattr(self, "_card_spread", None))
                 shelf.scroll_to_widget(shelf.cards[shelf.index], animate=False)
 
-    #: The prose keeps at least this many cells; facts, then banner, get the rest.
+    #: The prose wraps at this many cells when the facts or banner share the
+    #: row; on its own it takes the whole width.
     HERO_TEXT_MIN = 64
     #: Narrower than this, a banner is a smear rather than a picture.
     HERO_BANNER_MIN = 36
-    #: Wider than this the banner stops being an accent and starts competing
-    #: with the shelves; the room it would take goes to the facts and prose.
-    HERO_BANNER_MAX = 72
+    #: The gutter each text column keeps on its left (`padding` in app.tcss).
+    _GUTTER = 3
+
+    #: Cells the hero's prose and facts actually print, measured after each
+    #: paint. Until then, the widest they may be.
+    _text_cells: int | None = None
+    _facts_cells: int | None = None
+
+    def _hero_avail(self) -> int:
+        """Cells right of the poster inside the hero: the screen less the page
+        margins `_centre_page` set, the hero's padding and the poster."""
+        width = self.size.width or 0
+        # hero = screen - body padding/scrollbar (5) - centring rest - padding (4)
+        return width - 5 - getattr(self, "_page_rest", 0) - 4 - self._hero_cols()
+
+    def _hero_shows(self) -> tuple[bool, bool]:
+        """(facts, banner): which of the two fit beside full-width prose."""
+        if not self._hero_cols():
+            return False, False
+        avail = self._hero_avail() - self._GUTTER - self.HERO_TEXT_MIN
+        facts = avail - (FACTS_WIDTH + self._GUTTER) >= 0
+        if facts:
+            avail -= FACTS_WIDTH + self._GUTTER
+        # The banner also needs the show in the hero to have one.
+        banner = self.__dict__.get("_banners", {}).get(getattr(self, "_hero_id", None))
+        return facts, bool(facts and banner and avail >= self.HERO_BANNER_MIN)
 
     def _hero_columns(self) -> tuple[int, int]:
         """(facts, banner) cells for the hero at this width; 0 = not shown.
 
-        Prose first (it carries the title and the resume button), then the
-        facts table, then the banner with whatever is left, capped.
+        The prose and facts are as wide as what they print, and the banner
+        takes every cell they leave. Sized to their budgets instead, the
+        columns left two empty strips across the top of a wide screen: 68
+        cells for 53 of text, 30 for 19 of facts, and a banner capped at 72.
         """
-        cols = self._hero_cols()
-        if not cols:
+        facts_on, banner_on = self._hero_shows()
+        if not facts_on:
             return 0, 0
-        # hero = screen - body chrome (5) - hero padding (4) - art - gutter (3)
-        inner = (self.size.width or 0) - 5 - 4 - cols - 3
-        facts = FACTS_WIDTH + 3
-        if inner - facts < self.HERO_TEXT_MIN:
-            facts = 0
-        banner = min(self.HERO_BANNER_MAX, inner - facts - self.HERO_TEXT_MIN)
-        return facts, banner if banner >= self.HERO_BANNER_MIN else 0
+        facts = (self._facts_cells or FACTS_WIDTH) + self._GUTTER
+        if not banner_on:
+            return facts, 0
+        text = min(self._text_cells or self.HERO_TEXT_MIN, self.HERO_TEXT_MIN) + self._GUTTER
+        return facts, self._hero_avail() - text - facts
 
     def _banner_cols(self) -> int:
         return self._hero_columns()[1]
 
     def _size_banner(self) -> None:
         facts, banner = self._hero_columns()
+        with contextlib.suppress(Exception):
+            text = self.query_one("#hero-text", Static)
+            text.styles.width = (
+                min(self._text_cells or self.HERO_TEXT_MIN, self.HERO_TEXT_MIN) + self._GUTTER
+                if banner else "1fr"
+            )
         with contextlib.suppress(Exception):
             box = self.query_one("#hero-facts", Static)
             box.styles.width = facts
@@ -425,26 +540,34 @@ class HomeScreen(Screen):
     _card_gap = 0
 
     def _centre_page(self) -> None:
-        """Split the cells a row of whole cards can't use between both sides.
+        """Lay the page's bands on the same columns.
 
-        The shelves space their cards out to fill the row (`Shelf.row_fit`);
-        what still doesn't divide evenly, always fewer cells than cards, becomes
-        an equal margin either side of the hero and the shelves, so every band
-        on the page starts and ends on the same columns as the others.
+        The shelves space their cards out to fill the row (`Shelf.row_fit`),
+        what doesn't divide evenly included, so the hero, the bars and the
+        shelves all span the body's full width and start and end together.
         """
         width = self.size.width
         if not width:
             return
         # Shelf width = screen - body padding (2+2) - body scrollbar (1).
-        _fit, gap, rest = Shelf.row_fit(width - 5)
-        left, right = rest // 2, rest - rest // 2
+        fit, gap, rest = Shelf.row_fit(width - 5)
+        # The leftover goes between the cards (`Shelf.set_card_gap`), so the
+        # page keeps no margin of its own.
+        left = right = 0
         self._card_gap = gap
+        self._card_spread = (rest, fit)
+        self._page_rest = 0
         for shelf in self.query(Shelf):
-            shelf.set_card_gap(gap)
+            shelf.set_card_gap(gap, self._card_spread)
         with contextlib.suppress(Exception):
             self.query_one("#body").styles.padding = (0, 2 + right, 0, 2 + left)
         with contextlib.suppress(Exception):
             self.query_one("#hero").styles.margin = (0, 3 + right, 0, 2 + left)
+        # The bars sit on the same columns as the hero and shelves, not
+        # full-bleed past them.
+        for bar in ("#topbar", "#actionbar"):
+            with contextlib.suppress(Exception):
+                self.query_one(bar).styles.margin = (0, 3 + right, 0, 2 + left)
         self._size_hero()
         self._paint_shell()
         self._paint_hero()
@@ -500,14 +623,17 @@ class HomeScreen(Screen):
             return
         anime = card.anime
         self._hero_id = anime.id.anilist
+        markup = preview_render(
+            anime, self._hero_text_width(),
+            resume_episode=card.resume_episode,
+            fraction=card.fraction,
+            completed=self._user_completed(anime),
+            synopsis_lines=self._synopsis_lines(),
+            max_lines=self._hero_text_rows(),
+        )
+        self._text_cells = _cells(markup)
         with contextlib.suppress(Exception):
-            self.query_one("#hero-text", Static).update(preview_render(
-                anime, self._hero_text_width(),
-                resume_episode=card.resume_episode,
-                fraction=card.fraction,
-                completed=self._user_completed(anime),
-                synopsis_lines=self._synopsis_lines(),
-            ))
+            self.query_one("#hero-text", Static).update(markup)
         self._paint_facts(anime)
         self._paint_hero_art(anime)
 
@@ -518,9 +644,12 @@ class HomeScreen(Screen):
         the banner has them, and repaints this when it lands.
         """
         full = self.__dict__.setdefault("_full", {}).get(anime.id.anilist, anime)
+        markup = hero_facts_markup(hero_facts(full, self._progress.get(anime.id.anilist)))
+        self._facts_cells = _cells(markup)
         with contextlib.suppress(Exception):
-            self.query_one("#hero-facts", Static).update(hero_facts_markup(
-                hero_facts(full, self._progress.get(anime.id.anilist))))
+            self.query_one("#hero-facts", Static).update(markup)
+        # The two text columns just changed width; the banner takes the rest.
+        self._size_banner()
 
     def _user_completed(self, anime) -> bool:
         """Whether *this user* has finished the show — the only thing a tick in
@@ -617,15 +746,16 @@ class HomeScreen(Screen):
 
         Library rows don't store a banner URL, so a show without one is looked
         up once (AniList answers from the metadata cache after the first time).
-        Until it lands, or if a show has no banner, its poster cropped wide
-        stands in, so the space never sits empty.
+        A show with no banner gets no backdrop: the stand-in used to be its
+        poster cropped to a wide strip, a zoomed slice of the picture already
+        drawn a few cells to the left. The prose takes that room instead.
         """
-        if self._hero_columns() == (0, 0):
+        if self._hero_columns() == (0, 0) and not self._hero_shows()[0]:
             return
         banners = self.__dict__.setdefault("_banners", {})
         aid = anime.id.anilist
         if aid in banners:
-            self._show_banner(aid, banners[aid] or self._cover_bytes(anime))
+            self._show_banner(aid, banners[aid] or None)
             return
         url = getattr(anime, "banner_url", None)
         data = cached_cover(url) if url else None
@@ -652,7 +782,9 @@ class HomeScreen(Screen):
         data = await fetch_cover(url) if url else None
         banners[aid] = data or b""
         if self._hero_id == aid:
-            self._show_banner(aid, data or self._cover_bytes(anime))
+            # Whether there is a banner decides the prose's width, so the
+            # whole hero is re-laid, not just the backdrop.
+            self._paint_hero()
 
     @work(group="banner-draw", exclusive=True)
     async def _show_banner(self, aid: int, data: bytes | None) -> None:
@@ -926,7 +1058,8 @@ class HomeScreen(Screen):
                      if s.list_id == f"#{shelf.id}"), "Home")
 
     def _paint_shell(self) -> None:
-        width = self.size.width or 100
+        # The bars' width, now that `_centre_page` gives them the page margins.
+        width = (self.size.width or 100) - 5 - getattr(self, "_page_rest", 0)
         with contextlib.suppress(Exception):
             self.query_one("#topbar", TopBar).render_bar(
                 self._section_label(), width,
@@ -978,9 +1111,12 @@ class HomeScreen(Screen):
         # filled up to four times on launch (cached rows, fresh schedules, then
         # both again after the AniList sync), and each refill used to put the
         # cursor back on the first card, under whoever had already moved it.
+        # Only a cursor someone has moved follows its show. At launch the
+        # AniList sync refills Continue watching in a new order, and following
+        # the untouched first card opened the app on the eighth.
         keep = None
         with contextlib.suppress(Exception):
-            if shelf.cards:
+            if shelf.cards and shelf.index > 0:
                 keep = shelf.cards[max(0, min(len(shelf.cards) - 1, shelf.index))].anime.id.anilist
         await shelf.remove_children()
         if not built:
@@ -999,7 +1135,7 @@ class HomeScreen(Screen):
         await shelf.mount_all(cards)
         if sec is _RESULTS_SECTION:
             shelf.set_grid(self._grid_columns())
-        shelf.set_card_gap(self._card_gap)
+        shelf.set_card_gap(self._card_gap, getattr(self, "_card_spread", None))
         shelf.retitle()
         start = next((i for i, c in enumerate(cards) if c.anime.id.anilist == keep), 0)
         shelf.index = start
@@ -1319,6 +1455,7 @@ class HomeScreen(Screen):
             return
         box.value = ""
         box.display = False
+        self.relayout_hero()
         self.workers.cancel_group(self, "search")
         self._toggle_results(False)
         self._paint_shell()

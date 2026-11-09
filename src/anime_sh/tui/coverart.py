@@ -437,6 +437,72 @@ def graphics_cover_widget(data: bytes, width_cells: int):
 _BANNER_CACHE: dict = {}
 
 
+#: The share of the banner's width, from the left, that eases in from the
+#: panel colour. It was 0.42, which on Skeleton Knight S2 ghosted the one face
+#: in the picture; a fifth is enough to take the hard edge off.
+BANNER_FADE = 0.2
+
+
+def _fade(t: float) -> float:
+    """Opacity at ``t`` of the way across the banner: a smoothstep over the
+    fade, then full (0.82, so the banner stays a backdrop)."""
+    t = min(1.0, t / BANNER_FADE)
+    return 0.82 * t * t * (3 - 2 * t)
+
+
+def _skin(rgb: tuple[int, int, int]) -> bool:
+    """Light, warm, and red over green over blue: anime skin, near enough.
+    Pink hair fails on blue; white, grey and sky fail on the red-blue gap."""
+    r, g, b = rgb
+    return r > 170 and r > g > b and 12 < r - b < 90 and g - b > 4
+
+
+def banner_window(img, cw: int) -> int:
+    """Left edge of the ``cw``-pixel-wide crop of ``img`` that shows its subject.
+
+    An AniList banner is 1900x400 and the hero's backdrop is about half as
+    wide for its height, so half the picture goes. The middle half kept
+    Skeleton Knight S2's hair and staff and cut the face at the far left. The
+    window that keeps the most edge detail is the subject's, near enough: a
+    face, a figure, lettering. Edges alone pick hair and props, which have
+    more of them than a face, so skin tone weighs as much as all the edges
+    together. Neither counts under the fade, so the subject lands clear of
+    the faded edge, and a flat picture, with nothing to find, keeps its
+    middle.
+    """
+    from PIL import ImageFilter
+
+    w, h = img.size
+    middle = (w - cw) // 2
+    if cw >= w:
+        return 0
+    gw = 200
+    scale = gw / w
+    small = img.convert("L").resize((gw, max(3, round(h * scale))))
+    edges = small.filter(ImageFilter.FIND_EDGES)
+    px, (_, gh) = edges.load(), edges.size
+    # Skip the outer rows and columns: FIND_EDGES marks the border itself.
+    edge = [sum(px[x, y] for y in range(1, gh - 1)) if 0 < x < gw - 1 else 0
+            for x in range(gw)]
+    rgb = img.convert("RGB").resize((gw, gh)).load()
+    skin = [sum(1 for y in range(gh) if _skin(rgb[x, y])) for x in range(gw)]
+    te, ts = sum(edge) or 1, sum(skin) or 1
+    cols = [e / te + s / ts for e, s in zip(edge, skin)]
+    k = max(1, round(cw * scale))
+    # Detail under the fade counts for nothing: half-faded, a face is a ghost.
+    weights = [1.0 if i >= k * BANNER_FADE else 0.0 for i in range(k)]
+    scores = [sum(c * wt for c, wt in zip(cols[x:x + k], weights))
+              for x in range(gw - k + 1)]
+    best = max(scores)
+    if best <= 0:
+        return middle
+    # Ties (and near-ties, within half a percent) go to the window nearest
+    # the middle, so a picture with detail all over keeps its centre.
+    near = [x for x, s in enumerate(scores) if s >= best * 0.995]
+    x = min(near, key=lambda x: abs(x / scale - middle))
+    return max(0, min(w - cw, round(x / scale)))
+
+
 def faded_banner(data: bytes, cols: int, rows: int,
                  bg: tuple[int, int, int]) -> bytes | None:
     """A wide image cropped to exactly ``cols`` x ``rows`` cells, faded into ``bg``.
@@ -468,17 +534,15 @@ def faded_banner(data: bytes, cols: int, rows: int,
             img = img.crop((0, top, w, top + ch))
         else:
             cw = max(1, round(h / want))
-            left = (w - cw) // 2
+            left = banner_window(img, cw)
             img = img.crop((left, 0, left + cw, h))
         pw, ph = cols * 8, rows * 16
         lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
         img = img.resize((pw, ph), lanczos)
         panel = Image.new("RGB", (pw, ph), bg)
         mask = Image.new("L", (pw, 1))
-        edge = max(1, round(pw * 0.42))
         for x in range(pw):
-            t = min(1.0, x / edge)
-            mask.putpixel((x, 0), round(255 * 0.82 * t * t * (3 - 2 * t)))
+            mask.putpixel((x, 0), round(255 * _fade(x / pw)))
         img = Image.composite(img, panel, mask.resize((pw, ph)))
         buf = io.BytesIO()
         img.save(buf, "PNG")

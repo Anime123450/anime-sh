@@ -11,8 +11,8 @@ from anime_sh.tui.shell import SECTIONS
 
 
 def test_posters_are_bigger_and_agree_with_the_caption_width():
-    assert CARD_COLS == CARD_WIDTH == 18
-    assert CARD_ROWS == coverart.cover_rows(18) + 4
+    assert CARD_COLS == CARD_WIDTH == 13
+    assert CARD_ROWS == coverart.cover_rows(13) + 4
 
 
 def test_airing_today_sits_right_after_continue():
@@ -25,7 +25,10 @@ def test_airing_caption_says_when_or_that_it_aired():
     later = now + timedelta(hours=3)
     earlier = now - timedelta(hours=3)
     assert airing_caption(5.0, later, now) == f"ep 5 · {later.astimezone():%H:%M}"
-    assert airing_caption(5.0, earlier, now) == f"ep 5 aired {earlier.astimezone():%H:%M}"
+    assert airing_caption(5.0, earlier, now, width=18) == f"ep 5 aired {earlier.astimezone():%H:%M}"
+    # Too narrow for "aired": a tick, never a cut time.
+    assert airing_caption(166.0, earlier, now) == f"ep 166 ✓{earlier.astimezone():%H:%M}"
+    assert airing_caption(5.0, earlier, now) == f"ep 5 ✓ {earlier.astimezone():%H:%M}"
     assert len(airing_caption(1234.0, later, now)) <= CARD_WIDTH
 
 
@@ -72,3 +75,53 @@ def test_hero_facts_rows_fit_and_read_naturally():
     assert hero_facts(_anime(average_score=None, popularity=None, studio=None,
                              season=None, year=None, episode_count=None,
                              duration_min=None)) == []
+
+
+def _busy_patch(x0: int, x1: int):
+    """A flat 1900x400 banner with one detailed patch, like a face on a sky."""
+    Image = pytest.importorskip("PIL.Image")
+    img = Image.new("RGB", (1900, 400), (60, 70, 110))
+    px = img.load()
+    for x in range(x0, x1):
+        for y in range(80, 320):
+            if (x // 6 + y // 6) % 2:
+                px[x, y] = (240, 220, 210)
+    return img
+
+
+def test_a_banner_is_cropped_around_its_subject_not_its_middle():
+    """Skeleton Knight S2's banner has the face at its far left. A centre crop
+    kept the hair and the staff; the window goes where the detail is."""
+    img = _busy_patch(250, 600)
+    cw = 975
+    left = coverart.banner_window(img, cw)
+    assert left <= 250 and left + cw >= 600, left
+
+
+def test_the_subject_lands_clear_of_the_fade():
+    """The left edge fades into the panel; a subject there is a ghost."""
+    img = _busy_patch(250, 600)
+    cw = 975
+    left = coverart.banner_window(img, cw)
+    fade = round(cw * coverart.BANNER_FADE)
+    assert left + fade <= 250, (left, fade)
+
+
+def test_a_face_outweighs_busier_scenery():
+    """Skeleton Knight S2: the face sits left, and hair, a staff and a starry
+    window fill the rest with more edges than the face has. Skin tone is
+    what tells them apart."""
+    img = _busy_patch(1100, 1800)          # busy, but not skin
+    px = img.load()
+    for x in range(250, 450):              # a plain, skin-toned face
+        for y in range(100, 300):
+            px[x, y] = (250, 215, 190)
+    left = coverart.banner_window(img, 975)
+    fade = round(975 * coverart.BANNER_FADE)
+    assert left + fade <= 250, left
+
+
+def test_a_banner_with_no_subject_keeps_its_middle():
+    Image = pytest.importorskip("PIL.Image")
+    flat = Image.new("RGB", (1900, 400), (60, 70, 110))
+    assert coverart.banner_window(flat, 975) == (1900 - 975) // 2
