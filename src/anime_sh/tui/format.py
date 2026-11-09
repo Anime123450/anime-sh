@@ -564,6 +564,32 @@ def shelf_titles(titles: Sequence[str], width: int = CARD_WIDTH) -> list[str]:
     return out
 
 
+
+def card_titles(titles: Sequence[str], cols: int, lines: int) -> list[str]:
+    """Card captions for one shelf, each cut at most once.
+
+    `shelf_titles` works to a flat cell budget, but a card prints its caption
+    word-wrapped, and wrapping wastes cells where it breaks: "A Returner's"
+    leaves six of line one's eighteen empty. A head…tail cut to the flat
+    budget then spilled past the last line and `wrap_title` end-cut it again,
+    printing "A Returner's Magi…Special Seas…". A caption that would be cut
+    twice is re-cut against a tighter budget until it wraps whole.
+    """
+    budget = cols * lines - 2
+    out = shelf_titles(titles, budget)
+
+    def wraps_whole(caption: str) -> bool:
+        printed = wrap_title(caption, cols, lines)
+        return sum(line.count("…") for line in printed) == caption.count("…")
+
+    for i, title in enumerate(titles):
+        width = budget
+        while out[i] != title and not wraps_whole(out[i]) and width > cols:
+            width -= 1
+            out[i] = shelf_titles(titles, width)[i]
+    return out
+
+
 _TAG_RE = re.compile(r"<[^>]+>")
 # AniList descriptions often end with an attribution and editor notes:
 # "...happened since. (Source: Anime News Network) Notes: - The first...".
