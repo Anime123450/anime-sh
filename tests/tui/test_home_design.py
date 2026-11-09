@@ -412,9 +412,6 @@ async def test_a_short_window_shrinks_the_hero_before_it_hides_a_card(size, dens
         if size[1] >= 30 and size[0] >= 100:
             # shrunk, not dropped: it is still the screen's focal point
             assert hero.display, size
-        if size in [(190, 50), (230, 60)]:
-            # tall windows keep the hero exactly as it was
-            assert hero.region.height == 18, (size, hero.region)
 
 
 async def test_opening_search_on_a_short_window_keeps_the_shelf_whole():
@@ -439,6 +436,16 @@ async def test_opening_search_on_a_short_window_keeps_the_shelf_whole():
         assert app.screen.query_one("#hero").region.height == before
 
 
+def _png(w: int, h: int) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), (200, 80, 120)).save(buf, "PNG")
+    return buf.getvalue()
+
+
 def _cells(markup: str) -> int:
     from textual.content import Content
     return max((Content.from_markup(line).cell_length
@@ -458,9 +465,12 @@ async def test_hero_columns_end_where_their_text_does(size):
     app = _app()
     async with app.run_test(size=size) as pilot:
         await _settle(app, pilot)
-        await pilot.press("right", "left")
-        await _settle(app, pilot)
         home = app.screen
+        # The fakes have no banners; give the show in the hero one.
+        home._paint_hero()
+        home.__dict__.setdefault("_banners", {})[home._hero_id] = _png(400, 100)
+        home._paint_hero()
+        await _settle(app, pilot)
         hero, text = home.query_one("#hero"), home.query_one("#hero-text")
         facts, banner = home.query_one("#hero-facts"), home.query_one("#hero-banner")
         assert banner.display and facts.display, size
@@ -482,3 +492,46 @@ async def test_top_and_action_bars_line_up_with_the_page(size):
         for bar in ("#topbar", "#actionbar"):
             r = home.query_one(bar).region
             assert (r.x, r.right) == (hero.region.x, hero.region.right), (bar, r, hero.region)
+
+
+@pytest.mark.parametrize("dense", [False, True], ids=["comfortable", "compact"])
+@pytest.mark.parametrize("size", [(209, 51), (190, 50), (250, 60)],
+                         ids=["209x51", "190x50", "250x60"])
+async def test_a_maximised_window_shows_two_whole_shelves(size, dense):
+    """A maximised 1080p terminal (209x51) showed one shelf and a half: the
+    hero took eighteen rows and the second shelf's posters ran under the
+    action bar. Where the hero can keep its floor and still leave two whole
+    shelves, it does."""
+    from anime_sh.tui.cards import PosterCard, Shelf
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        home.apply_setting("ui.density", "compact" if dense else "comfortable")
+        await pilot.press("right", "left")
+        await _settle(app, pilot)
+        body = home.query_one("#body")
+        shelves = [s for s in home.query(Shelf) if s.display and s.cards][:2]
+        assert len(shelves) == 2
+        for shelf in shelves:
+            card = next(c for c in shelf.query(PosterCard) if c.display)
+            assert card.region.bottom <= body.region.bottom, (size, shelf.id, card.region, body.region)
+        assert home.query_one("#hero").display
+
+
+async def test_a_show_without_a_banner_gets_no_stand_in():
+    """No banner means no backdrop. The stand-in was the poster cropped to a
+    wide strip, a zoomed-in slice of the same picture shown a few cells left;
+    the prose takes the room instead."""
+    app = _app()
+    async with app.run_test(size=(209, 51)) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        home._paint_hero()
+        home.__dict__.setdefault("_banners", {})[home._hero_id] = b""
+        home._paint_hero()
+        await _settle(app, pilot)
+        assert not home.query_one("#hero-banner").display
+        hero, facts = home.query_one("#hero"), home.query_one("#hero-facts")
+        assert facts.region.right == hero.content_region.right

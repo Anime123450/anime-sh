@@ -184,10 +184,10 @@ class HomeScreen(Screen):
     #: action bar, which is what 110x32 used to do.
     _SHELF_NEED = 1 + 1 + 1 + CARD_ROWS
 
-    #: The fewest rows the hero is worth drawing in: title over two lines,
-    #: facts, tags, status, action, and its padding. Less than that and the
-    #: shelf gets the screen to itself.
-    _HERO_FLOOR = 8
+    #: The fewest rows the hero is worth drawing in: its padding, the title,
+    #: facts, status and the action. Less than that and the shelves get the
+    #: screen to themselves.
+    _HERO_FLOOR = 7
 
     #: How many covers to have in flight at once. AniList's CDN is not the
     #: rate-limited part, but a shelf is a dozen images and four shelves is
@@ -329,9 +329,36 @@ class HomeScreen(Screen):
         dense = self._density == "compact" if hasattr(self, "_density") else False
         return (self.size.height or 40) - bars - self._SHELF_NEED + (1 if dense else 0)
 
+    def _shelf_stride(self) -> int:
+        """Rows from one shelf's label to the next one's: the label with its
+        margins, then the shelf with its own. Read off the styles, which
+        density changes, rather than kept as a second copy of app.tcss."""
+        try:
+            label = next(w for w in self.query(".shelf-label"))
+            shelf = next(w for w in self.query(Shelf))
+        except StopIteration:
+            return 22
+        lm, sm = label.styles.margin, shelf.styles.margin
+        height = shelf.styles.height
+        rows = int(height.value) if height is not None and height.unit.name == "CELLS" else 19
+        # Textual collapses the shelf's bottom margin into the next label's top
+        # one, so the gap between them is the larger of the two, not the sum.
+        return 1 + max(lm.top, sm.bottom) + lm.bottom + rows + sm.top
+
+    def _hero_budget(self) -> int:
+        """All the rows the hero may take, padding included.
+
+        Two whole shelves where the hero can keep its floor beside them, one
+        where it can't. A maximised 1080p terminal is 51 rows: the hero took
+        eighteen and the second shelf's posters ran under the action bar.
+        """
+        room = self._hero_room()
+        two = room - self._shelf_stride()
+        return two if two >= self._HERO_FLOOR else room
+
     def _hero_rows(self) -> int:
         """Rows the hero's poster gets: what it measures, unless the window is
-        too short to give it that and still show a whole shelf.
+        too short to give it that and still show the shelves.
 
         Derived rather than fixed. Pinned to the widest band's seventeen rows,
         a 120-column terminal reserved seventeen for a fourteen-row poster and
@@ -340,7 +367,7 @@ class HomeScreen(Screen):
         """
         natural = max(self._HERO_MIN_ROWS, cover_rows(self._band_cols()))
         # -1: the hero is its poster plus one row of padding (`_size_hero`).
-        return max(1, min(natural, self._hero_room() - 1))
+        return max(1, min(natural, self._hero_budget() - 1))
 
     def _hero_cols(self) -> int:
         """The poster's width: the band's, or narrower to fit a shrunk hero.
@@ -396,7 +423,7 @@ class HomeScreen(Screen):
         facts_on, banner_on = self._hero_shows()
         if banner_on:
             return self.HERO_TEXT_MIN
-        facts = (FACTS_WIDTH + self._GUTTER) if facts_on else 0
+        facts = ((self._facts_cells or FACTS_WIDTH) + self._GUTTER) if facts_on else 0
         return max(24, self._hero_avail() - self._GUTTER - facts)
 
     def _synopsis_lines(self) -> int:
@@ -461,7 +488,9 @@ class HomeScreen(Screen):
         facts = avail - (FACTS_WIDTH + self._GUTTER) >= 0
         if facts:
             avail -= FACTS_WIDTH + self._GUTTER
-        return facts, facts and avail >= self.HERO_BANNER_MIN
+        # The banner also needs the show in the hero to have one.
+        banner = self.__dict__.get("_banners", {}).get(getattr(self, "_hero_id", None))
+        return facts, bool(facts and banner and avail >= self.HERO_BANNER_MIN)
 
     def _hero_columns(self) -> tuple[int, int]:
         """(facts, banner) cells for the hero at this width; 0 = not shown.
@@ -715,15 +744,16 @@ class HomeScreen(Screen):
 
         Library rows don't store a banner URL, so a show without one is looked
         up once (AniList answers from the metadata cache after the first time).
-        Until it lands, or if a show has no banner, its poster cropped wide
-        stands in, so the space never sits empty.
+        A show with no banner gets no backdrop: the stand-in used to be its
+        poster cropped to a wide strip, a zoomed slice of the picture already
+        drawn a few cells to the left. The prose takes that room instead.
         """
-        if self._hero_columns() == (0, 0):
+        if self._hero_columns() == (0, 0) and not self._hero_shows()[0]:
             return
         banners = self.__dict__.setdefault("_banners", {})
         aid = anime.id.anilist
         if aid in banners:
-            self._show_banner(aid, banners[aid] or self._cover_bytes(anime))
+            self._show_banner(aid, banners[aid] or None)
             return
         url = getattr(anime, "banner_url", None)
         data = cached_cover(url) if url else None
@@ -750,7 +780,9 @@ class HomeScreen(Screen):
         data = await fetch_cover(url) if url else None
         banners[aid] = data or b""
         if self._hero_id == aid:
-            self._show_banner(aid, data or self._cover_bytes(anime))
+            # Whether there is a banner decides the prose's width, so the
+            # whole hero is re-laid, not just the backdrop.
+            self._paint_hero()
 
     @work(group="banner-draw", exclusive=True)
     async def _show_banner(self, aid: int, data: bytes | None) -> None:
