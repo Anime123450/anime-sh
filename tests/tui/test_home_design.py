@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from anime_sh.domain.models import (
     Anime,
     AnimeId,
@@ -366,3 +368,72 @@ async def test_every_card_has_its_title_not_only_the_selected_one():
             meta = c.query_one(".card-meta")
             text = "".join(line.text for line in meta.render_lines(meta.region.reset_offset))
             assert c.anime.title.preferred[:4] in text, f"card {c.anime.title.preferred!r} has no title"
+
+
+SIZES = [(80, 24), (100, 30), (110, 32), (120, 30), (120, 34), (130, 36),
+         (150, 42), (190, 50), (230, 60)]
+
+
+@pytest.mark.parametrize("dense", [False, True], ids=["comfortable", "compact"])
+@pytest.mark.parametrize("size", SIZES, ids=[f"{w}x{h}" for w, h in SIZES])
+async def test_a_short_window_shrinks_the_hero_before_it_hides_a_card(size, dense):
+    """The first shelf is always whole on screen, captions included.
+
+    The hero was sized from its poster alone, so at 110x32 (a little over a
+    default Windows Terminal) it took fifteen rows and pushed the first
+    shelf's titles and progress under the action bar. It now gets what one
+    whole shelf leaves, its poster and text shrinking to match.
+    """
+    from anime_sh.tui.cards import PosterCard
+    from anime_sh.tui.screens.home import HomeScreen
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        assert isinstance(home, HomeScreen)
+        # Set either way: the screen reads the density from the real config.
+        home.apply_setting("ui.density", "compact" if dense else "comfortable")
+        # A move and back paints the hero for the card under the cursor.
+        await pilot.press("right", "left")
+        await _settle(app, pilot)
+        body = home.query_one("#body")
+        card = next(c for c in home.query(PosterCard) if c.display)
+        assert card.region.bottom <= body.region.bottom, (size, card.region, body.region)
+
+        hero = home.query_one("#hero")
+        if hero.display:
+            text = home.query_one("#hero-text")
+            printed = str(text.render()).splitlines()
+            assert printed and card.anime.title.preferred.split()[0] in printed[0], printed
+            assert len(printed) <= hero.content_region.height, (size, printed, hero.content_region)
+            art = home.query_one("#hero-art")
+            assert art.region.bottom <= hero.region.bottom, (size, art.region, hero.region)
+        if size[1] >= 30 and size[0] >= 100:
+            # shrunk, not dropped: it is still the screen's focal point
+            assert hero.display, size
+        if size in [(190, 50), (230, 60)]:
+            # tall windows keep the hero exactly as it was
+            assert hero.region.height == 18, (size, hero.region)
+
+
+async def test_opening_search_on_a_short_window_keeps_the_shelf_whole():
+    """The search box takes a row; the hero gives it back rather than the shelf."""
+    from anime_sh.tui.cards import PosterCard
+
+    app = _app()
+    async with app.run_test(size=(110, 32)) as pilot:
+        await _settle(app, pilot)
+        app.screen.apply_setting("ui.density", "comfortable")
+        await _settle(app, pilot)
+        before = app.screen.query_one("#hero").region.height
+        await pilot.press("slash")
+        await _settle(app, pilot)
+        assert app.screen.query_one("#search").display
+        assert app.screen.query_one("#hero").region.height < before
+        body = app.screen.query_one("#body")
+        card = next(c for c in app.screen.query(PosterCard) if c.display)
+        assert card.region.bottom <= body.region.bottom, (card.region, body.region)
+        await pilot.press("escape")
+        await _settle(app, pilot)
+        assert app.screen.query_one("#hero").region.height == before

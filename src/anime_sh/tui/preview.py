@@ -121,12 +121,24 @@ def action(anime, resume_episode: float | None, *, in_progress: bool) -> str:
     return f"[b $background on $accent] ▶  {verb} episode {resume_episode:g} [/]"
 
 
+def _rows(block: list[str]) -> int:
+    return sum(line.count("\n") + 1 for line in block)
+
+
 def lines(anime, width: int, *, resume_episode: float | None = None,
           fraction: float = 0.0, synopsis_lines: int = 4,
-          completed: bool = False) -> list[str]:
-    """The hero block, as markup lines at most ``width`` cells wide."""
+          completed: bool = False, max_lines: int | None = None) -> list[str]:
+    """The hero block, as markup lines at most ``width`` cells wide.
+
+    ``max_lines`` is the rows the hero has. A short window shrinks the hero
+    rather than letting it push the first shelf's captions off the screen, so
+    the block gives things up in order of what they are worth there: synopsis
+    lines down to two, then the blank lines between stanzas, then the
+    synopsis, the tags, and the progress bar. Title, facts, status and the
+    action stay, because they are what the hero is for.
+    """
     width = max(12, width)
-    out: list[str] = [title_block(anime, width), facts(anime)]
+    head: list[str] = [title_block(anime, width), facts(anime)]
 
     # Genres are the fastest way to tell whether a show is for you, and the
     # panel has the room — it was showing a synopsis and no way to place it.
@@ -141,8 +153,8 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
             tags.append(anime.studio)
         elif cell_len(" · ".join([*tags[:2], anime.studio])) <= width:
             tags = [*tags[:2], anime.studio]
-    if tags:
-        out.append(f"[$secondary]{fit(' · '.join(tags), width).rstrip()}[/]")
+    tag_line = (f"[$secondary]{fit(' · '.join(tags), width).rstrip()}[/]"
+                if tags else None)
 
     # Where the show is, and when the next one lands, on one line. These were
     # two separate stanzas with a blank between them, which spent three rows of
@@ -152,23 +164,42 @@ def lines(anime, width: int, *, resume_episode: float | None = None,
     if anime.is_airing and anime.next_airing_episode and anime.next_airing_at:
         when = (f"[dim]Ep {anime.next_airing_episode} "
                 f"{countdown(anime.next_airing_at)}[/dim]")
-    if chip or when:
-        out += ["", f"{chip}   {when}".rstrip()]
+    status = f"{chip}   {when}".rstrip() if chip or when else None
 
+    bar_line = None
     if fraction > 0:
         pct = round(fraction * 100)
         bar = progress_bar(fraction, max(8, min(_BAR_MAX, width - 7)), color="$primary")
-        out += ["", f"{bar}  [b]{pct}%[/b]"]
+        bar_line = f"{bar}  [b]{pct}%[/b]"
 
     # Prose only: tags, "(Source: …)" and "Notes:" tails stripped, brackets made
     # safe for markup (see `clean_synopsis`).
-    if clean := clean_synopsis(anime.synopsis):
-        body = _wrap(clean, width, synopsis_lines)
-        if body:
-            out += [""] + [f"[dim]{line}[/dim]" for line in body]
+    clean = clean_synopsis(anime.synopsis)
+    act = action(anime, resume_episode, in_progress=fraction > 0)
 
-    out += ["", action(anime, resume_episode, in_progress=fraction > 0)]
-    return out
+    def build(syn: int, gaps: bool, tags_: bool = True, bar_: bool = True) -> list[str]:
+        out = list(head)
+        if tags_ and tag_line:
+            out.append(tag_line)
+        body = [f"[dim]{line}[/dim]" for line in _wrap(clean, width, syn)] if clean and syn else []
+        for block in ([status] if status else [], [bar_line] if bar_ and bar_line else [],
+                      body, [act]):
+            if block:
+                out += ([""] if gaps else []) + block
+        return out
+
+    full = build(synopsis_lines, True)
+    if max_lines is None or _rows(full) <= max_lines:
+        return full
+    tighter = [(n, True) for n in range(synopsis_lines - 1, 1, -1)]
+    tighter += [(n, False) for n in range(max(synopsis_lines, 2), 1, -1)]
+    candidates = [build(n, g) for n, g in tighter]
+    candidates += [build(0, True), build(0, False), build(0, False, tags_=False),
+                   build(0, False, tags_=False, bar_=False)]
+    for block in candidates:
+        if _rows(block) <= max_lines:
+            return block
+    return candidates[-1]
 
 
 def render(anime, width: int, **kwargs) -> str:

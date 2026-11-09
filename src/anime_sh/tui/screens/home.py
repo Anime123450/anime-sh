@@ -37,7 +37,7 @@ from textual.screen import Screen
 from textual.widgets import Input, Label, Static
 
 from ...domain.models import Season, Status
-from ..cards import CARD_COLS, PosterCard, Shelf
+from ..cards import CARD_COLS, CARD_ROWS, PosterCard, Shelf
 from ..coverart import (
     cached_cover,
     cover_rows,
@@ -164,11 +164,22 @@ class HomeScreen(Screen):
     #: hero and nothing else, which is a detail screen with extra steps.
     _HERO_MIN_HEIGHT = 30
 
-    #: The least the hero may be, whatever the poster measures. Its text block
-    #: needs ten rows before a word of synopsis, and a hero showing none of the
-    #: synopsis has spent the top of the screen saying less than the caption
-    #: under the poster did.
+    #: The least the hero may be, whatever the poster measures, where the
+    #: window is tall enough not to care. Its text block needs ten rows before
+    #: a word of synopsis.
     _HERO_MIN_ROWS = 12
+
+    #: The rows one whole shelf needs below the hero: the label's top margin
+    #: (gone in compact), the label, the shelf's top padding and a card. The
+    #: shelf's last row is spare, so it is not counted. Anything the hero takes
+    #: beyond what this leaves pushes the first shelf's captions under the
+    #: action bar, which is what 110x32 used to do.
+    _SHELF_NEED = 1 + 1 + 1 + CARD_ROWS
+
+    #: The fewest rows the hero is worth drawing in: title over two lines,
+    #: facts, tags, status, action, and its padding. Less than that and the
+    #: shelf gets the screen to itself.
+    _HERO_FLOOR = 8
 
     #: How many covers to have in flight at once. AniList's CDN is not the
     #: rate-limited part, but a shelf is a dozen images and four shelves is
@@ -266,6 +277,7 @@ class HomeScreen(Screen):
         if key == "ui.density":
             self._density = str(value)
             self._apply_density()
+            self.relayout_hero()
 
     def action_cycle_density(self) -> None:
         """Swap the home screen between comfortable and compact, and remember it.
@@ -282,6 +294,7 @@ class HomeScreen(Screen):
             (DENSITIES.index(self._density) + 1) % len(DENSITIES)
         ]
         self._apply_density()
+        self.relayout_hero()
         try:
             from ...config import set_config_value
 
@@ -290,18 +303,48 @@ class HomeScreen(Screen):
             self.notify(f"Couldn't save the density: {e}", severity="warning")
         self.notify(f"Density: {self._density}")
 
-    def _hero_cols(self) -> int:
+    def _band_cols(self) -> int:
         return self._HERO_COLS[band(self.size.width or 100)]
 
+    def _hero_room(self) -> int:
+        """Rows the hero may take, all of it, padding included: the screen less
+        the bars, the search box when it is open, and one whole shelf."""
+        bars = 2  # top bar and action bar, one row each in app.tcss
+        with contextlib.suppress(Exception):
+            box = self.query_one("#search", Input)
+            if box.display:
+                # Read off its style, not its region: this runs the moment the
+                # box is shown, before a layout has measured it. Its top margin
+                # is a row too.
+                margin = box.styles.margin
+                bars += int(box.styles.height.value) + margin.top + margin.bottom
+        dense = self._density == "compact" if hasattr(self, "_density") else False
+        return (self.size.height or 40) - bars - self._SHELF_NEED + (1 if dense else 0)
+
     def _hero_rows(self) -> int:
-        """Rows the hero occupies: whatever its poster comes back as.
+        """Rows the hero's poster gets: what it measures, unless the window is
+        too short to give it that and still show a whole shelf.
 
         Derived rather than fixed. Pinned to the widest band's seventeen rows,
         a 120-column terminal reserved seventeen for a fourteen-row poster and
         left three blank between the hero and the first shelf — three rows is a
         quarter of a card, taken off the shelves to pad a gap.
         """
-        return max(self._HERO_MIN_ROWS, cover_rows(self._hero_cols()))
+        natural = max(self._HERO_MIN_ROWS, cover_rows(self._band_cols()))
+        # -1: the hero is its poster plus one row of padding (`_size_hero`).
+        return max(1, min(natural, self._hero_room() - 1))
+
+    def _hero_cols(self) -> int:
+        """The poster's width: the band's, or narrower to fit a shrunk hero.
+        Narrowed, not cropped, so it stays the whole cover at a smaller size."""
+        cols, rows = self._band_cols(), self._hero_rows()
+        while cols > 1 and cover_rows(cols) > rows:
+            cols -= 1
+        return cols if self._band_cols() else 0
+
+    def _hero_text_rows(self) -> int:
+        """Lines the hero's text block may print: its height less its padding."""
+        return self._hero_rows() - 1
 
     def _hero_showing(self) -> bool:
         """Whether there is room for the hero at all.
@@ -312,7 +355,14 @@ class HomeScreen(Screen):
         about to have one.
         """
         return ((self.size.height or 40) >= self._HERO_MIN_HEIGHT
-                and self._hero_cols() > 0)
+                and self._band_cols() > 0
+                and self._hero_room() >= self._HERO_FLOOR)
+
+    def relayout_hero(self) -> None:
+        """Re-fit the hero after something took or gave back rows: the search
+        box opening or closing, or the density changing."""
+        self._size_hero()
+        self._paint_hero()
 
     def _size_hero(self) -> None:
         with contextlib.suppress(Exception):
@@ -507,6 +557,7 @@ class HomeScreen(Screen):
                 fraction=card.fraction,
                 completed=self._user_completed(anime),
                 synopsis_lines=self._synopsis_lines(),
+                max_lines=self._hero_text_rows(),
             ))
         self._paint_facts(anime)
         self._paint_hero_art(anime)
@@ -1319,6 +1370,7 @@ class HomeScreen(Screen):
             return
         box.value = ""
         box.display = False
+        self.relayout_hero()
         self.workers.cancel_group(self, "search")
         self._toggle_results(False)
         self._paint_shell()
