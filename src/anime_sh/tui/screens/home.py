@@ -1266,7 +1266,13 @@ class HomeScreen(Screen):
                 progress.next_episode,
                 progress.fraction if progress.resumable else 0.0,
             ))
-        built.sort(key=_readiness)
+        # The library returns the show you played most recently first. That one
+        # leads, whatever its state: finishing an episode made it "ready", which
+        # sorted it behind every show paused part-way, however long ago, and a
+        # show watched ten minutes earlier sat sixth with a stale 1% one as the
+        # hero. Everything after it keeps the readiness order.
+        latest = items[0].anime.id.anilist if items else None
+        built.sort(key=lambda b: (b[0].id.anilist != latest, _readiness(b)))
         await self._fill_shelf(SECTIONS[0], built, label="Continue watching")
         # A show you are already watching does not need advertising again
         # further down the page: This Season listed four of these twice, with

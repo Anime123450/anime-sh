@@ -775,3 +775,31 @@ async def test_detail_lists_scheduled_episodes_when_the_total_is_unknown():
         # The romaji's brackets are text, not markup.
         from textual.markup import to_content
         assert "[Revo Barai]" in to_content(detail._header_text()).plain
+
+
+async def test_the_show_you_just_watched_leads_continue_watching():
+    """Finished ep 3 of Magic Repo Man and it sat sixth, behind five shows
+    paused at 1–68% weeks ago; the hero was one of those. The library returns
+    the most recently played show first, and that one now leads; the rest keep
+    the part-watched-first order."""
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+    library.continue_items = [
+        ResumeItem(anime=_anime(3, "Magic Repo Man", eps=6),
+                   progress=WatchProgress(AnimeId(anilist=3), 3.0, 1371, 1371, now,
+                                          completed=True)),
+        ResumeItem(anime=_anime(4, "Ready Show", eps=12),
+                   progress=WatchProgress(AnimeId(anilist=4), 2.0, 1400, 1400, now,
+                                          completed=True)),
+        ResumeItem(anime=_anime(5, "Chitose", eps=11),
+                   progress=WatchProgress(AnimeId(anilist=5), 1.0, 14, 1400, now)),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        titles = [c.anime.title.preferred for c in app.query_one("#continue", Shelf).cards]
+        assert titles == ["Magic Repo Man", "Chitose", "Ready Show"]
