@@ -92,7 +92,10 @@ _SORTS = {
 
 _GET_Q = f"""
 query ($id: Int, $malId: Int) {{
-  Media(id: $id, idMal: $malId, type: ANIME) {{ {_MEDIA_FIELDS} }}
+  Media(id: $id, idMal: $malId, type: ANIME) {{
+    {_MEDIA_FIELDS}
+    airingSchedule(notYetAired: true, perPage: 50) {{ nodes {{ episode airingAt }} }}
+  }}
 }}
 """
 
@@ -207,7 +210,20 @@ def _to_anime(m: dict) -> Anime:
         next_airing_at=datetime.fromtimestamp(airing_at, tz=timezone.utc)
         if airing_at
         else None,
+        airing_schedule=_schedule(m.get("airingSchedule")),
     )
+
+
+def _schedule(raw) -> tuple[tuple[int, datetime], ...]:
+    """AniList's ``airingSchedule { nodes { episode airingAt } }`` as
+    (episode, UTC time) pairs in episode order; malformed nodes are skipped."""
+    nodes = (raw or {}).get("nodes") if isinstance(raw, dict) else None
+    out = {}
+    for n in nodes or ():
+        ep, at = (n or {}).get("episode"), (n or {}).get("airingAt")
+        if isinstance(ep, int) and isinstance(at, (int, float)):
+            out[ep] = datetime.fromtimestamp(at, tz=timezone.utc)
+    return tuple(sorted(out.items()))
 
 
 def _start_date(raw) -> date | None:
@@ -407,7 +423,9 @@ class AniListMetadata:
             data = await self._query(_GET_Q, variables)
             return data.get("Media")  # None → not cached, raises below
 
-        media = await self._cached(f"media:{id.key}", _TTL_MEDIA, produce)
+        media = await self._cached(
+            # v2: the record now carries airingSchedule; a v1 entry would not.
+            f"media2:{id.key}", _TTL_MEDIA, produce)
         if not media:
             raise MetadataError(f"AniList has no media for {id.key}")
         return _to_anime(media)

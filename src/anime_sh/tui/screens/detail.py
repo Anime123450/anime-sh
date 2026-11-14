@@ -41,6 +41,7 @@ from ..format import (
 )
 from ..shell import ActionBar, TopBar, spaced
 from ..franchise_panel import FranchiseItem, FranchisePanel
+from ..rows import _lit
 from ..widgets import EpisodeGrid, EpisodeItem
 from .confirm import ConfirmScreen
 from .sources import SourceChoice, SourcesScreen
@@ -592,12 +593,29 @@ class DetailScreen(Screen):
 
         available = await self._available_episodes()
         planned = self.anime.episode_count or 0
-        numbers = sorted({float(n) for n in range(1, planned + 1)} | set(available or []))
+        numbers = sorted({float(n) for n in range(1, planned + 1)}
+                         | set(available or []) | self._upcoming_numbers(planned))
         await self._render_episodes(
             numbers or [1.0],
             available=set(available) if available else None,
         )
         self._refresh_subtitle(available)
+
+    def _upcoming_numbers(self, planned: int) -> set[float]:
+        """Episodes still to air that belong on the list.
+
+        A show that is airing often has no announced total, so the list used to
+        stop at whatever the source carried, with no hint of what comes next or
+        when. AniList's published schedule fills that in; failing that, at least
+        the next episode it names. Capped at the total when there is one.
+        """
+        a = self.anime
+        eps = {e for e, _ in getattr(a, "airing_schedule", ()) or ()}
+        if a.next_airing_episode:
+            eps.add(a.next_airing_episode)
+        if planned:
+            eps = {e for e in eps if e <= planned}
+        return {float(e) for e in eps}
 
     async def _fresh_metadata(self) -> Anime | None:
         """Re-fetch the show from the metadata source (cached ~1h) so every
@@ -1087,7 +1105,9 @@ class DetailScreen(Screen):
         # you confirm it is the right show, and the bar only has room for one.
         alt = a.title.romaji if a.title.english and a.title.romaji else None
         if alt and alt != a.title.preferred:
-            lines.append(f"[dim]{alt}[/dim]")
+            # Escaped: romaji like 'Kashita Maryoku wa "[Revo Barai]" de …'
+            # lost its bracketed words to the markup parser.
+            lines.append(f"[dim]{_lit(alt)}[/dim]")
         lines.append(meta_line(a))
         nxt = next_episode_line(a)
         if nxt:

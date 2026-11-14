@@ -49,11 +49,24 @@ def episode_air_label(
     """"airs in 4d 3h" for an episode that hasn't come out yet, projected from
     the known next-airing episode at a weekly cadence. None when we can't tell —
     no schedule, or the episode has already aired."""
+    now_ = now or datetime.now(timezone.utc)
+    schedule = getattr(anime, "airing_schedule", ()) or ()
+    if schedule:
+        # AniList's own schedule: exact, and it knows about break weeks.
+        exact = dict(schedule)
+        if int(episode) in exact:
+            at = exact[int(episode)]
+            return f"airs {countdown(at, now)}" if at > now_ else None
+        # Past the published schedule: project weekly from its last entry.
+        last_ep, last_at = schedule[-1]
+        if int(episode) > last_ep and last_at > now_:
+            airs_at = last_at + timedelta(days=7 * (int(episode) - last_ep))
+            return f"airs {countdown(airs_at, now)}"
     if not (anime.next_airing_episode and anime.next_airing_at):
         return None
     if episode <= (anime.aired_through(now) or 0):
         return None  # already aired
-    if anime.next_airing_at <= (now or datetime.now(timezone.utc)):
+    if anime.next_airing_at <= now_:
         # The anchor this projects from has already come true, so every date
         # derived from it is a guess off a stale one. The next episode's time is
         # genuinely unknown here, and saying nothing beats "airs in 4d" for an
