@@ -1495,8 +1495,25 @@ class HomeScreen(Screen):
         self._toggle_results(True)
         await self._fill_shelf(_RESULTS_SECTION, built)
         self._show_no_matches(None if results else query)
-        if results:
-            self.query_one("#results", Shelf).focus(scroll_visible=False)
+        # No focus change here. Results land a debounce after you stop typing,
+        # which is often mid-title; taking the keyboard then sent the rest of
+        # the title to the results shelf. Enter or down moves you there.
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "search":
+            self._enter_results()
+
+    def on_key(self, event) -> None:
+        if event.key == "down" and isinstance(self.focused, Input) \
+                and self.focused.id == "search":
+            event.stop()
+            self._enter_results()
+
+    def _enter_results(self) -> None:
+        with contextlib.suppress(Exception):
+            results = self.query_one("#results", Shelf)
+            if results.display and results.cards:
+                results.focus(scroll_visible=False)
 
     def _toggle_results(self, on: bool) -> None:
         """Swap the browse shelves for the results shelf, or back.
