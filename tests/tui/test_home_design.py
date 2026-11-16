@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from anime_sh.domain.models import (
     Anime,
     AnimeId,
@@ -366,3 +368,240 @@ async def test_every_card_has_its_title_not_only_the_selected_one():
             meta = c.query_one(".card-meta")
             text = "".join(line.text for line in meta.render_lines(meta.region.reset_offset))
             assert c.anime.title.preferred[:4] in text, f"card {c.anime.title.preferred!r} has no title"
+
+
+SIZES = [(80, 24), (100, 30), (110, 32), (120, 30), (120, 34), (130, 36),
+         (150, 42), (190, 50), (230, 60)]
+
+
+@pytest.mark.parametrize("dense", [False, True], ids=["comfortable", "compact"])
+@pytest.mark.parametrize("size", SIZES, ids=[f"{w}x{h}" for w, h in SIZES])
+async def test_a_short_window_shrinks_the_hero_before_it_hides_a_card(size, dense):
+    """The first shelf is always whole on screen, captions included.
+
+    The hero was sized from its poster alone, so at 110x32 (a little over a
+    default Windows Terminal) it took fifteen rows and pushed the first
+    shelf's titles and progress under the action bar. It now gets what one
+    whole shelf leaves, its poster and text shrinking to match.
+    """
+    from anime_sh.tui.cards import PosterCard
+    from anime_sh.tui.screens.home import HomeScreen
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        assert isinstance(home, HomeScreen)
+        # Set either way: the screen reads the density from the real config.
+        home.apply_setting("ui.density", "compact" if dense else "comfortable")
+        # A move and back paints the hero for the card under the cursor.
+        await pilot.press("right", "left")
+        await _settle(app, pilot)
+        body = home.query_one("#body")
+        card = next(c for c in home.query(PosterCard) if c.display)
+        assert card.region.bottom <= body.region.bottom, (size, card.region, body.region)
+
+        hero = home.query_one("#hero")
+        if hero.display:
+            text = home.query_one("#hero-text")
+            printed = str(text.render()).splitlines()
+            assert printed and card.anime.title.preferred.split()[0] in printed[0], printed
+            assert len(printed) <= hero.content_region.height, (size, printed, hero.content_region)
+            art = home.query_one("#hero-art")
+            assert art.region.bottom <= hero.region.bottom, (size, art.region, hero.region)
+        if size[1] >= 30 and size[0] >= 100:
+            # shrunk, not dropped: it is still the screen's focal point
+            assert hero.display, size
+
+
+async def test_opening_search_on_a_short_window_keeps_the_shelf_whole():
+    """The search box takes a row; the hero gives it back rather than the shelf."""
+    from anime_sh.tui.cards import PosterCard
+
+    app = _app()
+    async with app.run_test(size=(110, 32)) as pilot:
+        await _settle(app, pilot)
+        app.screen.apply_setting("ui.density", "comfortable")
+        await _settle(app, pilot)
+        before = app.screen.query_one("#hero").region.height
+        await pilot.press("slash")
+        await _settle(app, pilot)
+        assert app.screen.query_one("#search").display
+        assert app.screen.query_one("#hero").region.height < before
+        body = app.screen.query_one("#body")
+        card = next(c for c in app.screen.query(PosterCard) if c.display)
+        assert card.region.bottom <= body.region.bottom, (card.region, body.region)
+        await pilot.press("escape")
+        await _settle(app, pilot)
+        assert app.screen.query_one("#hero").region.height == before
+
+
+def _png(w: int, h: int) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), (200, 80, 120)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _cells(markup: str) -> int:
+    from textual.content import Content
+    return max((Content.from_markup(line).cell_length
+                for line in markup.splitlines()), default=0)
+
+
+@pytest.mark.parametrize("size", [(180, 46), (209, 51), (250, 60)],
+                         ids=["180x46", "209x51", "250x60"])
+async def test_hero_columns_end_where_their_text_does(size):
+    """No dead band between the hero's prose, its facts and its backdrop.
+
+    At 209 columns the prose column was 68 cells for 53 cells of text and the
+    facts column 30 for 19, and the backdrop stopped at a 72-cell cap: two
+    empty strips across the top of the screen. Each text column is now as
+    wide as what it prints, and the backdrop takes everything else.
+    """
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        # The fakes have no banners; give the show in the hero one.
+        home._paint_hero()
+        home.__dict__.setdefault("_banners", {})[home._hero_id] = _png(400, 100)
+        home._paint_hero()
+        await _settle(app, pilot)
+        hero, text = home.query_one("#hero"), home.query_one("#hero-text")
+        facts, banner = home.query_one("#hero-facts"), home.query_one("#hero-banner")
+        assert banner.display and facts.display, size
+        assert text.content_region.width == _cells(str(text.content)), size
+        assert facts.content_region.width == _cells(str(facts.content)), size
+        assert banner.region.right == hero.content_region.right, (banner.region, hero.content_region)
+        assert facts.region.right <= banner.region.x
+
+
+@pytest.mark.parametrize("size", [(110, 32), (150, 42), (209, 51)],
+                         ids=["110x32", "150x42", "209x51"])
+async def test_top_and_action_bars_line_up_with_the_page(size):
+    """The bars start and end on the same columns as the hero and shelves."""
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        hero = home.query_one("#hero")
+        for bar in ("#topbar", "#actionbar"):
+            r = home.query_one(bar).region
+            assert (r.x, r.right) == (hero.region.x, hero.region.right), (bar, r, hero.region)
+
+
+@pytest.mark.parametrize("dense", [False, True], ids=["comfortable", "compact"])
+@pytest.mark.parametrize("size", [(209, 51), (190, 50), (250, 60)],
+                         ids=["209x51", "190x50", "250x60"])
+async def test_a_maximised_window_shows_two_whole_shelves(size, dense):
+    """A maximised 1080p terminal (209x51) showed one shelf and a half: the
+    hero took eighteen rows and the second shelf's posters ran under the
+    action bar. Shrinking the hero to fit them read as cramped; the cards are
+    smaller instead, so the hero keeps its full height beside two shelves."""
+    from anime_sh.tui.cards import PosterCard, Shelf
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        home.apply_setting("ui.density", "compact" if dense else "comfortable")
+        await pilot.press("right", "left")
+        await _settle(app, pilot)
+        body = home.query_one("#body")
+        shelves = [s for s in home.query(Shelf) if s.display and s.cards][:2]
+        assert len(shelves) == 2
+        for shelf in shelves:
+            card = next(c for c in shelf.query(PosterCard) if c.display)
+            assert card.region.bottom <= body.region.bottom, (size, shelf.id, card.region, body.region)
+        hero = home.query_one("#hero")
+        assert hero.display
+        if size == (209, 51):
+            # The full-size hero in compact; comfortable spends two of its
+            # rows on the blank lines between shelves.
+            assert hero.region.height >= (18 if dense else 16), hero.region
+
+
+async def test_a_show_without_a_banner_gets_no_stand_in():
+    """No banner means no backdrop. The stand-in was the poster cropped to a
+    wide strip, a zoomed-in slice of the same picture shown a few cells left;
+    the prose takes the room instead."""
+    app = _app()
+    async with app.run_test(size=(209, 51)) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        home._paint_hero()
+        home.__dict__.setdefault("_banners", {})[home._hero_id] = b""
+        home._paint_hero()
+        await _settle(app, pilot)
+        assert not home.query_one("#hero-banner").display
+        hero, facts = home.query_one("#hero"), home.query_one("#hero-facts")
+        assert facts.region.right == hero.content_region.right
+
+
+async def test_the_launch_cursor_stays_on_the_first_card_when_a_refill_reorders():
+    """Continue watching fills twice at launch: from the local library, then
+    again after the AniList sync, in a new order. The refill followed the
+    show under the cursor to its new place, so the app opened on the eighth
+    card. A cursor nobody has moved stays on the first card; one that has
+    been moved still follows its show."""
+    from anime_sh.tui.cards import Shelf
+    from anime_sh.tui.shell import SECTIONS
+
+    app = _app()
+    async with app.run_test(size=(209, 51)) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        sec = next(s for s in SECTIONS if s.list_id == "#continue")
+        shelf = home.query_one(sec.list_id, Shelf)
+        built = [(c.anime, "x", None, 0.0) for c in shelf.cards]
+        assert len(built) >= 3
+        await home._fill_shelf(sec, built[1:] + built[:1])
+        await _settle(app, pilot)
+        assert shelf.index == 0
+        shelf.index = 1
+        moved = shelf.cards[1].anime.id.anilist
+        await home._fill_shelf(sec, built[::-1])
+        await _settle(app, pilot)
+        assert shelf.cards[shelf.index].anime.id.anilist == moved
+
+
+@pytest.mark.parametrize("size", [(209, 51), (190, 50), (150, 42), (120, 34)],
+                         ids=["209x51", "190x50", "150x42", "120x34"])
+async def test_the_page_has_even_margins(size):
+    """At 209 columns 13 cards left seven cells over, which went into the
+    page's margins: six empty columns on the left and eight on the right. The
+    leftover is spread between the cards instead, one cell at a time, so both
+    margins are the body's own."""
+    from anime_sh.tui.cards import PosterCard, Shelf
+    from anime_sh.tui.shell import SECTIONS
+
+    app = _app()
+    async with app.run_test(size=size) as pilot:
+        await _settle(app, pilot)
+        home = app.screen
+        sec = next(s for s in SECTIONS if s.list_id == "#continue")
+        shelf = home.query_one(sec.list_id, Shelf)
+        # More cards than a row holds, so the row is full.
+        built = [(c.anime, "x", None, 0.0) for c in shelf.cards] * 8
+        await home._fill_shelf(sec, built)
+        await _settle(app, pilot)
+        cards = [c for c in shelf.query(PosterCard) if c.display]
+        left = cards[0].region.x
+        right = size[0] - max(c.region.right for c in cards
+                              if c.region.right <= shelf.region.right)
+        # Left: the body's padding and the strip's gutter. The right adds the
+        # body's scrollbar and the last card's gap.
+        assert left <= 3, (size, left, right)
+        assert right - left <= 3, (size, left, right)
+        hero = home.query_one("#hero")
+        assert hero.region.x <= left
+        # Any run of a row's worth of cards is the same width, so a scrolled
+        # shelf never shows a sliver of the next poster.
+        fit = sum(1 for c in cards if c.region.right <= shelf.region.right)
+        stride = [c.region.width + c.styles.margin.right for c in shelf.cards]
+        runs = {sum(stride[i:i + fit]) for i in range(len(stride) - fit + 1)}
+        assert len(runs) == 1, (size, runs)

@@ -25,14 +25,14 @@ def test_franchise_siblings_are_distinguishable_and_fit():
     out = shelf_titles(REZERO)
     assert len(set(out)) == len(out)
     assert all(len(t) <= CARD_WIDTH for t in out)
-    assert out[0] == "Re:ZERO -Starting…"  # the base title keeps the plain cut
+    assert out[0] == "Re:ZERO -Sta…"  # the base title keeps the plain cut
     assert out[1].endswith("Season 2") and out[3].endswith("Season 3")
     assert out[7] == "Aldnoah.Zero"   # fits whole: untouched
 
 
 def test_unrelated_long_titles_keep_plain_cut():
     out = shelf_titles(["Frieren: Beyond Journey's End", "The Apothecary Diaries"])
-    assert out == ["Frieren: Beyond J…", "The Apothecary Di…"]
+    assert out == ["Frieren: Bey…", "The Apotheca…"]
 
 
 @pytest.mark.parametrize("delta,expected", [
