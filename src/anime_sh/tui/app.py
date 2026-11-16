@@ -156,6 +156,8 @@ class AnimeShApp(App):
         except Exception:
             return
         box.display = True
+        # The box takes a row; a short window's hero gives it back.
+        getattr(self.screen, "relayout_hero", lambda: None)()
         box.focus()
 
     def action_help(self) -> None:

@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from anime_sh.domain.models import Anime, AnimeId, Format, Status, Title
 from anime_sh.tui.preview import action, facts, lines
 
@@ -216,3 +218,27 @@ def test_a_show_with_no_genres_does_not_get_an_empty_line():
     body = lines(_anime(genres=(), studio=None), 44)
     assert not any(part.strip() == "·" for part in body)
     assert body[1].strip(), "the facts line went missing"
+
+
+@pytest.mark.parametrize("budget", range(6, 22))
+@pytest.mark.parametrize("fraction", [0.0, 0.4])
+def test_a_hero_given_fewer_rows_gives_up_the_least_first(budget, fraction):
+    """A shrunk hero never prints past its rows, and the last things to go are
+    the title, the facts and the action — the point of the hero."""
+    a = _anime(genres=("Action", "Fantasy", "Isekai"), studio="Studio VOLN",
+               synopsis="Arc returns! After waking to find he's become a skeleton "
+                        "knight, he wanders a strange world looking for a quiet "
+                        "life, and keeps finding trouble instead. " * 2)
+    # No airing countdown: it ticks between the two calls compared below.
+    full = lines(a, 60, synopsis_lines=4, fraction=fraction)
+    out = lines(a, 60, synopsis_lines=4, fraction=fraction, max_lines=budget)
+    rows = sum(line.count("\n") + 1 for line in out)
+    assert rows <= budget, (budget, out)
+    plain = _plain("\n".join(out))
+    assert plain.startswith(_plain(full[0]).split("\n")[0])
+    assert out[-1] == full[-1]                       # the action
+    assert _plain(full[1]) in plain                  # the facts
+    if sum(line.count("\n") + 1 for line in full) <= budget:
+        assert out == full                           # room: untouched
+    syn = [x for x in out if x.startswith("[dim]") and "Ep " not in x]
+    assert len(syn) != 1, "a one-line synopsis is a fragment"

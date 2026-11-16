@@ -186,3 +186,37 @@ async def test_focus_is_not_stolen_after_you_have_moved():
         await pilot.pause()
 
         assert app.focused is chosen, "a late shelf stole the keyboard"
+
+
+async def test_search_results_do_not_steal_the_box_while_you_type():
+    """Results landed and took the keyboard with them: pause for a third of a
+    second mid-title and the rest of what you typed went to the results shelf
+    instead. The box keeps focus until you ask to leave it."""
+    app = _app()
+    async with app.run_test() as pilot:
+        await _settle(app, pilot)
+
+        await pilot.press("slash", "f", "r")
+        await pilot.pause(0.5)  # past the debounce
+        await _settle(app, pilot)
+        box = app.screen.query_one("#search", Input)
+        assert app.focused is box, f"focus moved to {type(app.focused).__name__}"
+
+        await pilot.press("i", "e")
+        await pilot.pause()
+        assert box.value == "frie"
+
+
+async def test_enter_or_down_takes_you_from_the_box_to_the_results():
+    for key in ("enter", "down"):
+        app = _app()
+        async with app.run_test() as pilot:
+            await _settle(app, pilot)
+            await pilot.press("slash", "f", "r")
+            await pilot.pause(0.5)
+            await _settle(app, pilot)
+
+            await pilot.press(key)
+            await pilot.pause()
+            results = app.screen.query_one("#results", Shelf)
+            assert app.focused is results, f"{key}: focus on {type(app.focused).__name__}"

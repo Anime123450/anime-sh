@@ -54,3 +54,46 @@ def prioritize_subtitles(
         return (2 if preferred else 1, index)
 
     return tuple(subtitle for _, subtitle in sorted(enumerate(subtitles), key=rank))
+
+
+_VTT_BLOCKS = ("NOTE", "STYLE", "REGION")
+
+
+def repair_webvtt(text: str) -> str:
+    """Drop blank lines that sit inside a cue's text.
+
+    WebVTT ends a cue at the first blank line. Some providers put one inside a
+    cue (a multi-line stat sheet, say); the line after it then reads as a cue
+    with no timestamp, and mpv's parser abandons the rest of the file, so the
+    subtitles stop partway through the episode. A blank line only ends a cue
+    when what follows starts a new block: a timing line, a cue identifier
+    followed by a timing line, or a NOTE/STYLE/REGION block. A well-formed file
+    comes back unchanged.
+    """
+    if "\r\n" in text:
+        text = text.replace("\r\n", "\n")
+    lines = text.split("\n")
+    out: list[str] = []
+    in_cue = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if "-->" in line:
+            in_cue = True
+        elif in_cue and not line.strip():
+            j = i
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines):
+                nxt = lines[j]
+                after = lines[j + 1] if j + 1 < len(lines) else ""
+                starts_block = ("-->" in nxt or "-->" in after
+                                or nxt.startswith(_VTT_BLOCKS))
+                if not starts_block:
+                    i = j  # blank line(s) inside the cue: drop them
+                    continue
+            in_cue = False
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
