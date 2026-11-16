@@ -289,3 +289,36 @@ async def test_service_none_or_failing_renders_without_error():
         # Screen renders fine, episodes list is present
         ep_lv = d.query_one("#episodes", ListView)
         assert len(ep_lv.children) == 25
+
+
+async def test_franchise_rows_stay_one_line_with_progress_visible():
+    """A long title must not push the progress count onto a second row.
+
+    At 150 columns (the narrowest wide layout) "Frieren: Beyond Journey's End
+    Season 2 · TV · 2026 · 6 eps 0/6" soft-wrapped, leaving "0/6" alone on the
+    next line. The title is what gives way now; meta and progress stay whole.
+    """
+    long = "Sousou no Frieren: Beyond Journey's End Season 2 Part 2"
+    s1 = _anime(1, long, eps=6)
+    s2 = _anime(2, long + " Special", eps=2)
+    f = Franchise(
+        entries=(
+            FranchiseEntry(s1, "season", True, EntryStatus.NOT_STARTED, 0, 6, is_current=True),
+            FranchiseEntry(s2, "special", False, EntryStatus.IN_PROGRESS, 1, 2, is_current=False),
+        ),
+        current_index=0,
+        suggested_index=1,
+    )
+    for size in [(150, 42), (190, 49)]:
+        app = _make_franchise_app(franchise_svc=FakeFranchiseService(franchise=f))
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            d = await _open_detail(app, pilot, s1)
+            lv = d.query_one("#detail-franchise", FranchisePanel).query_one("#franchise-list", ListView)
+            for item, prog in zip(lv.children, ["0/6", "1/2"]):
+                assert item.region.height == 1, (size, item.region)
+                side = str(item.query_one(".fi-side").render())
+                assert side.rstrip().endswith(prog), (size, side)
+                assert item.query_one(".fi-side").region.right <= item.region.right
+            # The up-next cue survives a title long enough to be cut.
+            assert "→ up next" in str(lv.children[1].query_one(".fi-side").render())
