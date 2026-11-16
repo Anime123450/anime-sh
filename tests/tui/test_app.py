@@ -732,3 +732,46 @@ async def test_source_without_the_pinned_episode_does_not_offer_it():
         items = list(detail.query_one("#episodes", ListView).children)
         ep5 = [i for i in items if isinstance(i, EpisodeItem) and i.number == 5.0][0]
         assert "not aired yet" not in str(ep5.query_one(Label).render())
+
+
+async def test_detail_lists_scheduled_episodes_when_the_total_is_unknown():
+    """Magic Repo Man: AniList has no episode total but publishes eps 7–12;
+    the source carries 1–6. All twelve belong on the list, the last six marked
+    with when they air."""
+    from datetime import timedelta
+    from anime_sh.domain.models import Status
+
+    soon = datetime.now(timezone.utc) + timedelta(hours=2)
+    sched = tuple((n, soon + timedelta(days=7 * (n - 7))) for n in range(7, 13))
+
+    class AiringMeta(FakeMetadata):
+        async def get(self, anime_id):
+            return Anime(id=anime_id,
+                         title=Title(romaji='Kashita Maryoku wa "[Revo Barai]" de',
+                                     english="Magic Repo Man"),
+                         format=Format.TV, status=Status.RELEASING,
+                         episode_count=None, next_airing_episode=7,
+                         next_airing_at=soon, airing_schedule=sched)
+
+    playback = FakePlayback()
+    playback.available = [float(n) for n in range(1, 7)]
+    services = TuiServices(search=FakeSearch(), metadata=AiringMeta(),
+                           library=FakeLibrary(), playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test(size=(160, 50)) as pilot:
+        await pilot.pause()
+        start = Anime(id=AnimeId(anilist=1), title=Title(romaji="Magic Repo Man"),
+                      format=Format.TV, status=Status.RELEASING)
+        detail = DetailScreen(start)
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        items = list(detail.query_one("#episodes", ListView).children)
+        assert [it.number for it in items] == [float(n) for n in range(1, 13)]
+        assert all(it.available for it in items[:6])
+        assert not any(it.available for it in items[6:])
+        assert "airs in" in items[6].detail and "airs in" in items[11].detail
+        # The romaji's brackets are text, not markup.
+        from textual.markup import to_content
+        assert "[Revo Barai]" in to_content(detail._header_text()).plain
