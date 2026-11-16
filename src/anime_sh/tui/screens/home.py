@@ -1115,12 +1115,19 @@ class HomeScreen(Screen):
     async def _render_continue(self, items, fresh: dict) -> None:
         now = datetime.now(timezone.utc)
         built = []
+        # Shows you are caught up on, waiting for their next episode to air,
+        # keyed to when it airs.
+        waiting: dict[int, float] = {}
         for it in items:
             anime = fresh.get(it.anime.id.anilist) or it.anime
             progress = it.progress
             if not self._continuable(anime, progress):
                 continue  # finished and fully watched — nothing to continue
             self._progress[anime.id.anilist] = progress
+            if (not progress.resumable and anime.is_airing
+                    and (anime.aired_through(now) or 0) <= progress.episode):
+                at = anime.next_airing_at
+                waiting[anime.id.anilist] = at.timestamp() if at else float("inf")
             # Only a part-watched episode has a meaningful fraction. A card that
             # is merely "ready" sits at zero and must not draw a progress bar in
             # the hero as though it had been started.
@@ -1135,8 +1142,20 @@ class HomeScreen(Screen):
         # sorted it behind every show paused part-way, however long ago, and a
         # show watched ten minutes earlier sat sixth with a stale 1% one as the
         # hero. Everything after it keeps the readiness order.
+        #
+        # Except a show you are caught up on: there is nothing to press play
+        # on, so even the one you just finished goes to the back, soonest
+        # next episode first. Once that episode airs its caption turns
+        # "ready", it is no longer waiting, and it rejoins the front.
         latest = items[0].anime.id.anilist if items else None
-        built.sort(key=lambda b: (b[0].id.anilist != latest, _readiness(b)))
+
+        def order(b):
+            aid = b[0].id.anilist
+            if aid in waiting:
+                return (1, waiting[aid])
+            return (0, aid != latest, _readiness(b))
+
+        built.sort(key=order)
         await self._fill_shelf(SECTIONS[0], built, label="Continue watching")
         # A show you are already watching does not need advertising again
         # further down the page: This Season listed four of these twice, with
