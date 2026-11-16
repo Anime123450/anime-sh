@@ -41,7 +41,7 @@ from urllib.request import Request, urlopen
 
 from ...domain.errors import PlayerError, PlayerUnavailable
 from ...domain.models import Stream
-from ...domain.subtitles import player_language_tags, prioritize_subtitles
+from ...domain.subtitles import player_language_tags, prioritize_subtitles, repair_webvtt
 from .mpv import _DEFAULT_UA
 from .vlc_http import VlcAuthRejected, VlcControlError, VlcHttpClient, VlcUnreachable
 
@@ -267,6 +267,11 @@ def _download_remote_subtitle(url: str, headers: Mapping[str, str]) -> str:
                 data = response.read(_MAX_SUBTITLE_BYTES + 1)
             if len(data) > _MAX_SUBTITLE_BYTES:
                 raise ValueError("subtitle exceeds size limit")
+            if suffix == ".vtt":
+                # Same repair as mpv: a blank line inside a cue cut the rest.
+                text = data.decode("utf-8-sig", errors="replace")
+                if text.lstrip().startswith("WEBVTT"):
+                    data = repair_webvtt(text).encode("utf-8")
             f.write(data)
         return path
     except Exception:
