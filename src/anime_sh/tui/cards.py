@@ -29,7 +29,7 @@ from textual.widgets import Static
 
 from .coverart import (cover_rows, graphics_cover_widget,
                        graphics_protocol_active, render_cover)
-from .format import shelf_titles, wrap_title
+from .format import card_titles, wrap_title
 from .rows import fit
 
 #: A poster's width in cells, and the rows that implies. `render_cover` keeps
@@ -388,9 +388,8 @@ class Shelf(HorizontalScroll):
     def retitle(self) -> None:
         """Cut every card's printed title against its siblings on this shelf."""
         cards = self.all_cards
-        # Cut against the two-line budget, less a little slack for word wrap.
-        cut = shelf_titles([c.anime.title.preferred for c in cards],
-                           CARD_COLS * TITLE_LINES - 2)
+        cut = card_titles([c.anime.title.preferred for c in cards],
+                          CARD_COLS, TITLE_LINES)
         for card, title in zip(cards, cut):
             card.set_display_title(title)
 

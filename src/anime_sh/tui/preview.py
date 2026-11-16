@@ -22,7 +22,7 @@ show before it named one read as a paragraph that had lost its heading.
 
 from __future__ import annotations
 
-from rich.cells import cell_len
+from rich.cells import cell_len, set_cell_size
 
 from .format import clean_synopsis, countdown, progress_bar
 from .rows import fit
@@ -53,7 +53,15 @@ def _wrap(text: str, width: int, limit: int) -> list[str]:
         return []
     consumed = sum(len(part.split()) for part in lines)
     if consumed < len(words):
-        lines[-1] = fit(lines[-1], width - 1).rstrip() + "…"
+        # Make room for the ellipsis by dropping whole words. `fit` here cut a
+        # line that already filled the width and added its own "…", so the
+        # synopsis ended "...and ……".
+        last = lines[-1]
+        while cell_len(last) >= width and " " in last:
+            last = last.rsplit(" ", 1)[0]
+        if cell_len(last) >= width:  # one word wider than the line
+            last = set_cell_size(last, width - 1)
+        lines[-1] = last.rstrip(" ,;:") + "…"
     return lines
 
 
