@@ -262,13 +262,51 @@ def _subtitle_dir():
     return d
 
 
+# The prefetch sits between Enter and the mpv window, so it gets a hard total
+# budget. urlopen's timeout bounds each socket operation, not the download: a
+# host that keeps sending a few bytes at a time never trips it, and on Windows
+# the DNS lookup ignores it altogether. One launch sat in this fetch for over
+# four minutes. Past the budget mpv streams the track by URL, as it did before.
+_SUBTITLE_FETCH_DEADLINE_S = 6.0
+
+
 def _fetch_subtitle(url: str, headers: dict) -> bytes:
     from urllib.request import Request, urlopen
-    with urlopen(Request(url, headers=headers), timeout=15) as r:
-        data = r.read(_MAX_SUBTITLE_BYTES + 1)
-    if len(data) > _MAX_SUBTITLE_BYTES:
-        raise ValueError("subtitle exceeds size limit")
-    return data
+    budget = _SUBTITLE_FETCH_DEADLINE_S
+    deadline = time.monotonic() + budget
+    chunks: list[bytes] = []
+    size = 0
+    with urlopen(Request(url, headers=headers), timeout=budget) as r:
+        while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError("subtitle download ran past its time budget")
+            # read1, not read(n): read(n) keeps receiving until it has n bytes,
+            # so the deadline would only be checked once the file had finished.
+            chunk = r.read1(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > _MAX_SUBTITLE_BYTES:
+                raise ValueError("subtitle exceeds size limit")
+    return b"".join(chunks)
+
+
+async def _localize_subtitle_bounded(stream: Stream) -> str | None:
+    """``_localize_subtitle`` off the event loop, abandoned past its budget.
+
+    The fetch enforces the budget itself once connected; this catches what it
+    cannot see, like a hung DNS lookup. The worker thread may finish later, but
+    the launch no longer waits for it.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_localize_subtitle, stream),
+            _SUBTITLE_FETCH_DEADLINE_S + 1,
+        )
+    except TimeoutError:
+        log.debug("subtitle prefetch ran past its budget; mpv will stream it")
+        return None
 
 
 def _localize_subtitle(stream: Stream) -> str | None:
@@ -367,7 +405,7 @@ class MpvPlayer:
             raise PlayerUnavailable(f"{self._binary} not found on PATH")
 
         path = _ipc_path()
-        local_sub = await asyncio.to_thread(_localize_subtitle, stream)
+        local_sub = await _localize_subtitle_bounded(stream)
         args = self._build_args(binary, stream, title, start_s, path,
                                 subtitle_path=local_sub)
 
