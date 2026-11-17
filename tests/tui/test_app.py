@@ -762,6 +762,43 @@ async def test_the_show_you_just_watched_leads_continue_watching():
         assert titles == ["Magic Repo Man", "Chitose", "Ready Show"]
 
 
+async def test_caught_up_shows_wait_at_the_back_until_their_next_episode_airs():
+    """Caught up on Magic Repo Man (ep 3 of an airing show, ep 4 not out) and it
+    still led the shelf, because it was the last show played. A show with
+    nothing to play now waits at the back, soonest next episode first; one
+    whose next episode has aired is "ready" and rejoins the front."""
+    from dataclasses import replace
+    library = FakeLibrary()
+    now = datetime.now(timezone.utc)
+
+    def airing(aid, title, next_ep, delta):
+        return replace(_anime(aid, title, eps=None), status=Status.RELEASING,
+                       next_airing_episode=next_ep, next_airing_at=now + delta)
+
+    def done(aid, ep):
+        return WatchProgress(AnimeId(anilist=aid), ep, 1400, 1400, now, completed=True)
+
+    library.continue_items = [
+        ResumeItem(anime=airing(3, "Magic Repo Man", 4, timedelta(days=6)),
+                   progress=done(3, 3.0)),
+        ResumeItem(anime=airing(6, "Soon Show", 8, timedelta(days=2)),
+                   progress=done(6, 7.0)),
+        ResumeItem(anime=airing(7, "New Ep Show", 5, timedelta(days=5)),
+                   progress=done(7, 3.0)),
+        ResumeItem(anime=_anime(5, "Chitose", eps=11),
+                   progress=WatchProgress(AnimeId(anilist=5), 1.0, 14, 1400, now)),
+    ]
+    services = TuiServices(search=FakeSearch(), metadata=FakeMetadata(),
+                           library=library, playback=FakePlayback(), aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        titles = [c.anime.title.preferred for c in app.query_one("#continue", Shelf).cards]
+        assert titles == ["Chitose", "New Ep Show", "Soon Show", "Magic Repo Man"]
+
+
 async def test_detail_lists_scheduled_episodes_when_the_total_is_unknown():
     """Magic Repo Man: AniList has no episode total but publishes eps 7–12;
     the source carries 1–6. All twelve belong on the list, the last six marked
