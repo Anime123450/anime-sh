@@ -276,6 +276,8 @@ class PlaybackService:
 
     async def list_sources(self, anime: Anime, *, audio: Audio = Audio.SUB):
         """All matching provider entries for the source picker."""
+        if not anime.has_released():
+            return []  # whatever a search matches, it isn't this show
         return await self._providers.list_sources(anime, audio)
 
     async def _candidate_streams(
@@ -308,6 +310,12 @@ class PlaybackService:
         #
         # Skipped when the caller pinned a source, because choosing a provider
         # from the picker is an explicit request for *that* provider.
+        if not anime.has_released():
+            # Checked first: a provider match here is the previous season, and
+            # playing it would record the progress against the new one.
+            raise NoStreamsFound(
+                f"{anime.title.preferred!r} has not been released yet"
+            )
         if allow_local and refs is None and self._prefer_local:
             local = await self._local_candidate(anime, episode_number, audio)
             if local is not None:
@@ -687,6 +695,10 @@ class PlaybackService:
         """Episode numbers actually available — for one chosen source, or the
         union across providers. For an airing series this is usually fewer than
         AniList's planned total, so the episode list stays honest."""
+        # Nothing has aired, so nothing is available, whatever a source says:
+        # an announced sequel's search lands on the season before it.
+        if not anime.has_released():
+            return []
         refs = [source.ref()] if source else await self._providers.resolve_sources(anime, audio)
         numbers: set[float] = set()
         for ref in refs:

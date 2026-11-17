@@ -591,13 +591,17 @@ class DetailScreen(Screen):
             self._refresh_header()
             self._refresh_progress()  # fresh metadata may fill in the total
 
-        available = await self._available_episodes()
+        # An unreleased show has nothing to play. Don't even ask the sources:
+        # their match is the previous season, which is how Slime 4th Season
+        # Part 3 (2027) listed 24 playable episodes.
+        released = self.anime.has_released()
+        available = await self._available_episodes() if released else []
         planned = self.anime.episode_count or 0
         numbers = sorted({float(n) for n in range(1, planned + 1)}
                          | set(available or []) | self._upcoming_numbers(planned))
         await self._render_episodes(
             numbers or [1.0],
-            available=set(available) if available else None,
+            available=set(available) if available or not released else None,
         )
         self._refresh_subtitle(available)
 
@@ -705,6 +709,8 @@ class DetailScreen(Screen):
         airing = episode_air_label(self.anime, number)
         if airing:
             return airing
+        if not self.anime.has_released():
+            return "not released yet"
         aired_through = self.anime.aired_through()
         if aired_through is not None and number <= aired_through:
             return "aired · not on this source — press s to pick another"
@@ -720,7 +726,11 @@ class DetailScreen(Screen):
         watched_through = getattr(self, "_watched_through", 0)
         partial = getattr(self, "_partial", {})
 
+        released = self.anime.has_released()
+
         def is_avail(n: float) -> bool:
+            if not released:
+                return False  # includes the instant render from the planned count
             return available is None or n in available
 
         # Next to watch: an explicit resume target — but only until you've
@@ -826,7 +836,12 @@ class DetailScreen(Screen):
         Enter will do — resume, start, play next, or a done note."""
         total = self.anime.episode_count
         if next_number is None:
-            if total and watched_through >= total:
+            if not self.anime.has_released():
+                when = episode_air_label(self.anime, 1)
+                text = ("[$warning]Not released yet.[/] "
+                        + (f"[dim]Episode 1 {when}.[/dim]" if when
+                           else "[dim]There is nothing to play until it airs.[/dim]"))
+            elif total and watched_through >= total:
                 text = "[b $background on $success] ✓ finished [/] [$text-muted]You've watched every episode.[/]"
             elif self._available is not None and self._available:
                 # Nothing left to play *here*, but the series isn't finished —

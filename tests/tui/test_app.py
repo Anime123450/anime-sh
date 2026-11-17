@@ -840,3 +840,42 @@ async def test_detail_lists_scheduled_episodes_when_the_total_is_unknown():
         # The romaji's brackets are text, not markup.
         from textual.markup import to_content
         assert "[Revo Barai]" in to_content(detail._header_text()).plain
+
+
+async def test_an_unreleased_show_lists_nothing_playable():
+    """Slime 4th Season Part 3 (2027): the sources matched the previous season,
+    so the screen offered its 24 episodes and "start episode 1". Nothing has
+    aired, so nothing may be offered, whatever a source claims."""
+    from anime_sh.domain.models import Status
+
+    class UpcomingMeta(FakeMetadata):
+        async def get(self, anime_id):
+            return Anime(id=anime_id,
+                         title=Title(romaji="Tensei Shitara Slime Datta Ken 4th Season Part 3"),
+                         format=Format.TV, status=Status.NOT_YET_RELEASED, year=2027)
+
+    playback = FakePlayback()
+    playback.available = [float(n) for n in range(1, 25)]  # the wrong season's list
+    services = TuiServices(search=FakeSearch(), metadata=UpcomingMeta(),
+                           library=FakeLibrary(), playback=playback, aclose=_noop)
+    app = AnimeShApp(services, theme="tokyo-night")
+    async with app.run_test(size=(160, 50)) as pilot:
+        await pilot.pause()
+        start = Anime(id=AnimeId(anilist=217331),
+                      title=Title(romaji="Tensei Shitara Slime Datta Ken 4th Season Part 3"),
+                      format=Format.TV, status=Status.NOT_YET_RELEASED, year=2027)
+        detail = DetailScreen(start)
+        await app.push_screen(detail)
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        items = list(detail.query_one("#episodes", ListView).children)
+        assert len(items) <= 1
+        assert not any(it.available for it in items)
+        assert "not released" in items[0].detail
+        action = str(detail.query_one("#detail-action", Static).render())
+        assert "start episode" not in action and "not released" in action.lower()
+        assert "24 episodes available" not in (detail.sub_title or "")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert playback.played == []
