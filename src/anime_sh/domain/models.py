@@ -131,6 +131,10 @@ class Anime:
     # First air date. Optional: rows cached before it existed, and providers
     # that do not know it, simply leave it None (year is the fallback).
     start_date: date | None = None
+    # Episodes AniList has scheduled but not yet aired, as (episode, air time),
+    # in episode order. Only the single-show fetch asks for it; everywhere else
+    # it is empty and the weekly projection from ``next_airing_*`` stands in.
+    airing_schedule: tuple[tuple[int, datetime], ...] = ()
 
     @property
     def is_airing(self) -> bool:

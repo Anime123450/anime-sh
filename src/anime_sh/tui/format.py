@@ -49,11 +49,24 @@ def episode_air_label(
     """"airs in 4d 3h" for an episode that hasn't come out yet, projected from
     the known next-airing episode at a weekly cadence. None when we can't tell —
     no schedule, or the episode has already aired."""
+    now_ = now or datetime.now(timezone.utc)
+    schedule = getattr(anime, "airing_schedule", ()) or ()
+    if schedule:
+        # AniList's own schedule: exact, and it knows about break weeks.
+        exact = dict(schedule)
+        if int(episode) in exact:
+            at = exact[int(episode)]
+            return f"airs {countdown(at, now)}" if at > now_ else None
+        # Past the published schedule: project weekly from its last entry.
+        last_ep, last_at = schedule[-1]
+        if int(episode) > last_ep and last_at > now_:
+            airs_at = last_at + timedelta(days=7 * (int(episode) - last_ep))
+            return f"airs {countdown(airs_at, now)}"
     if not (anime.next_airing_episode and anime.next_airing_at):
         return None
     if episode <= (anime.aired_through(now) or 0):
         return None  # already aired
-    if anime.next_airing_at <= (now or datetime.now(timezone.utc)):
+    if anime.next_airing_at <= now_:
         # The anchor this projects from has already come true, so every date
         # derived from it is a guess off a stale one. The next episode's time is
         # genuinely unknown here, and saying nothing beats "airs in 4d" for an
@@ -220,7 +233,7 @@ def hero_facts_markup(rows: list[tuple[str, str]]) -> str:
 #: The width a poster card's caption lines must fit. Kept here (and checked
 #: against `cards.CARD_COLS` by a test) so the caption builders can be pure
 #: functions with no widget import.
-CARD_WIDTH = 18
+CARD_WIDTH = 13
 
 
 def short_countdown(target: datetime, now: datetime | None = None, *,
@@ -268,13 +281,18 @@ def airing_caption(episode: float, airing_at: datetime,
     """The Airing-today card's line: which episode, and when in local time.
 
     "ep 5 · 18:30" while it is still to come; "ep 5 aired 09:00" once it has,
-    so a glance along the shelf shows where today has got to.
+    so a glance along the shelf shows where today has got to. Where that
+    doesn't fit ("ep 166 aired 07:30" is 18 cells) the words shorten, never
+    the time: a cut takes the end, and the time is the point of the line.
     """
     now = now or datetime.now(timezone.utc)
     ep = int(episode) if float(episode).is_integer() else episode
     at = airing_at.astimezone().strftime("%H:%M")
-    text = f"ep {ep} aired {at}" if airing_at <= now else f"ep {ep} · {at}"
-    return text[:width]
+    if airing_at > now:
+        forms = [f"ep {ep} · {at}", f"ep {ep} {at}", f"#{ep} {at}"]
+    else:
+        forms = [f"ep {ep} aired {at}", f"ep {ep} ✓ {at}", f"ep {ep} ✓{at}", f"#{ep} ✓{at}"]
+    return next((f for f in forms if len(f) <= width), forms[-1][:width])
 
 
 def card_caption(anime: Anime, progress: WatchProgress | None = None,
@@ -561,6 +579,32 @@ def shelf_titles(titles: Sequence[str], width: int = CARD_WIDTH) -> list[str]:
         taken[out[best]] -= 1
         out[best] = cut
         taken[cut] += 1
+    return out
+
+
+
+def card_titles(titles: Sequence[str], cols: int, lines: int) -> list[str]:
+    """Card captions for one shelf, each cut at most once.
+
+    `shelf_titles` works to a flat cell budget, but a card prints its caption
+    word-wrapped, and wrapping wastes cells where it breaks: "A Returner's"
+    leaves six of line one's eighteen empty. A head…tail cut to the flat
+    budget then spilled past the last line and `wrap_title` end-cut it again,
+    printing "A Returner's Magi…Special Seas…". A caption that would be cut
+    twice is re-cut against a tighter budget until it wraps whole.
+    """
+    budget = cols * lines - 2
+    out = shelf_titles(titles, budget)
+
+    def wraps_whole(caption: str) -> bool:
+        printed = wrap_title(caption, cols, lines)
+        return sum(line.count("…") for line in printed) == caption.count("…")
+
+    for i, title in enumerate(titles):
+        width = budget
+        while out[i] != title and not wraps_whole(out[i]) and width > cols:
+            width -= 1
+            out[i] = shelf_titles(titles, width)[i]
     return out
 
 

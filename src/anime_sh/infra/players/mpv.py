@@ -23,9 +23,15 @@ import uuid
 from dataclasses import dataclass
 from typing import AsyncIterator
 
+import logging
+
 from ...domain.errors import PlayerError, PlayerUnavailable
 from ...domain.models import Stream
-from ...domain.subtitles import player_language_tags, prioritize_subtitles
+from ...domain.subtitles import (
+    player_language_tags,
+    prioritize_subtitles,
+    repair_webvtt,
+)
 
 
 @dataclass(slots=True)
@@ -243,6 +249,104 @@ _BUFFER_ARGS = (
 )
 
 
+log = logging.getLogger(__name__)
+
+_MAX_SUBTITLE_BYTES = 16 * 1024 * 1024
+_SUBTITLE_KEEP_S = 24 * 3600
+
+
+def _subtitle_dir():
+    from pathlib import Path
+    d = Path(tempfile.gettempdir()) / "anime-sh-subs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# The prefetch sits between Enter and the mpv window, so it gets a hard total
+# budget. urlopen's timeout bounds each socket operation, not the download: a
+# host that keeps sending a few bytes at a time never trips it, and on Windows
+# the DNS lookup ignores it altogether. One launch sat in this fetch for over
+# four minutes. Past the budget mpv streams the track by URL, as it did before.
+_SUBTITLE_FETCH_DEADLINE_S = 6.0
+
+
+def _fetch_subtitle(url: str, headers: dict) -> bytes:
+    from urllib.request import Request, urlopen
+    budget = _SUBTITLE_FETCH_DEADLINE_S
+    deadline = time.monotonic() + budget
+    chunks: list[bytes] = []
+    size = 0
+    with urlopen(Request(url, headers=headers), timeout=budget) as r:
+        while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError("subtitle download ran past its time budget")
+            # read1, not read(n): read(n) keeps receiving until it has n bytes,
+            # so the deadline would only be checked once the file had finished.
+            chunk = r.read1(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > _MAX_SUBTITLE_BYTES:
+                raise ValueError("subtitle exceeds size limit")
+    return b"".join(chunks)
+
+
+async def _localize_subtitle_bounded(stream: Stream) -> str | None:
+    """``_localize_subtitle`` off the event loop, abandoned past its budget.
+
+    The fetch enforces the budget itself once connected; this catches what it
+    cannot see, like a hung DNS lookup. The worker thread may finish later, but
+    the launch no longer waits for it.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_localize_subtitle, stream),
+            _SUBTITLE_FETCH_DEADLINE_S + 1,
+        )
+    except TimeoutError:
+        log.debug("subtitle prefetch ran past its budget; mpv will stream it")
+        return None
+
+
+def _localize_subtitle(stream: Stream) -> str | None:
+    """Download the chosen WebVTT track, repair it, and return a local path.
+
+    mpv streamed the provider's file as-is, and a blank line inside one cue made
+    it drop every subtitle after that point. Returns None (play with the URL as
+    before) for non-VTT tracks or on any failure. Files older than a day are
+    pruned here, so an mpv that is still running keeps its copy.
+    """
+    subs = prioritize_subtitles(stream.subtitles, stream.preferred_subtitle_language)
+    if not subs:
+        return None
+    url = subs[0].url
+    if not url.lower().startswith(("http://", "https://")) \
+            or not url.lower().split("?")[0].endswith(".vtt"):
+        return None
+    headers = {"User-Agent": next((v for k, v in stream.headers.items()
+                                   if k.lower() == "user-agent"), _DEFAULT_UA)}
+    referer = next((v for k, v in stream.headers.items() if k.lower() == "referer"), None)
+    if referer:
+        headers["Referer"] = referer
+    try:
+        d = _subtitle_dir()
+        now = time.time()
+        for old in d.glob("*.vtt"):
+            with contextlib.suppress(OSError):
+                if now - old.stat().st_mtime > _SUBTITLE_KEEP_S:
+                    old.unlink()
+        text = _fetch_subtitle(url, headers).decode("utf-8-sig", errors="replace")
+        if not text.lstrip().startswith("WEBVTT"):
+            return None
+        path = d / f"{uuid.uuid4().hex}.vtt"
+        path.write_text(repair_webvtt(text), encoding="utf-8")
+        return str(path)
+    except Exception as exc:  # network, disk, decode: fall back to the URL
+        log.debug("subtitle prefetch failed (%s); mpv will stream it", type(exc).__name__)
+        return None
+
+
 class MpvPlayer:
     name = "mpv"
 
@@ -254,7 +358,8 @@ class MpvPlayer:
         return resolve_binary(self._binary) is not None
 
     def _build_args(self, binary: str, stream: Stream, title: str,
-                    start_s: int, ipc_path: str) -> list[str]:
+                    start_s: int, ipc_path: str,
+                    subtitle_path: str | None = None) -> list[str]:
         args = [
             binary,
             f"--input-ipc-server={ipc_path}",
@@ -287,7 +392,7 @@ class MpvPlayer:
         if subtitles:
             # One explicitly selected external track makes app metadata decisive;
             # mpv cannot infer the provider's language label from the URL itself.
-            args.append(f"--sub-file={subtitles[0].url}")
+            args.append(f"--sub-file={subtitle_path or subtitles[0].url}")
         args += self._extra_args
         args.append(stream.url)
         return args
@@ -300,7 +405,9 @@ class MpvPlayer:
             raise PlayerUnavailable(f"{self._binary} not found on PATH")
 
         path = _ipc_path()
-        args = self._build_args(binary, stream, title, start_s, path)
+        local_sub = await _localize_subtitle_bounded(stream)
+        args = self._build_args(binary, stream, title, start_s, path,
+                                subtitle_path=local_sub)
 
         # Detach stdio so the console build can never block on a shared terminal.
         proc = await asyncio.to_thread(
