@@ -140,6 +140,20 @@ class Anime:
     def is_airing(self) -> bool:
         return self.status is Status.RELEASING
 
+    def has_released(self, now: datetime | None = None) -> bool:
+        """False only for a show that has not aired a single episode yet.
+
+        Provider search matches titles, and an announced sequel's title is
+        nearly the previous season's, so "the sources have 24 episodes" proves
+        nothing for a show that has not started: Slime 4th Season Part 3 (2027)
+        was matched to Parts 1 & 2 and offered all 24 of them. AniList's status
+        is the authority, except that it flips a while after episode 1 airs, so
+        a schedule that has already come true wins over a stale status.
+        """
+        if self.status is not Status.NOT_YET_RELEASED:
+            return True
+        return (self.aired_through(now) or 0) >= 1
+
     def aired_through(self, now: datetime | None = None) -> int | None:
         """The highest episode number that has actually been released, or None
         when there is no schedule to tell.
