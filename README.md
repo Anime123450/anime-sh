@@ -7,6 +7,8 @@
 Type a title. It finds a source, picks a mirror that works, and plays it in mpv.<br>
 Providers, mirrors and resolvers are plumbing you never have to think about.
 
+<sub>A personal project I started as a student, built with help from AI coding tools.</sub>
+
 [![PyPI](https://img.shields.io/pypi/v/anime-sh?logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/anime-sh/)
 [![Downloads](https://img.shields.io/pypi/dm/anime-sh?logo=python&logoColor=white&label=downloads)](https://pypi.org/project/anime-sh/)
 [![Python](https://img.shields.io/pypi/pyversions/anime-sh?logo=python&logoColor=white)](https://pypi.org/project/anime-sh/)
