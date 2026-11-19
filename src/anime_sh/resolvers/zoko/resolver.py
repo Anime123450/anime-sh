@@ -37,6 +37,7 @@ from ...domain.models import (
     Subtitle,
 )
 from ...infra.http import HttpClient, HttpError
+from ..hls_master import split_master
 
 log = logging.getLogger(__name__)
 
@@ -82,16 +83,48 @@ class ZokoResolver:
             raise ResolverError("zoko: payload carries no stream URL")
 
         origin = candidate.url.split("/stream/", 1)[0]
+        headers = {"Referer": f"{origin}/"}
+        subtitles = _subtitles(config.get("subtitles"))
+        skips = _skips(config.get("skip"))
+        if ".m3u8" in src:
+            variants = await self._split(src, headers, candidate)
+            if variants:
+                return [
+                    Stream(
+                        url=v.url,
+                        kind=StreamKind.HLS,
+                        quality=v.quality,
+                        headers=headers,
+                        subtitles=subtitles,
+                        skip_times=skips,
+                        audio_url=v.audio_url,
+                    )
+                    for v in variants
+                ]
         return [
             Stream(
                 url=src,
                 kind=StreamKind.HLS if ".m3u8" in src else StreamKind.MP4,
                 quality=Quality.UNKNOWN,  # master playlist; mpv picks the variant
-                headers={"Referer": f"{origin}/"},
-                subtitles=_subtitles(config.get("subtitles")),
-                skip_times=_skips(config.get("skip")),
+                headers=headers,
+                subtitles=subtitles,
+                skip_times=skips,
             )
         ]
+
+    async def _split(self, master_url: str, headers: dict, candidate: StreamCandidate):
+        """Variants with one audio track each, or [] to fall back to the master.
+
+        Best-effort by design: any failure here just means the master is played
+        as before (slow to start on multi-dub episodes, but not broken).
+        """
+        try:
+            text = await self._http.get_text(master_url, headers=headers)
+        except Exception as e:  # noqa: BLE001 — best-effort; the master still plays
+            log.debug("zoko: master playlist fetch failed, using it whole: %s", e)
+            return []
+        dub = candidate.url.rstrip("/").endswith("/dub")
+        return split_master(text, master_url, prefer_lang="en" if dub else None)
 
 
 def decode_payload(encoded: str) -> dict:

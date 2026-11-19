@@ -330,10 +330,13 @@ class VlcPlayer:
         subs = prioritize_subtitles(
             stream.subtitles, stream.preferred_subtitle_language
         )
+        slaves = [stream.audio_url] if stream.audio_url else []
         if subs:
             argv.append(f"--sub-file={default_subtitle_path or subs[0].url}")
-            if len(subs) > 1:
-                argv.append("--input-slave=" + "#".join(s.url for s in subs[1:]))
+            slaves += [s.url for s in subs[1:]]
+        if slaves:
+            # The separate audio track (a split multi-dub master) rides here too.
+            argv.append("--input-slave=" + "#".join(slaves))
         argv += self.extra_args
         argv.append(stream.url)
         # Per-input, after the URL: vlc.exe sets its own user agent on the

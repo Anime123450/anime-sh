@@ -51,13 +51,18 @@ def build_ffmpeg_command(binary: str, stream: Stream, dest: Path) -> list[str]:
     # a download that silently dropped a third of the episode looked
     # identical to a perfect one. See _SEGMENT_LOST.
     cmd = [binary, "-y", "-hide_banner", "-loglevel", "warning", "-stats"]
-    cmd += ["-user_agent", DEFAULT_UA]
     referer = stream.headers.get("Referer") or stream.headers.get("referer")
+    # Input options are per-input in ffmpeg, so a separate audio track needs
+    # the same user agent / referer / picky-off flags repeated before its -i.
+    input_opts = ["-user_agent", DEFAULT_UA]
     if referer:
-        cmd += ["-referer", referer]
+        input_opts += ["-referer", referer]
     if stream.kind is StreamKind.HLS:
-        cmd += ["-extension_picky", "0"]  # allow extensionless HLS segments
-    cmd += ["-i", stream.url, "-c", "copy"]
+        input_opts += ["-extension_picky", "0"]  # allow extensionless HLS segments
+    cmd += [*input_opts, "-i", stream.url]
+    if stream.audio_url:
+        cmd += [*input_opts, "-i", stream.audio_url, "-map", "0:v:0", "-map", "1:a:0"]
+    cmd += ["-c", "copy"]
     if stream.kind is StreamKind.HLS:
         # Remux ADTS AAC from MPEG-TS HLS into an MP4 container.
         cmd += ["-bsf:a", "aac_adtstoasc"]

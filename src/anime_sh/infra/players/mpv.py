@@ -375,6 +375,10 @@ class MpvPlayer:
             args.append(f"--referrer={referer}")
         if start_s > 0:
             args.append(f"--start=+{start_s}")
+        if stream.audio_url:
+            # The resolver split a multi-dub master into variant + audio track;
+            # --referrer/--user-agent are global, so this input gets them too.
+            args.append(f"--audio-file={stream.audio_url}")
         language = player_language_tags(stream.preferred_subtitle_language)
         if language:
             args.append(f"--slang={language}")

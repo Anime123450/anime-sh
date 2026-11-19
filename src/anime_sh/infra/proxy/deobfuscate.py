@@ -136,8 +136,12 @@ class DeobfuscatingProxy:
             for sub in stream.subtitles
         )
         # Headers are baked into the proxy now, so mpv needs none.
+        audio_url = (
+            self._proxy_url(stream.audio_url, referer) if stream.audio_url else None
+        )
         return replace(
-            stream, url=self._proxy_url(stream.url, referer), headers={}, subtitles=subs
+            stream, url=self._proxy_url(stream.url, referer), headers={},
+            subtitles=subs, audio_url=audio_url,
         )
 
     def stop(self) -> None:
