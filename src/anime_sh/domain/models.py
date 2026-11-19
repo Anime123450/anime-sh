@@ -279,6 +279,11 @@ class Stream:
     # before a player can read them. Set by the resolver, which knows the host
     # family it just talked to — CDN hostnames rotate, that knowledge doesn't.
     obfuscated: bool = False
+    # A separate audio rendition to play alongside ``url``. Set when a resolver
+    # split an HLS master playlist into one video variant plus one audio track,
+    # because opening the master makes ffmpeg probe *every* rendition first —
+    # 15 dub tracks took mpv 31 s to start, past the point playback gives up.
+    audio_url: str | None = None
 
 
 # --------------------------------------------------------------------------- #
