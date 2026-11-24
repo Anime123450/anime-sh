@@ -24,7 +24,7 @@ dying is the normal operating state here and a badge that is permanently red
 over an expected casualty is a badge everyone learns to ignore.
 
 Run locally:   uv run python scripts/canary.py
-One provider:  uv run python scripts/canary.py --provider hianime
+One provider:  uv run python scripts/canary.py --provider anikoto
 Merge in CI:   uv run python scripts/canary.py --merge "artifacts/**/*.json" --require-any
 """
 

@@ -67,12 +67,15 @@ anime-sh = "anime_sh.cli.main:main"
 
 # Bundled plugins use the same entry-point mechanism as third-party ones.
 [project.entry-points."anime_sh.providers"]
+anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
 anizone = "anime_sh.providers.anizone:AnizoneProvider"
+reanime = "anime_sh.providers.reanime:ReanimeProvider"
 hianime = "anime_sh.providers.hianime:HianimeProvider"
 
 [project.entry-points."anime_sh.resolvers"]
 mp4upload = "anime_sh.resolvers.mp4upload:Mp4UploadResolver"
 megaplay = "anime_sh.resolvers.vidtube:VidtubeResolver"
+flixcloud = "anime_sh.resolvers.flixcloud:FlixcloudResolver"
 zoko = "anime_sh.resolvers.zoko:ZokoResolver"
 filemoon = "anime_sh.resolvers.filemoon:FilemoonResolver"
 streamwish = "anime_sh.resolvers.streamwish:StreamwishResolver"

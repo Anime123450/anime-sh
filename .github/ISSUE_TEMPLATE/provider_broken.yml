@@ -14,7 +14,7 @@ body:
     id: provider
     attributes:
       label: Which provider
-      options: [anizone, hianime, not sure / all of them]
+      options: [anikoto, anizone, not sure / all of them]
     validations:
       required: true
 

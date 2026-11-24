@@ -40,7 +40,7 @@ Test it the way a recipient runs it — with no Python and nothing else on PATH:
 env -u PYTHONPATH -u PYTHONHOME -u VIRTUAL_ENV PATH="/c/Windows/System32" ./dist/bundle/anime.exe doctor
 ```
 
-`providers: anizone, hianime` and a real version number mean the metadata made
+`providers: anizone, anikoto` and a real version number mean the metadata made
 it in. Then confirm it can reach a stream:
 
 ```bash
@@ -77,7 +77,7 @@ It was declined on [content policy
 2.2](https://learn.microsoft.com/windows/package-manager/package/windows-package-manager-policies#22-content-including-names-logos-original-and-third-party),
 in [PR #426448](https://github.com/microsoft/winget-pkgs/pull/426448) on
 26/09/2026. The repository asked for publicly verifiable documentation that the
-bundled AniZone / HiAnime integrations are authorised by those
+bundled AniKoto / AniZone / HiAnime integrations are authorised by those
 providers and the content rights holders. There is none, so the submission was
 withdrawn on 01/10/2026 rather than claim otherwise.
 

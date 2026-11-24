@@ -64,8 +64,9 @@ class ProvidersConfig(BaseModel):
     # install still trying it first. This knob is the user's; the built-in
     # priorities, maintained next to the provider code, are the default.
     preferred: list[str] = Field(default_factory=list)
-    # Providers the user switched off. Empty by default: a provider that cannot
-    # play is removed from the bundle outright rather than shipped disabled.
+    # Empty by default. anikoto was off from 2026-11-08 while megaplay's
+    # encrypted `enc` playlist had no decryptor; resolvers/vidtube/crypto.py
+    # opens it since 2026-11-24, so every shipped provider is on again.
     disabled: list[str] = Field(default_factory=list)
     #: How long one provider gets to list an episode's stream candidates.
     #: Separate from the match budget below because the two sit at different

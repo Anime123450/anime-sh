@@ -118,13 +118,13 @@ jobs:
           fi
           ./dist/bundle/anime.exe providers ls --json > providers.json
           cat providers.json
-          for plugin in anizone hianime; do
+          for plugin in anikoto anizone; do
             if ! grep -q "\"name\": \"$plugin\"" providers.json; then
               echo "::error::the bundle is missing provider $plugin — entry-point metadata did not make it in"
               exit 1
             fi
           done
-          echo "providers present in the bundle: anizone, hianime"
+          echo "providers present in the bundle: anikoto, anizone"
 
       - name: Checksum, under the name the release will publish it as
         shell: bash

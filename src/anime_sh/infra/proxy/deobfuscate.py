@@ -17,11 +17,12 @@ from __future__ import annotations
 import base64
 import contextlib
 import logging
+import re
 import secrets
 import threading
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
@@ -77,6 +78,20 @@ def _subtitle_content_type(url: str) -> str:
     if path.endswith(".ass") or path.endswith(".ssa"):
         return "text/x-ssa"
     return "text/plain"
+
+
+def decode_xor_playlist(body: str, key: bytes) -> str:
+    """Undo flixcloud's playlist wrapping: base64(XOR(text, key)).
+
+    Clear playlists (already ``#EXTM3U``) pass through untouched.
+    """
+    if body.lstrip().startswith("#EXTM3U") or not key:
+        return body
+    raw = base64.b64decode(body.strip())
+    return bytes(c ^ key[i % len(key)] for i, c in enumerate(raw)).decode("utf-8")
+
+
+_TAG_URI_RE = re.compile(r'URI="([^"]+)"')
 
 
 def strip_media_prefix(data: bytes) -> bytes:
@@ -137,7 +152,10 @@ class DeobfuscatingProxy:
         )
         # Headers are baked into the proxy now, so mpv needs none.
         return replace(
-            stream, url=self._proxy_url(stream.url, referer), headers={}, subtitles=subs
+            stream,
+            url=self._proxy_url(stream.url, referer, kind="pl" if stream.playlist_key else None,
+                                pk=stream.playlist_key or ""),
+            headers={}, subtitles=subs,
         )
 
     def stop(self) -> None:
@@ -181,10 +199,14 @@ class DeobfuscatingProxy:
             log.debug("de-obfuscating proxy started at %s", self._base)
             return self._base
 
-    def _proxy_url(self, real_url: str, referer: str, kind: str | None = None) -> str:
+    def _proxy_url(
+        self, real_url: str, referer: str, kind: str | None = None, pk: str = ""
+    ) -> str:
         u = base64.urlsafe_b64encode(real_url.encode()).decode()
         r = base64.urlsafe_b64encode(referer.encode()).decode()
         suffix = f"&k={kind}" if kind else ""
+        if pk:  # playlist XOR key, needed again for every child playlist
+            suffix += "&x=" + base64.urlsafe_b64encode(pk.encode()).decode()
         # Every proxied URL is built here — including the children of a
         # rewritten playlist — so carrying the token here is what makes the
         # check in _handle safe to apply to all of them.
@@ -203,6 +225,7 @@ class DeobfuscatingProxy:
             real = base64.urlsafe_b64decode(qs["u"][0]).decode()
             referer = base64.urlsafe_b64decode(qs.get("r", [b""])[0] or "").decode()
             kind = qs.get("k", [""])[0]
+            pk = base64.urlsafe_b64decode(qs.get("x", [""])[0] or "").decode()
         except Exception:
             req.send_error(400)
             return
@@ -213,7 +236,7 @@ class DeobfuscatingProxy:
         # thing being watched, and buffering all of it before sending a byte
         # added a full segment of latency to every segment, which is what turned
         # a fast connection into a stalling one.
-        if kind not in ("sub", "pl"):
+        if kind not in ("sub", "pl", "key"):
             try:
                 if self._stream_segment(req, real, headers):
                     return
@@ -236,8 +259,19 @@ class DeobfuscatingProxy:
         # a subtitle content-type — never run them through the TS de-obfuscator.
         if kind == "sub":
             self._respond(req, body, _subtitle_content_type(real))
-        elif body.lstrip()[:7] == b"#EXTM3U":
-            payload = self._rewrite_playlist(body.decode("utf-8", "replace"), real, referer)
+        elif kind == "key":  # AES-128 key: raw bytes, never touched
+            self._respond(req, body, "application/octet-stream")
+        elif kind == "pl" or body.lstrip()[:7] == b"#EXTM3U":
+            text = body.decode("utf-8", "replace")
+            if pk:
+                try:
+                    text = decode_xor_playlist(text, base64.b64decode(pk))
+                except Exception as e:
+                    log.debug("playlist XOR decode failed for %s: %s", real[:60], e)
+                    with contextlib.suppress(OSError):
+                        req.send_error(502)
+                    return
+            payload = self._rewrite_playlist(text, real, referer, pk)
             self._respond(req, payload.encode(), "application/vnd.apple.mpegurl")
         else:
             self._respond(req, strip_media_prefix(body), "video/mp2t")
@@ -293,16 +327,34 @@ class DeobfuscatingProxy:
                 req.wfile.write(chunk)
             return True
 
-    def _rewrite_playlist(self, text: str, base_url: str, referer: str) -> str:
-        base = base_url.rsplit("/", 1)[0]
+    def _rewrite_playlist(self, text: str, base_url: str, referer: str, pk: str = "") -> str:
+        """Point every URI in a playlist back at the proxy.
+
+        Bare lines are variants or segments; ``URI="…"`` attributes inside tags
+        are audio/subtitle renditions (child playlists) or AES-128 keys. Child
+        playlists carry the XOR key forward so they decode too.
+        """
         out: list[str] = []
+        next_is_playlist = False
         for line in text.splitlines():
             s = line.strip()
             if s and not s.startswith("#"):
-                absolute = s if s.startswith("http") else f"{base}/{s}"
-                out.append(self._proxy_url(absolute, referer))
-            else:
-                out.append(line)
+                absolute = urljoin(base_url, s)
+                is_pl = next_is_playlist or ".m3u8" in s.split("?")[0]
+                out.append(self._proxy_url(absolute, referer, "pl" if is_pl else None, pk if is_pl else ""))
+                next_is_playlist = False
+                continue
+            if s.startswith("#EXT-X-STREAM-INF"):
+                next_is_playlist = True
+            if 'URI="' in s:
+                kind = "key" if s.startswith(("#EXT-X-KEY", "#EXT-X-SESSION-KEY")) else (
+                    None if s.startswith("#EXT-X-MAP") else "pl")
+                line = _TAG_URI_RE.sub(
+                    lambda m, k=kind: 'URI="{}"'.format(self._proxy_url(
+                        urljoin(base_url, m.group(1)), referer, k, pk if k == "pl" else "")),
+                    line,
+                )
+            out.append(line)
         return "\n".join(out) + "\n"
 
     def _respond(self, req: BaseHTTPRequestHandler, data: bytes, content_type: str) -> None:

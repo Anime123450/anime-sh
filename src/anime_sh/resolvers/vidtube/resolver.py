@@ -3,12 +3,15 @@
 Covers the interchangeable megaplay clones (vidtube.site, megaplay.buzz,
 vidwish.live, …): the file id is in the embed URL path (or, failing that, in the
 page as ``cidu``/``data-id``), and ``<origin>/stream/getSources?id=<id>`` returns
-the m3u8, subtitle tracks, and intro/outro skip times in plain JSON (no
-encryption). We map that into a domain :class:`Stream`.
+the m3u8, subtitle tracks, and intro/outro skip times. Since 2026-10 the m3u8
+arrives encrypted as ``enc`` (AES-256-CBC, key/iv shipped in the player JS) and
+the CDN wants an HMAC ``token`` on it; :mod:`.crypto` handles both and
+re-discovers the constants from the player script if they rotate.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import urlsplit
 
@@ -23,6 +26,8 @@ from ...domain.models import (
     Subtitle,
 )
 from ...infra.http import HttpClient, HttpError
+from .._syncfetch import urllib_fetch
+from . import crypto
 
 AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 
@@ -44,6 +49,7 @@ class VidtubeResolver:
 
     def __init__(self, http: HttpClient | None = None) -> None:
         self._http = http or HttpClient(headers={"User-Agent": AGENT})
+        self._fetch = urllib_fetch  # blocking, for crypto's key re-discovery
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -64,38 +70,22 @@ class VidtubeResolver:
         except HttpError as e:
             raise ResolverError(f"megaplay getSources failed: {e}") from e
 
-        file_url = ((data or {}).get("sources") or {}).get("file")
-        if not file_url:
-            # Measured 02/10/2026: megaplay stopped serving the playlist in the
-            # clear. getSources now answers `{enc, t, server, intro, outro,
-            # tracks}` — no `sources` at all — where `enc` is 128 bytes of
-            # URL-safe base64, an exact multiple of the block size, and no
-            # repeating-XOR key recovers any plausible JSON prefix from it. The
-            # key is not in the payload.
-            #
-            # That is the AllAnime road, which this project does not take: the
-            # zoko resolver's docstring recovers a key *from a crib in the
-            # payload* and says why a per-build key plus a live nonce was dropped
-            # rather than chased. So the candidate stays unresolvable and the
-            # fan-out moves on to another provider.
-            #
-            # Named separately because "returned no file" reads as an empty or
-            # failed response, and sent one investigation looking for exactly
-            # that. The shape is intact; it is the contents that are shut.
-            if (data or {}).get("enc"):
-                raise ResolverError(
-                    "megaplay: the playlist is encrypted (`enc`) rather than "
-                    "served in the clear, and the key is not in the payload — "
-                    "no installed resolver can open it"
-                )
+        if not isinstance(data, dict) or not (data.get("enc") or data.get("sources")):
             raise ResolverError("megaplay: getSources returned no file")
+        try:
+            opened = await asyncio.to_thread(
+                crypto.decrypt_sources, data, candidate.url, self._fetch
+            )
+        except crypto.MegaplayDecryptError as e:
+            raise ResolverError(f"megaplay: could not decrypt sources: {e}") from e
+        file_url = opened["file"]
 
         return [
             Stream(
                 url=file_url,
                 kind=StreamKind.HLS if ".m3u8" in file_url else StreamKind.MP4,
                 quality=Quality.UNKNOWN,  # master playlist; mpv picks the variant
-                headers={"Referer": f"{origin}/"},
+                headers=opened.get("headers") or {"Referer": f"{origin}/"},
                 subtitles=_subtitles(data.get("tracks")),
                 skip_times=_skips(data),
                 # The megaplay family serves PNG-disguised segments off a CDN

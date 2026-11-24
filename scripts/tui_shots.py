@@ -337,7 +337,7 @@ def make_app(theme: str = "sakura") -> AnimeShApp:
     )
     # Fixed source lists: what is installed differs between machines.
     SettingsScreen._installed_providers = staticmethod(
-        lambda: [("anizone", 90), ("hianime", 85), ("allanime", 80)])
+        lambda: [("anizone", 90), ("anikoto", 85), ("allanime", 80)])
     SettingsScreen._installed_resolvers = staticmethod(
         lambda: ["filemoon", "megacloud", "zoko"])
     return AnimeShApp(services, theme=theme, audio=Audio.SUB)

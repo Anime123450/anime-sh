@@ -37,3 +37,14 @@ def test_the_default_config_defers_to_the_built_in_priorities():
 
 def test_the_knob_still_works_when_a_user_sets_it():
     assert _order(["anikoto"])[0] == "anikoto"
+
+
+# -- the ordering the providers themselves declare --------------------------- #
+def test_the_provider_that_can_play_outranks_the_one_that_cannot():
+    """anikoto has produced no playable stream since 13/09/2026 and its hosts
+    are not coming back; hianime is what actually serves. Ranking is a claim
+    about which provider to spend a cold install's first attempts on."""
+    from anime_sh.providers.anikoto.provider import AnikotoProvider
+    from anime_sh.providers.hianime.provider import HianimeProvider
+
+    assert HianimeProvider.priority > AnikotoProvider.priority
