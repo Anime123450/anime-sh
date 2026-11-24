@@ -105,7 +105,8 @@ async def test_megaplay_resolves_via_dataid_and_getsources():
     # File id comes from the page data-id, NOT the URL's 830671 or the cidu.
     assert http.getsources_id == "176967"
     s = streams[0]
-    assert s.url.endswith("master.m3u8") and s.kind == StreamKind.HLS
+    # Query (audio type / CDN token) may be added; the path is untouched.
+    assert s.url.split("?")[0].endswith("master.m3u8") and s.kind == StreamKind.HLS
     assert len(s.subtitles) == 1 and s.subtitles[0].label == "English"
     # intro 0..0 ignored; outro 90..120 becomes a skip range.
     assert s.skip_times is not None and s.skip_times.ed.start_s == 90
@@ -146,34 +147,43 @@ class _EncryptedMegaplayHttp(_FakeMegaplayHttp):
         }
 
 
-async def test_megaplay_says_the_playlist_is_encrypted_rather_than_missing():
-    """The message is the whole value of this.
+async def test_megaplay_opens_the_recorded_encrypted_playlist():
+    """Since 02/10/2026 getSources answers ``{enc}`` instead of ``sources``.
 
-    anikoto offers three hosts and all three are megaplay, so when megaplay shut
-    its playlist the provider served 28 episodes and played none of them. The
-    resolver reported "getSources returned no file", which reads as an empty or
-    failed response -- and sent one investigation looking for exactly that, when
-    the envelope was intact and only the contents were shut.
-
-    Decrypting it is deliberately not attempted: the key is not in the payload,
-    which is the AllAnime road the zoko resolver's docstring explains was dropped
-    rather than chased. Raising is correct; raising something true is the fix.
+    The key turned out to ship in the player JS (AES-256-CBC), so the recorded
+    live payload above must now decrypt to a tokenised master playlist -- with
+    no network, because the bundled constants are current.
     """
+    from anime_sh.resolvers.vidtube import VidtubeResolver
+
+    r = VidtubeResolver(http=_EncryptedMegaplayHttp(data_id="13461"))
+    r._fetch = lambda url, headers: (_ for _ in ()).throw(AssertionError("no network"))
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-2/107257/sub")
+    [s] = await r.resolve(cand)
+    assert ".m3u8" in s.url and "token=" in s.url
+    assert s.obfuscated and s.skip_times is not None
+
+
+async def test_megaplay_reports_an_undecryptable_payload():
+    """If the key rotates and cannot be re-discovered, say *decrypt* failed --
+    not that the envelope was empty."""
     import pytest
 
     from anime_sh.domain.errors import ResolverError
     from anime_sh.resolvers.vidtube import VidtubeResolver
 
-    r = VidtubeResolver(http=_EncryptedMegaplayHttp(data_id="13461"))
-    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-2/107257/sub")
+    class _Garbage(_EncryptedMegaplayHttp):
+        async def get_json(self, url, *, params=None, headers=None):
+            self.getsources_id = params["id"]
+            return {"enc": "A" * 64, "tracks": []}
 
+    r = VidtubeResolver(http=_Garbage(data_id="13461"))
+    r._fetch = lambda url, headers: (404, "")
+    cand = StreamCandidate(host="HD-1", url="https://megaplay.buzz/stream/s-2/107257/sub")
     with pytest.raises(ResolverError) as caught:
         await r.resolve(cand)
-
-    message = str(caught.value)
-    assert "encrypted" in message
-    assert "enc" in message
-    assert "no file" not in message, "the envelope was not empty; do not say it was"
+    assert "decrypt" in str(caught.value)
+    assert "no file" not in str(caught.value)
 
 
 async def test_an_empty_getsources_is_still_reported_as_empty():

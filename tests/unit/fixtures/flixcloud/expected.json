@@ -1,0 +1,19 @@
+{
+  "embed_url": "https://flixcloud.cc/e/qkvguxlqzb98?v=1",
+  "api_path": "/api/m3u8/f00b3fc938fed0350ee84990",
+  "url_prefix": "https://fetch9.flixcloud.cc/_v7/7112817a-3bea-462c-abef-58d409f679e7/master.m3u8",
+  "url_sha256": "38d69401df08627c4bec762c9db53f8a7ba877669be12c29c49a9a43fd9b616b",
+  "playlist_key_b64": "PxYdHVAQ0lX1Y3M6CIgQaQQasXMmXqsBoBYSdUqycZU=",
+  "n_subtitles": 45,
+  "first_subtitle": {
+    "url": "https://fetch2.subtites4you.com/subtitles/7112817a-3bea-462c-abef-58d409f679e7/jpn_7.srt",
+    "language": "Japanese (Track 7 (JPN))",
+    "format": "srt",
+    "default": false
+  },
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "Referer": "https://flixcloud.cc/",
+    "Origin": "https://flixcloud.cc"
+  }
+}

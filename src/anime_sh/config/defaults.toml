@@ -18,7 +18,7 @@ skip_outro = false
 [providers]
 parallel = 5
 preferred = []
-disabled = ["anikoto"]   # megaplay encrypts its playlists (2026-11-08)
+disabled = []
 timeout_s = 8.0
 
 [resolvers]

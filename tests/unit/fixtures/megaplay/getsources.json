@@ -1,0 +1,69 @@
+{
+ "cases": [
+  {
+   "name": "frieren_ep1_sub",
+   "embed_url": "https://megaplay.buzz/stream/s-2/109186/sub",
+   "file_id": "11117",
+   "getSources": {
+    "enc": "wdeBruh3qqn_i5wUNnyaPYW9XyDdNhLQqHXYR6vRMiLw_FvgXxSmDybLlyw3NGlXfaVGB4HloXaDPVJOj6YLslUwKZkK7dKlxczdxcx4VHTOe-cgBwxHBP2XohUfMakEw9SOdnPrqh3PhyTy2PKlewd_MCwp_ubtSS8Rv6Nkq4KnBwW57diKqQtjM20tXzhD",
+    "t": 1,
+    "server": 4,
+    "intro": {
+     "start": 0,
+     "end": 0
+    },
+    "outro": {
+     "start": 0,
+     "end": 0
+    }
+   },
+   "expected_file_without_token": "https://y1gkz.wanderingworlds.org/anime/44119006254708ef096f25a96700dfb1/98345dd250f1043a41f4ee111c071011/master.m3u8?t=sub",
+   "expected_audio_type": "sub"
+  },
+  {
+   "name": "onepiece_ep1_sub",
+   "embed_url": "https://megaplay.buzz/stream/s-2/2142/sub",
+   "file_id": "36396",
+   "getSources": {
+    "enc": "wdeBruh3qqn_i5wUNnyaPYW9XyDdNhLQqHXYR6vRMiLw_FvgXxSmDybLlyw3NGlX_lnF-oQHdJKmboaPLOF6i1CfrW5ObOY_4pLDKu2YaXhPfN1lS59e2amPb6XETHbWjZClV4qpKlMTzH8MWdVvN1sfHd06mvgm7mhVsx7-8YZvIKEuFZKMg5fVVkTNJ49G",
+    "t": 1,
+    "server": 4,
+    "intro": {
+     "start": 31,
+     "end": 111
+    },
+    "outro": {
+     "start": 1376,
+     "end": 1447
+    }
+   },
+   "expected_file_without_token": "https://y1gkz.wanderingworlds.org/anime/f899139df5e1059396431415e770c6dd/61b87186ab260d05003427e16ccf5657/master.m3u8?t=sub",
+   "expected_audio_type": "sub"
+  },
+  {
+   "name": "onepiece_ep1_dub_vidtube",
+   "embed_url": "https://vidtube.site/stream/s-2/2142/dub",
+   "file_id": "36382",
+   "getSources": {
+    "enc": "wdeBruh3qqn_i5wUNnyaPVaJh0GM2Eou7zODteqd91D1uNkiBSkf6YVLl1jA8EcYnS3YZLN4HxAck1wZpMe5lCQ10ONb8NOPyxFnY_HoKwjhWeF23FRBbz2QS3QlZNpfzX5T0lMrcKrIlk_dF1C3s9Tf3osK9Mv3KslG4ziR48o",
+    "t": 1,
+    "server": 4,
+    "intro": {
+     "start": 31,
+     "end": 111
+    },
+    "outro": {
+     "start": 1376,
+     "end": 1447
+    }
+   },
+   "expected_file_without_token": "https://0arx3.crystaldrift.world/anime/f899139df5e1059396431415e770c6dd/b23b2bb864c4f8876052acde11c6529c/master.m3u8?t=dub",
+   "expected_audio_type": "dub"
+  }
+ ],
+ "constants": {
+  "SOURCE_ENC_KEY": "i?LMTAx0Q6,:}50U",
+  "SOURCE_ENC_IV": "W0;27ToaUpl_P%'c",
+  "CDN_TOKEN_SECRET": "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
+ }
+}

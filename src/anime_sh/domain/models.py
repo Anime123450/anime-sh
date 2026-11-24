@@ -279,6 +279,9 @@ class Stream:
     # before a player can read them. Set by the resolver, which knows the host
     # family it just talked to — CDN hostnames rotate, that knowledge doesn't.
     obfuscated: bool = False
+    # Some hosts (flixcloud) serve playlists as base64(XOR(text, key)); the
+    # base64 key rides here so the local proxy can decode them for mpv.
+    playlist_key: str | None = None
 
 
 # --------------------------------------------------------------------------- #

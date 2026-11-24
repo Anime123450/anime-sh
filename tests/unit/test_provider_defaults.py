@@ -1,8 +1,8 @@
-"""anikoto's only stream host (megaplay) now serves an encrypted playlist that
-no resolver can open, so a default install must not try it."""
+"""Every shipped provider is on by default now that both encrypted hosts
+(megaplay for anikoto, flixcloud for reanime) are decrypted locally."""
 
 from anime_sh.config.schema import Config
 
 
-def test_anikoto_disabled_by_default():
-    assert "anikoto" in Config().providers.disabled
+def test_no_provider_disabled_by_default():
+    assert Config().providers.disabled == []
