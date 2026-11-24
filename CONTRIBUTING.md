@@ -15,7 +15,7 @@ Tests never touch the network. The gated live tests do:
 
 ```bash
 ANIME_SH_LIVE=1 uv run pytest tests/integration
-uv run python scripts/canary.py --provider anikoto   # probe a real provider
+uv run python scripts/canary.py --provider hianime   # probe a real provider
 ```
 
 ## The rules that actually matter

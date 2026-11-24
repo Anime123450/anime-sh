@@ -107,3 +107,57 @@ async def test_provider_pipeline_end_to_end():
     c = cands[0]
     assert c.host == "anizone" and c.url.endswith("master.m3u8")
     assert len(c.subtitles) == 2 and c.subtitles[0].default
+
+
+# --- 2026-11 markup: data shipped as Alpine ``JSON.parse('…')`` blobs ---------
+
+SEARCH_JSON_HTML = (
+    '<div x-data="{\n        items: JSON.parse(\''
+    '[{\\u0022slug\\u0022:\\u0022mdkytdqp\\u0022,\\u0022url\\u0022:\\u0022http:\\\\\\/\\\\\\/anizone.to'
+    '\\\\\\/anime\\\\\\/mdkytdqp\\u0022,\\u0022main_title\\u0022:\\u0022Sousou no Frieren\\u0022,'
+    '\\u0022title_list\\u0022:{\\u00222\\u0022:\\u0022Frieren\\u0022,\\u00221\\u0022:'
+    '\\u0022Frieren: Beyond Journey`s End\\u0022,\\u00228\\u0022:\\u0022\\\\u846c\\\\u9001\\u0022}},'
+    '{\\u0022slug\\u0022:\\u0022y25twzsk\\u0022,\\u0022main_title\\u0022:\\u0022Bocchi the Rock!\\u0022,'
+    '\\u0022title_list\\u0022:[]}]\'),\n        nextCursor: null,\n    }"></div>'
+)
+
+PLAYER_JSON_HTML = (
+    '<div x-data="vidstackPlayer(JSON.parse(\''
+    '{\\u0022src\\u0022:\\u0022https:\\\\\\/\\\\\\/seiryuu.vid-cdn.xyz\\\\\\/abc\\\\\\/master.m3u8\\u0022,'
+    '\\u0022subtitles\\u0022:[{\\u0022title\\u0022:\\u0022Arabic\\u0022,\\u0022format\\u0022:\\u0022ass\\u0022,'
+    '\\u0022language\\u0022:\\u0022ar\\u0022,\\u0022default\\u0022:false,\\u0022file\\u0022:'
+    '\\u0022https:\\\\\\/\\\\\\/seiryuu.vid-cdn.xyz\\\\\\/abc\\\\\\/subtitles\\\\\\/0_ar.ass\\u0022},'
+    '{\\u0022title\\u0022:\\u0022English\\u0022,\\u0022format\\u0022:\\u0022ass\\u0022,'
+    '\\u0022language\\u0022:\\u0022en\\u0022,\\u0022default\\u0022:true,\\u0022file\\u0022:'
+    '\\u0022https:\\\\\\/\\\\\\/seiryuu.vid-cdn.xyz\\\\\\/abc\\\\\\/subtitles\\\\\\/3_en.ass\\u0022}],'
+    '\\u0022fonts\\u0022:[]}\'))" x-ref="container"></div>'
+    '<a href="https://anizone.to/anime/mdkytdqp/1">1</a><a href="https://anizone.to/anime/mdkytdqp/2">2</a>'
+    '<a href="https://anizone.to/anime/mdkytdqp/3">3</a>'
+)
+
+
+def test_parse_search_json_blob():
+    items = parse_search(SEARCH_JSON_HTML)
+    assert [i["id"] for i in items] == ["mdkytdqp", "y25twzsk"]
+    assert items[0]["title"] == "Sousou no Frieren"
+    assert "Frieren: Beyond Journey`s End" in items[0]["titles"]
+    assert "\u846c\u9001" in items[0]["titles"]
+
+
+def test_parse_player_json_blob():
+    assert parse_stream_url(PLAYER_JSON_HTML) == "https://seiryuu.vid-cdn.xyz/abc/master.m3u8"
+    subs = parse_subtitles(PLAYER_JSON_HTML)
+    assert [s.lang for s in subs] == ["en"]
+    assert subs[0].url.endswith("/3_en.ass") and subs[0].default
+
+
+async def test_episodes_fall_back_to_episode_page_listing():
+    """The show page now lazy-loads its list (one link); episode 1 has them all."""
+    http = _FakeHttp({
+        "/anime/mdkytdqp/1": PLAYER_JSON_HTML,
+        "/anime/mdkytdqp": '<a href="https://anizone.to/anime/mdkytdqp/1">1</a>',
+    })
+    prov = AnizoneProvider(http=http)
+    ref = ProviderRef(provider="anizone", anime_key="mdkytdqp")
+    eps = await prov.episodes(ref, AnimeId(anilist=1))
+    assert [e.number for e in eps] == [1.0, 2.0, 3.0]

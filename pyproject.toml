@@ -67,7 +67,6 @@ anime-sh = "anime_sh.cli.main:main"
 
 # Bundled plugins use the same entry-point mechanism as third-party ones.
 [project.entry-points."anime_sh.providers"]
-anikoto = "anime_sh.providers.anikoto:AnikotoProvider"
 anizone = "anime_sh.providers.anizone:AnizoneProvider"
 hianime = "anime_sh.providers.hianime:HianimeProvider"
 
