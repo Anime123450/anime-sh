@@ -153,7 +153,8 @@ AniList (trending + search return real data).
 
 The fan-out is now real, resilient, and self-monitoring.
 
-**Second provider** — `AnikotoProvider` (anikototv.to, a HiAnime-family site):
+**Second provider** *(removed 2026-11-24: megaplay now serves only encrypted
+playlists, so it could not play anything)* — `AnikotoProvider` (anikototv.to, a HiAnime-family site):
 search → `/ajax/episode/list` → `/ajax/server/list` → `/ajax/server`, parsed
 offline; carries per-episode MAL ids and sub/dub availability. Its
 `MegaplayResolver` (`resolvers/vidtube`) resolves anikoto's rotating

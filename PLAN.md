@@ -593,7 +593,7 @@ uv run pytest tests/unit/test_search.py -q          # one file
 ANIME_SH_LIVE=1 uv run pytest tests/integration     # gated, hits real providers
 uv run lint-imports                                 # architecture contracts
 uv run python -m anime_sh doctor                    # environment check
-uv run python scripts/canary.py --provider anikoto  # probe a real provider
+uv run python scripts/canary.py --provider hianime  # probe a real provider
 uv run python scripts/changelog_section.py 0.2.41   # release notes for a version
 ```
 

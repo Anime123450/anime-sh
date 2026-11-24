@@ -2,11 +2,15 @@
 
 Reverse-engineered flow (all plain HTTP, no Cloudflare, no obfuscation):
 
-1. ``GET /anime?search=<q>``        → result cards; each Livewire card carries
-   ``wire:key="a-<id>"`` and a ``getTitle(this.anmTitles, '<title>')`` default.
-2. ``GET /anime/<id>``              → episode links ``/anime/<id>/<n>``.
-3. ``GET /anime/<id>/<n>``          → a ``<media-player src="…master.m3u8">`` and
-   ``<track …>`` subtitle tags right in the page.
+1. ``GET /anime?search=<q>``        → an Alpine ``items: JSON.parse('[…]')`` list of
+   ``{slug, main_title, title_list}`` (older markup: Livewire cards with
+   ``wire:key="a-<id>"`` — still parsed as a fallback).
+2. ``GET /anime/<id>``              → the show page. Since 2026-11 it lazy-loads its
+   episode list over Livewire, so it may link only one episode; that episode's
+   page (``/anime/<id>/<n>``) renders the *full* episode sidebar, so we read it too.
+3. ``GET /anime/<id>/<n>``          → ``vidstackPlayer(JSON.parse('{src, subtitles…}'))``
+   with the master.m3u8 and soft ``.ass`` tracks (older markup:
+   ``<media-player src>`` + ``<track>`` tags, still parsed as a fallback).
 
 The m3u8 plays directly (the generic resolver passes it through), and its CDN is
 reachable without a referer — which is exactly why AniZone works where
@@ -16,6 +20,8 @@ candidate.
 
 from __future__ import annotations
 
+import html as html_lib
+import json
 import logging
 import re
 from difflib import SequenceMatcher
@@ -78,7 +84,7 @@ class AnizoneProvider:
     async def find_sources(self, anime: Anime, audio: Audio) -> list[SourceOption]:
         # AniZone is sub-only (soft English subs). Decline dub requests instead
         # of serving sub content mislabelled as dub — this lets the fan-out fall
-        # through to providers that actually have a dub (anikoto).
+        # through to providers that actually have a dub (hianime).
         if audio is Audio.DUB:
             return []
         seen: dict[str, dict] = {}
@@ -98,8 +104,17 @@ class AnizoneProvider:
 
     async def episodes(self, ref: ProviderRef, anime_id: AnimeId) -> list[Episode]:
         html = await self._get(f"/anime/{ref.anime_key}")
+        nums = set(parse_episode_numbers(html, ref.anime_key))
+        if len(nums) < 2:
+            # The show page lazy-loads its list; an episode page carries all of it.
+            first = min(nums) if nums else 1.0
+            try:
+                page = await self._get(f"/anime/{ref.anime_key}/{first:g}")
+            except ProviderError:
+                page = ""
+            nums |= set(parse_episode_numbers(page, ref.anime_key))
         episodes: list[Episode] = []
-        for num in parse_episode_numbers(html, ref.anime_key):
+        for num in sorted(nums):
             episodes.append(
                 Episode(anime_id=anime_id, number=num, provider_ref=ref,
                         episode_key=f"{num:g}")
@@ -131,6 +146,25 @@ _CARD_RE = re.compile(
 )
 _STREAM_RE = re.compile(r'<media-player\b[^>]*\bsrc="([^"]+\.m3u8[^"]*)"')
 _TRACK_TAG_RE = re.compile(r"<track\b[^>]*>")
+_ITEMS_RE = re.compile(r"items:\s*JSON\.parse\('((?:[^'\\]|\\.)*)'\)")
+_PLAYER_RE = re.compile(r"vidstackPlayer\(JSON\.parse\('((?:[^'\\]|\\.)*)'\)")
+
+
+def _js_json(raw: str):
+    """Decode the argument of an inline ``JSON.parse('…')``: a single-quoted JS
+    string literal (inside an HTML attribute) whose value is JSON."""
+    for cand in (html_lib.unescape(raw), raw):
+        try:
+            text = json.loads('"' + cand.replace('"', '\\"').replace("\\'", "'") + '"')
+            return json.loads(text)
+        except ValueError:
+            continue
+    return None
+
+
+def _embedded(pattern: re.Pattern[str], html: str):
+    m = pattern.search(html)
+    return _js_json(m.group(1)) if m else None
 
 
 def _attr(tag: str, name: str) -> str | None:
@@ -141,8 +175,22 @@ def _attr(tag: str, name: str) -> str | None:
 
 
 def parse_search(html: str) -> list[dict]:
-    """Result cards → {id, title}. Order preserved (best match first on site)."""
+    """Search results → {id, title, titles}. Order preserved (site's best first)."""
     out, seen = [], set()
+    items = _embedded(_ITEMS_RE, html)
+    if isinstance(items, list):
+        for it in items:
+            if not isinstance(it, dict) or not it.get("slug") or it["slug"] in seen:
+                continue
+            seen.add(it["slug"])
+            main = str(it.get("main_title") or "").strip()
+            alts = it.get("title_list") or {}
+            alts = list(alts.values()) if isinstance(alts, dict) else list(alts)
+            titles = [t for t in dict.fromkeys([main, *map(str, alts)]) if t]
+            out.append({"id": it["slug"], "title": main or (titles[0] if titles else ""),
+                        "titles": titles})
+        if out:
+            return out
     for title, aid in _CARD_RE.findall(html):
         if aid in seen:
             continue
@@ -162,6 +210,9 @@ def parse_episode_numbers(html: str, anime_id: str) -> list[float]:
 
 
 def parse_stream_url(html: str) -> str | None:
+    player = _embedded(_PLAYER_RE, html)
+    if isinstance(player, dict) and ".m3u8" in str(player.get("src") or ""):
+        return str(player["src"])
     m = _STREAM_RE.search(html)
     return m.group(1) if m else None
 
@@ -172,7 +223,12 @@ def parse_subtitles(html: str) -> tuple[Subtitle, ...]:
     flag one default. Falls back to the site default / first track if there is no
     English track at all."""
     all_subs: list[Subtitle] = []
-    for tag in _TRACK_TAG_RE.findall(html):
+    player = _embedded(_PLAYER_RE, html)
+    for t in (player or {}).get("subtitles") or [] if isinstance(player, dict) else []:
+        if isinstance(t, dict) and t.get("file"):
+            all_subs.append(Subtitle(url=str(t["file"]), lang=str(t.get("language") or "und"),
+                                     label=t.get("title"), default=bool(t.get("default"))))
+    for tag in ([] if all_subs else _TRACK_TAG_RE.findall(html)):
         if 'kind="subtitles"' not in tag:
             continue
         src = _attr(tag, "src")
@@ -218,7 +274,8 @@ def _ranked(anime: Anime, items: list[dict]) -> list[dict]:
     ]
     scored: list[dict] = []
     for item in items:
-        sim = max((SequenceMatcher(None, _norm(item["title"]), t).ratio() for t in targets),
+        names = [_norm(n) for n in item.get("titles") or [item["title"]]]
+        sim = max((SequenceMatcher(None, n, t).ratio() for n in names if n for t in targets),
                   default=0.0)
         if sim >= _MATCH_THRESHOLD:
             item = dict(item)

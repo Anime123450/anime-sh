@@ -66,7 +66,7 @@ def test_resolver_conforms(resolver):
 
 
 def test_at_least_the_bundled_plugins_load():
-    assert {"anizone", "anikoto"} <= {p.name for p in PROVIDERS}
+    assert {"anizone", "hianime"} <= {p.name for p in PROVIDERS}
     assert {"megaplay", "generic"} <= {r.name for r in RESOLVERS}
 
 
